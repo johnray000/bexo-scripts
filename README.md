@@ -7,3 +7,6 @@ Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive 
 - `telefono/subir.sh`: lo corre Termux cada 4 horas; antes baja la última versión de este repo.
 
 Log en el teléfono: `tail -5 ~/subir.log`
+- `alerta_compras.py`: alarma (notificación + voz) cuando alguien abre una orden en tu anuncio de compra;
+  revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
+  Log: `tail -5 ~/alerta.log`
