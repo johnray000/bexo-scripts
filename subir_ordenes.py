@@ -97,8 +97,8 @@ def ordenes(cfg, dias):
     } for o in lista]
 
 
-def subir(cfg, lista):
-    cuerpo = json.dumps({'ordenesP2P': lista, 'token': cfg['ORDENES_TOKEN']}).encode()
+def subir(cfg, lista, desde):
+    cuerpo = json.dumps({'ordenesP2P': lista, 'desde': desde, 'token': cfg['ORDENES_TOKEN']}).encode()
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo,
                                  headers={'Content-Type': 'application/json'})
     # Apps Script responde con un 302; urllib lo sigue con GET y ahí está la respuesta.
@@ -112,11 +112,13 @@ if __name__ == '__main__':
     ap.add_argument('--probar', action='store_true')
     args = ap.parse_args()
     cfg = leer_env()
-    lista = ordenes(cfg, 30 if args.probar else args.dias)
+    dias = 30 if args.probar else args.dias
+    desde = hora_binance_ms() - min(dias, 180) * DIA_MS
+    lista = ordenes(cfg, dias)
     if args.probar:
         ves = [o for o in lista if o['fiat'] == 'VES' and o['tipo'] == 'SELL']
         print('Compras:', sum(o['tipo'] == 'BUY' for o in lista), '| Ventas:', sum(o['tipo'] == 'SELL' for o in lista))
         print('Órdenes últimos 30 días: %d (ventas VES: %d)' % (len(lista), len(ves)))
         print('Apodos de ejemplo:', [o['contraparte'] for o in ves[:5]])
     else:
-        print(time.strftime('%Y-%m-%d %H:%M'), len(lista), 'órdenes ->', subir(cfg, lista)[:300], flush=True)
+        print(time.strftime('%Y-%m-%d %H:%M'), len(lista), 'órdenes ->', subir(cfg, lista, desde)[:300], flush=True)
