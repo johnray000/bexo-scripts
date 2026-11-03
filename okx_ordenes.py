@@ -178,7 +178,10 @@ if __name__ == '__main__':
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
     if args.pantalla:
+        print('Tenés 10 segundos: andá a la pantalla de OKX que quieras guardar. Vibra cuando termina.', flush=True)
+        time.sleep(10)
         lista, xml = textos()
+        subprocess.run(['termux-vibrate'], check=False)
         ruta = os.path.join(DESCARGAS, time.strftime('okx_pantalla_%H%M%S.xml'))
         with open(ruta, 'w') as f:
             f.write(xml)
