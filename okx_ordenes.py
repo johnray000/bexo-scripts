@@ -142,6 +142,19 @@ def fecha_ms(fecha):
     return int(time.mktime(time.strptime(fecha, '%d/%m/%Y %H:%M')) * 1000)
 
 
+HASTA = os.path.expanduser('~/.okx_hasta')   # la orden más nueva que ya llegó a la planilla
+
+
+def desde_ms(dias):
+    """Desde cuándo leer: 1 hora antes de la última orden que ya llegó a la planilla, y nunca más de `dias` atrás."""
+    tope = (time.time() - dias * 86400) * 1000
+    try:
+        with open(HASTA) as f:
+            return max(tope, int(f.read().strip()) - 3600 * 1000)
+    except (OSError, ValueError):
+        return tope
+
+
 def recorrer(max_pantallas, dias=3):
     """Lee la pantalla, baja un poco más de media pantalla (sin envión, para no saltear tarjetas) y repite.
     Para cuando una pantalla ya no trae nada nuevo (el final de la lista o lo ya visto)."""
@@ -161,13 +174,13 @@ def recorrer(max_pantallas, dias=3):
               file=sys.stderr, flush=True)
         if not nuevas:
             break
-        desde = (time.time() - dias * 86400) * 1000
+        desde = desde_ms(dias)
         if min(fecha_ms(o['fecha']) for o in vistas.values()) < desde:
             break   # ya llegó a órdenes de hace más de `dias` días: lo de antes ya está en la planilla
         x = str(ancho // 2)
         adb('shell', 'input', 'swipe', x, str(int(alto * 0.75)), x, str(int(alto * 0.35)), '1500')
         time.sleep(2)
-    desde = (time.time() - dias * 86400) * 1000
+    desde = desde_ms(dias)
     return [o for o in vistas.values() if fecha_ms(o['fecha']) >= desde]
 
 
@@ -223,4 +236,8 @@ if __name__ == '__main__':
             print(o)
         print('Órdenes leídas:', len(lista))
     else:
-        print(time.strftime('%Y-%m-%d %H:%M'), len(lista), 'órdenes OKX ->', subir(cfg, lista)[:300], flush=True)
+        r = subir(cfg, lista)
+        print(time.strftime('%Y-%m-%d %H:%M'), len(lista), 'órdenes OKX ->', r[:300], flush=True)
+        if '"ok":true' in r.replace(' ', '') and lista:
+            with open(HASTA, 'w') as f:
+                f.write(str(max(fecha_ms(o['fecha']) for o in lista)))
