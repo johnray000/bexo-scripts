@@ -137,7 +137,12 @@ def leer_ordenes(lista):
     return ordenes
 
 
-def recorrer(max_pantallas):
+def fecha_ms(fecha):
+    """'03/11/2026 15:43' (hora del teléfono) → milisegundos."""
+    return int(time.mktime(time.strptime(fecha, '%d/%m/%Y %H:%M')) * 1000)
+
+
+def recorrer(max_pantallas, dias=3):
     """Lee la pantalla, baja un poco más de media pantalla (sin envión, para no saltear tarjetas) y repite.
     Para cuando una pantalla ya no trae nada nuevo (el final de la lista o lo ya visto)."""
     vistas = {}
@@ -156,10 +161,14 @@ def recorrer(max_pantallas):
               file=sys.stderr, flush=True)
         if not nuevas:
             break
+        desde = (time.time() - dias * 86400) * 1000
+        if min(fecha_ms(o['fecha']) for o in vistas.values()) < desde:
+            break   # ya llegó a órdenes de hace más de `dias` días: lo de antes ya está en la planilla
         x = str(ancho // 2)
         adb('shell', 'input', 'swipe', x, str(int(alto * 0.75)), x, str(int(alto * 0.35)), '1500')
         time.sleep(2)
-    return list(vistas.values())
+    desde = (time.time() - dias * 86400) * 1000
+    return [o for o in vistas.values() if fecha_ms(o['fecha']) >= desde]
 
 
 def subir(cfg, lista):
@@ -174,7 +183,8 @@ if __name__ == '__main__':
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--probar', action='store_true')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
-    ap.add_argument('--pantallas', type=int, default=8, help='cuántas veces baja en la lista (8 ≈ 2 días)')
+    ap.add_argument('--pantallas', type=int, default=40, help='máximo de veces que baja en la lista')
+    ap.add_argument('--dias', type=int, default=3, help='lee las órdenes de los últimos N días')
     args = ap.parse_args()
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
@@ -206,7 +216,7 @@ if __name__ == '__main__':
     for fx, fy in (ORDENES, COMPLETADAS):
         adb('shell', 'input', 'tap', str(int(ancho * fx)), str(int(alto * fy)))
         time.sleep(3)
-    lista = recorrer(args.pantallas)
+    lista = recorrer(args.pantallas, args.dias)
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
     if args.probar:
         for o in lista:
