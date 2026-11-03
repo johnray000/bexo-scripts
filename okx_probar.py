@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prueba: ¿la API común de OKX (key de solo lectura, sin ser merchant) muestra tus operaciones P2P?
 
-Mira los movimientos de tu cuenta Funding (por donde pasa el P2P) de los últimos 3 meses y muestra
+Mira los movimientos de tu cuenta Funding (por donde pasa el P2P) del último mes y muestra
 cuántos hay de cada tipo, con un ejemplo de cada uno. No sube nada a la planilla.
 
   python okx_probar.py
