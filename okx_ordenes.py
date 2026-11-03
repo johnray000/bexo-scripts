@@ -46,6 +46,13 @@ def conectar():
         m = re.search(r'_adb-tls-connect\._tcp\.?\s+([\d.]+:\d+)', linea)
         if m and 'connected' in adb('connect', m.group(1)):
             return True
+    # Si mdns no lo encuentra: probar los puertos que usa Android para la depuración inalámbrica.
+    import socket
+    for puerto in range(30000, 50000):
+        with socket.socket() as so:
+            so.settimeout(0.02)
+            if so.connect_ex(('127.0.0.1', puerto)) == 0 and 'connected' in adb('connect', '127.0.0.1:%d' % puerto):
+                return True
     return False
 
 
