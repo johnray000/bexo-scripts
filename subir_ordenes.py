@@ -94,6 +94,8 @@ def ordenes(cfg, dias):
         'estado': o.get('orderStatus'),
         'hora': int(o.get('createTime') or 0),
         'anuncio': str(o.get('advNo') or ''),
+        'comision': o.get('commission') if o.get('commission') not in (None, '') else o.get('takerCommission', ''),
+        'rol': o.get('advertisementRole') or '',
     } for o in lista]
 
 
