@@ -180,13 +180,15 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--probar', action='store_true')
+    ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--pantallas', type=int, default=8, help='cuántas veces baja en la lista (8 ≈ 2 días)')
     args = ap.parse_args()
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
     if args.pantalla:
-        print('Tenés 10 segundos: andá a la pantalla de OKX que quieras guardar. Vibra cuando termina.', flush=True)
-        time.sleep(10)
+        print('Ya podés salir de Termux. En %d segundos guarda lo que haya en pantalla: '
+              'dejá OKX en la pantalla que quieras y esperá a que vibre.' % args.espera, flush=True)
+        time.sleep(args.espera)
         lista, xml = textos()
         subprocess.run(['termux-vibrate'], check=False)
         ruta = os.path.join(DESCARGAS, time.strftime('okx_pantalla_%H%M%S.xml'))
