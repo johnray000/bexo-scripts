@@ -27,9 +27,6 @@ from subir_ordenes import leer_env  # noqa: E402
 # Los toques para llegar a Órdenes → Completadas desde que se abre la app (textos que se ven en pantalla).
 # Se completa con lo que muestre --pantalla en cada paso.
 RUTA = ['Órdenes', 'Completadas']   # barra de abajo de P2P → pestaña Completadas
-ESTADOS = ('Completada', 'Cancelada', 'En apelación', 'Apelación', 'Pendiente', 'En curso')
-FECHA = re.compile(r'^\d{2}/\d{2}/\d{4} \d{2}:\d{2}')
-NUMERO = r'[\d.]+(?:,\d+)?'
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
 
@@ -62,7 +59,7 @@ def bloqueado():
 
 
 def textos():
-    """Los textos de la pantalla, en orden, con su posición: [(texto, x, y)]."""
+    """Los textos de la pantalla, en orden: [(texto, x, y, id)] (id = resource-id sin el paquete)."""
     xml = adb('exec-out', 'uiautomator', 'dump', '/dev/tty')
     xml = xml[xml.find('<?xml'):xml.rfind('>') + 1]
     lista = []
@@ -70,13 +67,14 @@ def textos():
         t = (n.get('text') or n.get('content-desc') or '').strip()
         b = re.findall(r'\d+', n.get('bounds') or '')
         if t and len(b) == 4:
-            lista.append((t, (int(b[0]) + int(b[2])) // 2, (int(b[1]) + int(b[3])) // 2))
+            lista.append((t, (int(b[0]) + int(b[2])) // 2, (int(b[1]) + int(b[3])) // 2,
+                          (n.get('resource-id') or '').split('/')[-1]))
     return lista, xml
 
 
 def tocar(texto, intentos=10):
     for _ in range(intentos):
-        for t, x, y in textos()[0]:
+        for t, x, y, _ in textos()[0]:
             if t == texto:
                 adb('shell', 'input', 'tap', str(x), str(y))
                 time.sleep(2)
@@ -97,59 +95,25 @@ def numero(s):
     return float(s.replace('.', '').replace(',', '.'))
 
 
+# Cada tarjeta de la lista Completadas (vista en la pantalla de john, 03/11/2026): id del texto → campo.
+CAMPOS = {'tv_type': 'cripto', 'tv_status': 'estado', 'tv_tags': 'fecha', 'tv_price': 'precio',
+          'tv_price_quote_symbol': 'moneda', 'tv_total': 'monto', 'tv_volume': 'cantidad', 'tv_username': 'contraparte'}
+NUMEROS = ('precio', 'monto', 'cantidad')
+
+
 def leer_ordenes(lista):
-    """Arma las órdenes con los textos de la pantalla. Cada orden empieza en "Comprar USDT" / "Vender USDC"."""
-    t = [x[0] for x in lista]
-    ordenes, i = [], 0
-    while i < len(t):
-        m = re.match(r'^(Comprar|Vender)\s*(\w+)$', t[i])
-        if not m and t[i] in ('Comprar', 'Vender') and i + 1 < len(t) and re.match(r'^[A-Z]{3,5}$', t[i + 1]):
-            m = re.match(r'^(Comprar|Vender)\s*(\w+)$', t[i] + ' ' + t[i + 1])
-            i += 1
-        if not m:
-            i += 1
-            continue
-        o = {'tipo': m.group(1), 'cripto': m.group(2)}
-        j = i + 1
-        resto = []
-        while j < len(t) and not re.match(r'^(Comprar|Vender)\b', t[j]):
-            resto.append(t[j])
-            j += 1
-        k = 0
-        while k < len(resto):
-            s = resto[k]
-            sig = resto[k + 1] if k + 1 < len(resto) else ''
-            if s in ESTADOS:
-                o['estado'] = s
-            elif FECHA.match(s):
-                o['fecha'] = s[:16]
-            elif s.startswith('Precio unitario'):
-                v = s[len('Precio unitario'):].strip()
-                if not v:
-                    v, k = sig, k + 1
-                p = re.match(r'(%s)\s*([A-Z]{3})' % NUMERO, v)
-                if p:
-                    o['precio'], o['moneda'] = numero(p.group(1)), p.group(2)
-            elif s.startswith('Cantidad'):
-                v = s[len('Cantidad'):].strip()
-                if not v:
-                    v, k = sig, k + 1
-                p = re.match(r'(%s)' % NUMERO, v)
-                if p:
-                    o['cantidad'] = numero(p.group(1))
-            elif re.match(r'^%s(\s*[A-Z]{3})?$' % NUMERO, s) and 'monto' not in o and 'cantidad' in o:
-                if sig and re.match(r'^[A-Z]{3}$', sig) or re.search(r'[A-Z]{3}$', s):
-                    o['monto'] = numero(re.match(NUMERO, s).group(0))
-            elif ('@' in s or '***' in s or (re.search(r'[a-zA-Z]', s) and s not in ('Reseñado', 'UYU', 'ARS', 'VES', 'USD')
-                  and not re.match(r'^[A-Z]{3}$', s) and 'contraparte' not in o and 'cantidad' in o
-                  and not s.startswith(('Precio', 'Cantidad')))):
-                o.setdefault('contraparte', s)
-            k += 1
-        if all(c in o for c in ('fecha', 'cantidad', 'monto', 'moneda', 'estado')):
-            o.setdefault('precio', round(o['monto'] / o['cantidad'], 4) if o['cantidad'] else 0)
-            o.setdefault('contraparte', '')
-            ordenes.append(o)
-        i = j
+    """Arma las órdenes con los textos de la pantalla. Cada tarjeta empieza en tv_order_type (Comprar / Vender).
+    Las tarjetas cortadas abajo de la pantalla se descartan: aparecen enteras al bajar."""
+    ordenes, o = [], None
+    for t, _, _, rid in lista + [('', 0, 0, 'tv_order_type')]:
+        if rid == 'tv_order_type':
+            if o and all(c in o for c in ('fecha', 'cantidad', 'monto', 'moneda', 'estado', 'precio', 'contraparte')):
+                o['fecha'] = o['fecha'][:16]
+                ordenes.append(o)
+            o = {'tipo': t} if t in ('Comprar', 'Vender') else None
+        elif o is not None and rid in CAMPOS:
+            campo = CAMPOS[rid]
+            o[campo] = numero(t) if campo in NUMEROS else t
     return ordenes
 
 
@@ -194,7 +158,7 @@ if __name__ == '__main__':
         ruta = os.path.join(DESCARGAS, time.strftime('okx_pantalla_%H%M%S.xml'))
         with open(ruta, 'w') as f:
             f.write(xml)
-        print('\n'.join(t for t, _, _ in lista))
+        print('\n'.join(t for t, _, _, _ in lista))
         print('\nGuardado en', ruta)
         sys.exit(0)
     if bloqueado():
