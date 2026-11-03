@@ -138,17 +138,26 @@ def leer_ordenes(lista):
 
 
 def recorrer(max_pantallas):
+    """Lee la pantalla, baja un poco más de media pantalla (sin envión, para no saltear tarjetas) y repite.
+    Para cuando una pantalla ya no trae nada nuevo (el final de la lista o lo ya visto)."""
     vistas = {}
-    for _ in range(max_pantallas):
+    ancho, alto = tamano_pantalla()
+    for n in range(1, max_pantallas + 1):
+        lista = textos()[0]
+        if not lista:
+            lista = textos()[0]   # un intento más si la lectura falló
         nuevas = 0
-        for o in leer_ordenes(textos()[0]):
+        for o in leer_ordenes(lista):
             ref = (o['fecha'], o['tipo'], o['cripto'], o['cantidad'], o['monto'])
             if ref not in vistas:
                 vistas[ref] = o
                 nuevas += 1
+        print('Pantalla %d: %s, %d órdenes nuevas' % (n, 'leída' if lista else 'NO se pudo leer', nuevas),
+              file=sys.stderr, flush=True)
         if not nuevas:
             break
-        adb('shell', 'input', 'swipe', '500', '1700', '500', '600', '400')
+        x = str(ancho // 2)
+        adb('shell', 'input', 'swipe', x, str(int(alto * 0.75)), x, str(int(alto * 0.35)), '1500')
         time.sleep(2)
     return list(vistas.values())
 
