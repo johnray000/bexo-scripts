@@ -28,8 +28,11 @@ from subir_ordenes import leer_env  # noqa: E402
 # Se completa con lo que muestre --pantalla en cada paso.
 # OKX abre en el inicio del Exchange (animado: ahí uiautomator a veces no responde). Por eso se cierra y se abre de
 # cero, se toca el menú de arriba a la izquierda por posición, y desde ahí se sigue por los textos de la pantalla.
-MENU = (0.083, 0.0625)   # ícono de cuadritos, en fracción del ancho y alto de la pantalla
-RUTA = ['Trading P2P', 'Órdenes', 'Completadas']
+# La portada de P2P también tiene un carrusel animado: Órdenes (barra de abajo) y Completadas se tocan por posición.
+MENU = (0.083, 0.0625)          # ícono de cuadritos, en fracción del ancho y alto de la pantalla
+ORDENES = (0.328, 0.904)        # "Órdenes" en la barra de abajo de P2P
+COMPLETADAS = (0.397, 0.123)    # pestaña "Completadas"
+RUTA = ['Trading P2P']          # en el menú: se busca por el texto
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
 
@@ -74,7 +77,7 @@ def textos():
             if '<hierarchy' in xml:
                 break
         except subprocess.TimeoutExpired:
-            pass
+            adb('shell', 'pkill', '-f', 'uiautomator')   # si no, el siguiente intento espera al colgado
         time.sleep(2)
     else:
         return [], ''
@@ -190,6 +193,10 @@ if __name__ == '__main__':
     time.sleep(3)
     for paso in RUTA:
         tocar(paso)
+    time.sleep(3)
+    for fx, fy in (ORDENES, COMPLETADAS):
+        adb('shell', 'input', 'tap', str(int(ancho * fx)), str(int(alto * fy)))
+        time.sleep(3)
     lista = recorrer(args.pantallas)
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
     if args.probar:
