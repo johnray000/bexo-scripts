@@ -26,13 +26,21 @@ from subir_ordenes import leer_env  # noqa: E402
 
 # Los toques para llegar a Órdenes → Completadas desde que se abre la app (textos que se ven en pantalla).
 # Se completa con lo que muestre --pantalla en cada paso.
-RUTA = ['Órdenes', 'Completadas']   # barra de abajo de P2P → pestaña Completadas
+# OKX abre en el inicio del Exchange (animado: ahí uiautomator a veces no responde). Por eso se cierra y se abre de
+# cero, se toca el menú de arriba a la izquierda por posición, y desde ahí se sigue por los textos de la pantalla.
+MENU = (0.083, 0.0625)   # ícono de cuadritos, en fracción del ancho y alto de la pantalla
+RUTA = ['Trading P2P', 'Órdenes', 'Completadas']
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
 
-def adb(*args, salida=True):
-    r = subprocess.run(['adb'] + list(args), capture_output=True, text=True, timeout=60)
+def adb(*args, salida=True, espera=60):
+    r = subprocess.run(['adb'] + list(args), capture_output=True, text=True, timeout=espera)
     return r.stdout if salida else r.returncode
+
+
+def tamano_pantalla():
+    m = re.search(r'(\d+)x(\d+)', adb('shell', 'wm', 'size'))
+    return (int(m.group(1)), int(m.group(2))) if m else (1080, 2400)
 
 
 def conectar():
@@ -60,7 +68,16 @@ def bloqueado():
 
 def textos():
     """Los textos de la pantalla, en orden: [(texto, x, y, id)] (id = resource-id sin el paquete)."""
-    xml = adb('exec-out', 'uiautomator', 'dump', '/dev/tty')
+    for _ in range(3):   # con animaciones en pantalla, uiautomator puede tardar o colgarse
+        try:
+            xml = adb('exec-out', 'uiautomator', 'dump', '/dev/tty', espera=20)
+            if '<hierarchy' in xml:
+                break
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(2)
+    else:
+        return [], ''
     xml = xml[xml.find('<?xml'):xml.rfind('>') + 1]
     lista = []
     for n in ET.fromstring(xml).iter('node'):
@@ -164,8 +181,13 @@ if __name__ == '__main__':
     if bloqueado():
         raise SystemExit('Teléfono bloqueado: no leo OKX esta vez')
     cfg = leer_env()
-    adb('shell', 'monkey', '-p', paquete_okx(), '-c', 'android.intent.category.LAUNCHER', '1')
-    time.sleep(6)
+    paquete = paquete_okx()
+    adb('shell', 'am', 'force-stop', paquete)
+    adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
+    time.sleep(8)
+    ancho, alto = tamano_pantalla()
+    adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
+    time.sleep(3)
     for paso in RUTA:
         tocar(paso)
     lista = recorrer(args.pantallas)
