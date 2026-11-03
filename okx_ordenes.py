@@ -26,7 +26,7 @@ from subir_ordenes import leer_env  # noqa: E402
 
 # Los toques para llegar a Órdenes → Completadas desde que se abre la app (textos que se ven en pantalla).
 # Se completa con lo que muestre --pantalla en cada paso.
-RUTA = []
+RUTA = ['Órdenes', 'Completadas']   # barra de abajo de P2P → pestaña Completadas
 ESTADOS = ('Completada', 'Cancelada', 'En apelación', 'Apelación', 'Pendiente', 'En curso')
 FECHA = re.compile(r'^\d{2}/\d{2}/\d{4} \d{2}:\d{2}')
 NUMERO = r'[\d.]+(?:,\d+)?'
