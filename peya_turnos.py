@@ -408,6 +408,11 @@ if __name__ == '__main__':
     ap.add_argument('--minutos', type=float, default=60, help='cuánto tiempo caza como mucho')
     args = ap.parse_args()
     if not conectar():
+        # ADB a veces queda colgado con la conexión vieja (al apagar y prender la depuración cambia el puerto)
+        adb('disconnect')
+        adb('kill-server')
+        time.sleep(1)
+    if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
     if args.pantalla:
         print('En %d segundos guarda lo que haya en pantalla: dejá PeYa en la pantalla que quieras.' % args.espera,
