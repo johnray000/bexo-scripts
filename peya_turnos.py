@@ -53,13 +53,35 @@ DOMINGO = ('empieza', 'do ')          # el ensayo va al domingo, donde siempre h
 
 # El mismo recorrido, pero mirando colores de la pantalla (mucho más rápido que leer los textos):
 # se toca apenas aparece cada cosa. (x, y) en fracción de 1080x2400, color esperado.
-MAPA_LISTO = [((0.500, 0.904), (252, 214, 227))]                     # botón rosa "Ver horarios de conexión"
+# El mapa: el ícono ☰ (raya negra en el medio, blanco arriba y al costado). Antes era el botón rosa de abajo,
+# pero ese cambia (por ejemplo cuando ya tenés un turno agendado) y el script caía al método lento.
+MAPA_LISTO = [((0.102, 0.0896), (22, 22, 22)), ((0.102, 0.0729), (255, 255, 255)),
+              ((0.139, 0.104), (255, 255, 255))]
 MENU_ABIERTO = [((0.139, 0.217), (244, 244, 244)), ((0.553, 0.208), (244, 244, 244)),  # cuadros grises
                 ((0.102, 0.090), (241, 74, 128))]                    # y la cabecera rosa del menú
 HORAS_DE_CONEXION = (0.553, 0.227)
 HORARIOS_LISTO = [((0.056, 0.131), (23, 23, 23))]                    # pestaña negra de arriba
 DIAS_X = [100, 245, 392, 540, 687, 835, 980]                          # columnas lu…do (en 1080)
 DIA_Y = 0.283
+DIAS = {'lu': 0, 'lunes': 0, 'ma': 1, 'martes': 1, 'mi': 2, 'miercoles': 2, 'miércoles': 2, 'ju': 3, 'jueves': 3,
+        'vi': 4, 'viernes': 4, 'sa': 5, 'sá': 5, 'sabado': 5, 'sábado': 5, 'do': 6, 'domingo': 6}
+
+
+def columna_dia(texto):
+    """'hoy', 'mañana' o un día de la semana → columna 0 (lunes) … 6 (domingo) de la semana que se ve."""
+    t = texto.strip().lower()
+    hoy = time.localtime().tm_wday
+    if t == 'hoy':
+        return hoy
+    if t in ('mañana', 'manana'):
+        col = hoy + 1
+    elif t in DIAS:
+        col = DIAS[t]
+    else:
+        raise SystemExit('No entiendo el día "%s" (hoy, mañana, lunes … domingo)' % texto)
+    if col > 6 or col < hoy:
+        raise SystemExit('"%s" es de la semana que viene: por ahora solo caza en la semana que se ve' % texto)
+    return col
 DIA_ELEGIDO = (153, 0, 49)            # el cuadrado bordó del día elegido, 40 px a la izquierda del centro
 DIA_ELEGIDO_Y = 0.2875                # y = 690
 # El botón "Agendar" de cada turno: rosa claro (252,214,227), entre x 780 y 1040. Se busca en una columna.
@@ -720,6 +742,7 @@ if __name__ == '__main__':
     ap.add_argument('--confirmar', action='store_true', help='en el ensayo: toma el turno de verdad')
     ap.add_argument('--sin-ruta', action='store_true', help='no abre la app: empieza a refrescar donde estés')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
+    ap.add_argument('--dia', default='hoy', help='hoy, mañana o un día de esta semana (jueves, vi, …)')
     ap.add_argument('--elegir', type=float, default=0, help='segundos para que elijas otro día antes de empezar (0 = hoy)')
     ap.add_argument('--min', type=float, default=2.7, help='espera mínima entre refrescos, en segundos')
     ap.add_argument('--max', type=float, default=3.2, help='espera máxima entre refrescos, en segundos')
@@ -755,12 +778,18 @@ if __name__ == '__main__':
         adb('shell', 'am', 'force-stop', PAQUETE)
         adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
         t = time.time()
-        if ruta_rapida(Pantalla(ancho, alto), dia=6 if args.ensayo else None):
+        dia = 6 if args.ensayo else columna_dia(args.dia)
+        if ruta_rapida(Pantalla(ancho, alto), dia=None if dia == time.localtime().tm_wday else dia):
             log('🛵 Recorrido: %.1f s' % (time.time() - t))
         else:
             recorrer_ruta(ancho, alto)
-            if args.ensayo:
-                tocar(DOMINGO[1], empieza=True)
+            if dia != time.localtime().tm_wday:
+                p = Pantalla(ancho, alto)
+                p.dia_elegido(15)
+                for _ in range(4):
+                    tocar_xy(int(DIAS_X[dia] * ancho / 1080), int(alto * DIA_Y), corrimiento=4)
+                    if p.dia_elegido(2) == dia:
+                        break
         if not args.ensayo and args.elegir:
             notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
             time.sleep(args.elegir)
@@ -768,5 +797,5 @@ if __name__ == '__main__':
         log('ENSAYO en el domingo')
         ensayo(args, ancho, alto)
     else:
-        bloque('▶  Empiezo a cazar', 'Parar: bajar volumen x2', 'Capturas: Descargas')
+        bloque('▶  Empiezo a cazar: %s' % args.dia, 'Parar: bajar volumen x2', 'Capturas: Descargas')
         cazar(args, ancho, alto)
