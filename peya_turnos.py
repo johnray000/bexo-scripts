@@ -18,6 +18,7 @@ Para al apretar BAJAR VOLUMEN dos veces rápido, con PARAR (notificación o el a
 conexión, al tomar un turno, o al pasar --minutos (por defecto, nunca).
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
+  python peya_turnos.py --estadisticas   # métricas de todos los intentos (~/peya_intentos.csv)
   python peya_turnos.py --ensayo      # en el domingo (siempre hay turnos): mide, toca Agendar y NO confirma
   python peya_turnos.py --ensayo --confirmar   # igual, pero toma el turno de verdad
   python peya_turnos.py               # lo corre telefono/peya.sh (acceso directo del escritorio)
@@ -350,10 +351,67 @@ def bloque(titulo, *filas):
         print(' ' * 9 + f, flush=True)
 
 
-def resumen_final(inicio, vueltas, intentos, totales):
-    bloque('📊 Resumen', '%d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60),
-           'Intentos: %d' % intentos,
-           ('Total promedio: %.2f s' % (sum(totales) / len(totales))) if totales else 'Sin intentos')
+INTENTOS_CSV = os.path.expanduser('~/peya_intentos.csv')   # todos los intentos, de todas las cazas
+
+
+def registrar(intento):
+    """Agrega el intento al historial (para --estadisticas)."""
+    nuevo = not os.path.exists(INTENTOS_CSV)
+    with open(INTENTOS_CSV, 'a') as f:
+        if nuevo:
+            f.write('fecha,hora,refresco,visto,confirmar,total,resultado,mirada_ms\n')
+        num = lambda v: '' if v is None else '%.2f' % v
+        f.write('%s,%s,%d,%s,%s,%s,%s,%d\n' % (
+            time.strftime('%Y-%m-%d'), time.strftime('%H:%M:%S'), intento['refresco'], num(intento['visto']),
+            num(intento['confirmar']), num(intento['total']), intento['resultado'], intento['mirada']))
+
+
+def prom(lista, campo):
+    v = [i[campo] for i in lista if i.get(campo) is not None]
+    return sum(v) / len(v) if v else None
+
+
+def lineas_metricas(intentos):
+    """Las líneas de métricas de una lista de intentos: tomados vs fallidos, y en qué parte se pierde tiempo."""
+    tomados = [i for i in intentos if i['resultado'] == 'tomado']
+    fallidos = [i for i in intentos if i['resultado'] != 'tomado']
+    filas = ['Intentos: %d · ✅ %d · ❌ %d' % (len(intentos), len(tomados), len(fallidos))]
+    motivos = {}
+    for i in fallidos:
+        motivos[i['resultado']] = motivos.get(i['resultado'], 0) + 1
+    if motivos:
+        filas.append('  ' + ' · '.join('%s %d' % (m, n) for m, n in sorted(motivos.items())))
+    for nombre, grupo in (('✅', tomados), ('❌', [i for i in fallidos if i['total'] is not None])):
+        if grupo:
+            filas.append('%s visto %.2f · conf %.2f · tot %.2f' % (
+                nombre, prom(grupo, 'visto'), prom(grupo, 'confirmar'), prom(grupo, 'total')))
+    con_total = [i['total'] for i in intentos if i['total'] is not None]
+    if con_total:
+        filas.append('Mejor %.2f s · peor %.2f s' % (min(con_total), max(con_total)))
+    return filas
+
+
+def resumen_final(inicio, vueltas, intentos, pantalla):
+    minutos = (time.time() - inicio) / 60
+    bloque('📊 Resumen', '%d refrescos en %.0f min (%.0f/min)' % (vueltas, minutos, vueltas / max(minutos, 0.01)),
+           'Mirada: %d ms' % pantalla.ms_por_captura(),
+           *(lineas_metricas(intentos) if intentos else ['Sin intentos']))
+
+
+def estadisticas():
+    """Resumen de todos los intentos guardados, en total y por día."""
+    import csv
+    try:
+        with open(INTENTOS_CSV) as f:
+            filas = list(csv.DictReader(f))
+    except OSError:
+        return print('Todavía no hay intentos guardados')
+    for i in filas:
+        for c in ('visto', 'confirmar', 'total'):
+            i[c] = float(i[c]) if i[c] not in ('', 'None') else None
+    bloque('📊 Todos los intentos', *lineas_metricas(filas))
+    for dia in sorted({i['fecha'] for i in filas}):
+        bloque('📅 ' + dia, *lineas_metricas([i for i in filas if i['fecha'] == dia]))
 
 
 def corto(ruta):
@@ -575,12 +633,12 @@ def _cazar(args, ancho, alto, pantalla):
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = proximo_control = time.time()
     vigia = Vigia(pantalla)
-    totales = []
+    historial = []   # los intentos de esta caza
     while time.time() < fin:
         if os.path.exists(PARAR):
             estado('Parado. %d refrescos' % vueltas)
             log('⏹  Parado')
-            return resumen_final(inicio, vueltas, intentos, totales)
+            return resumen_final(inicio, vueltas, historial, pantalla)
         if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
             proximo_control = time.time() + 30
             if bloqueado():
@@ -616,39 +674,47 @@ def _cazar(args, ancho, alto, pantalla):
         suelta = t_envio + dur + 0.3            # el tirón termina ~0,3 s después de mandarlo (arranque de input)
         intentos += 1
         if not r:
-            bloque('❌ Intento %d: no vi la confirmación' % intentos,
-                   'Agendar visto   %.2f s' % (visto - suelta),
-                   'Refresco %d' % vueltas, corto(foto('peya_sin_confirmacion')), 'Sigo cazando')
+            intento = dict(refresco=vueltas, visto=visto - suelta, confirmar=None, total=None,
+                           resultado='sin ventana', mirada=pantalla.ms_por_captura())
+            historial.append(intento)
+            registrar(intento)
+            log('❌ #%d sin ventana · visto %.2f s · %s' % (intentos, visto - suelta, corto(foto('peya_sin_confirmacion'))))
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
             pausa_hasta = vueltas + 2
             continue
         tiempos = ('Agendar visto   %.2f s' % (visto - suelta),
                    'Confirmar listo %.2f s' % r[0],
                    'Total           %.2f s' % (pantalla.fin - suelta))
-        totales.append(pantalla.fin - suelta)
         corto_t = '%.2f+%.2f=%.2f s' % (visto - suelta, r[0], pantalla.fin - suelta)
         resultado = pantalla.cartel()
+        intento = dict(refresco=vueltas, visto=visto - suelta, confirmar=r[0], total=pantalla.fin - suelta,
+                       resultado={'verde': 'tomado', 'rojo': 'otro'}.get(resultado, 'sin cartel'),
+                       mirada=pantalla.ms_por_captura())
+        historial.append(intento)
+        registrar(intento)
         if resultado == 'verde':
-            bloque('✅ TURNO TOMADO (intento %d)' % intentos, *tiempos,
-                   'Refresco %d' % vueltas, corto(foto('peya_tomado')))
-            resumen_final(inicio, vueltas, intentos, totales)
+            bloque('✅ TURNO TOMADO (intento %d)' % intentos, *tiempos, 'Refresco %d' % vueltas)
+            resumen_final(inicio, vueltas, historial, pantalla)
             notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             return
-        ruta = foto('peya_no_tomado')
-        log('❌ #%d %s · %s' % (intentos, 'otro' if resultado == 'rojo' else 'sin cartel', corto_t))
+        if resultado != 'rojo':   # sin cartel es raro: se guarda qué había en pantalla
+            corto_t += ' · ' + corto(foto('peya_sin_cartel'))
+        log('❌ #%d %s · %s' % (intentos, intento['resultado'], corto_t))
         estado('Intento %d falló (%s). Sigo cazando' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'))
-        time.sleep(0.8)
+        time.sleep(0.5)
         if pantalla.buscar(pantalla.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16):
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # quedó abierta la ventana: se cierra
         # el turno fallido puede seguir un momento en la lista: 2 refrescos sin tocar y después,
         # a la primera lista vacía (o si no, igual), se vuelve a cazar
         pausa_hasta = vueltas + 2
-    bloque('⏹  Pasaron %g min: paro' % args.minutos, '%d refrescos' % vueltas)
+    log('⏹  Pasaron %g min: paro' % args.minutos)
+    resumen_final(inicio, vueltas, historial, pantalla)
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', action='store_true')
+    ap.add_argument('--estadisticas', action='store_true', help='resumen de todos los intentos guardados')
     ap.add_argument('--ensayo', action='store_true',
                     help='en el domingo: mide 3 refrescos, toca Agendar y guarda la confirmación SIN confirmar')
     ap.add_argument('--confirmar', action='store_true', help='en el ensayo: toma el turno de verdad')
@@ -661,6 +727,9 @@ if __name__ == '__main__':
     ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')
     ap.add_argument('--resumen', type=float, default=10, help='cada cuántos minutos anota un resumen en el log')
     args = ap.parse_args()
+    if args.estadisticas:
+        estadisticas()
+        sys.exit(0)
     if not conectar():
         # ADB a veces queda colgado con la conexión vieja (al apagar y prender la depuración cambia el puerto)
         adb('disconnect')
