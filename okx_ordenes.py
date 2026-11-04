@@ -47,6 +47,27 @@ def tamano_pantalla():
 
 
 def conectar():
+    """Se conecta y deja elegido UN solo dispositivo: si quedan dos conexiones (la vieja del puerto 5555 y la
+    nueva de la depuración inalámbrica) adb no sabe a cuál hablarle y todo sale vacío."""
+    os.environ.pop('ANDROID_SERIAL', None)
+    if not _conectar():
+        return False
+    vivos = []
+    for linea in adb('devices').splitlines()[1:]:
+        partes = linea.split('\t')
+        if len(partes) < 2:
+            continue
+        if partes[1].strip() == 'device':
+            vivos.append(partes[0])
+        else:                                   # offline / unauthorized: conexión muerta, se saca
+            adb('disconnect', partes[0])
+    if not vivos:
+        return False
+    os.environ['ANDROID_SERIAL'] = '127.0.0.1:5555' if '127.0.0.1:5555' in vivos else vivos[0]
+    return True
+
+
+def _conectar():
     """Se conecta a la depuración inalámbrica del propio teléfono. El puerto cambia cada vez que se activa."""
     if '\tdevice' in adb('devices'):
         return True

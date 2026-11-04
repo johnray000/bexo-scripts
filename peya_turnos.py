@@ -182,6 +182,8 @@ class Pantalla:
         self.ancho, self.alto = ancho, alto
         crudo = subprocess.run(['adb', 'exec-out', 'screencap'], capture_output=True, timeout=20).stdout
         self.cabecera = len(crudo) - ancho * alto * 4      # 12 o 16 bytes según la versión de Android
+        if not crudo:
+            raise SystemExit('ADB no devuelve la pantalla: apagá y prendé la Depuración inalámbrica y arrancá de nuevo')
         if self.cabecera not in (12, 16):
             raise SystemExit('No entiendo la captura de pantalla (%d bytes de más)' % self.cabecera)
         self.x = int(ancho * COLUMNA_X)
