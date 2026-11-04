@@ -3,8 +3,10 @@
 
 Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica, al mismo teléfono).
 1. Abre la app de cero y sigue RUTA: menú → Horas de conexión (abre en hoy; el filtro ya lo guarda la app).
-2. Te da --elegir segundos para que toques el día que querés (hoy, mañana…). Lo podés cambiar cuando quieras.
-3. Refresca tirando la lista hacia abajo, cada --min a --max segundos (1,5 a 2 s: tus 1.700 ms, variando un poco).
+2. Se queda en hoy (con --elegir N te da N segundos para tocar otro día). Lo podés cambiar cuando quieras,
+   pero ojo: si cambiás a un día con turnos mientras caza, toma el primero.
+3. Refresca tirando la lista hacia abajo, cada --min a --max segundos (1,5 a 2 s: tus 1.700 ms, variando un poco),
+   sin fin, y entre refresco y refresco mira la pantalla todo el tiempo.
 4. Después de cada refresco mira la pantalla muy seguido (una captura, sin uiautomator, que es lento)
    buscando el botón rosa "Agendar". Si aparece, lo toca en el acto y anota cuánto tardó en aparecer.
 5. Solo empieza a cazar después de ver la lista vacía una vez, para no agarrar un turno que ya estaba
@@ -480,7 +482,7 @@ if __name__ == '__main__':
     ap.add_argument('--confirmar', action='store_true', help='en el ensayo: toma el turno de verdad')
     ap.add_argument('--sin-ruta', action='store_true', help='no abre la app: empieza a refrescar donde estés')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
-    ap.add_argument('--elegir', type=float, default=10, help='segundos para elegir el día después del filtro')
+    ap.add_argument('--elegir', type=float, default=0, help='segundos para que elijas otro día antes de empezar (0 = hoy)')
     ap.add_argument('--min', type=float, default=1.5, help='espera mínima entre refrescos, en segundos')
     ap.add_argument('--max', type=float, default=2.0, help='espera máxima entre refrescos, en segundos')
     ap.add_argument('--mirar', type=float, default=4, help='segundos que mira la pantalla después de cada refresco')
@@ -518,7 +520,7 @@ if __name__ == '__main__':
             recorrer_ruta(ancho, alto)
             if args.ensayo:
                 tocar(DOMINGO[1], empieza=True)
-        if not args.ensayo:
+        if not args.ensayo and args.elegir:
             notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
             time.sleep(args.elegir)
     if args.ensayo:
