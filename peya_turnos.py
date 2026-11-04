@@ -13,7 +13,7 @@ Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica,
 Para con PARAR (notificación o el acceso directo), al pasar --minutos, si bloqueás el teléfono, o al tocar un turno.
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
-  python peya_turnos.py --probar      # hace todo menos tocar "Agendar": solo anota cuándo lo habría tocado
+  python peya_turnos.py --ensayo      # en el domingo (siempre hay turnos): mide, toca Agendar y NO confirma
   python peya_turnos.py               # lo corre telefono/peya.sh (acceso directo del escritorio)
 """
 import argparse
@@ -141,52 +141,89 @@ def log(*cosas):
     print(time.strftime('%H:%M:%S'), *cosas, flush=True)
 
 
+def mirar(pantalla, segundos):
+    """Después de un refresco: mira la pantalla hasta ver "Agendar" o hasta que pasen `segundos`.
+    Devuelve (y del botón o None, segundos hasta verlo, si el botón desapareció en algún momento)."""
+    t0, desaparecio = time.time(), False
+    while time.time() - t0 < segundos:
+        y = pantalla.boton_agendar()
+        if y and (desaparecio or not ENSAYO_ESPERA_RECARGA):
+            return y, time.time() - t0, desaparecio
+        if not y:
+            desaparecio = True
+    return None, time.time() - t0, desaparecio
+
+
+ENSAYO_ESPERA_RECARGA = False   # en el ensayo se espera a que la lista se borre y vuelva (prueba que recargó)
+
+
+def ensayo(args, ancho, alto):
+    """Domingo, donde siempre hay turnos: refresca 3 veces midiendo cuánto tarda en volver "Agendar",
+    lo toca y guarda la ventana de confirmación. NO confirma: el turno no se toma."""
+    global ENSAYO_ESPERA_RECARGA
+    ENSAYO_ESPERA_RECARGA = True
+    pantalla = Pantalla(ancho, alto)
+    if not pantalla.boton_agendar():
+        return log('ENSAYO: no veo ningún "Agendar" en pantalla. ¿Estás en el domingo, con turnos?')
+    for vuelta in range(1, 4):
+        pausa(args.min, args.max)
+        refrescar(ancho, alto)
+        y, demora, desaparecio = mirar(pantalla, args.mirar)
+        if y:
+            log('ENSAYO refresco %d: la lista se recargó y "Agendar" volvió a los %.2f s' % (vuelta, demora))
+        elif not desaparecio:
+            log('ENSAYO refresco %d: "Agendar" nunca se fue: tirar hacia abajo NO recarga la lista' % vuelta)
+        else:
+            log('ENSAYO refresco %d: la lista se borró y no volvió en %g s' % (vuelta, args.mirar))
+    y = pantalla.boton_agendar()
+    if not y:
+        return log('ENSAYO: no hay "Agendar" para tocar')
+    t = time.time()
+    tocar_xy(pantalla.x - 80, y, corrimiento=4)
+    log('ENSAYO: toqué "Agendar" (y=%d). Guardo la ventana de confirmación, NO la confirmo' % y)
+    time.sleep(1.5)
+    ruta, lista = guardar_pantalla('peya_confirmar')
+    log('ENSAYO: guardada en %s (%.1f s después del toque) · %s'
+        % (ruta, time.time() - t, ' | '.join(t for t, _, _, _ in lista)[:300]))
+    notificar('PeYa: ensayo listo', 'Toqué Agendar y NO confirmé. Cerrá la ventana y mandá el archivo peya_confirmar')
+
+
 def cazar(args, ancho, alto):
     pantalla = Pantalla(ancho, alto)
     fin = time.time() + args.minutos * 60
-    armado, vueltas, tiempos = False, 0, []
+    armado, vueltas = False, 0
     while time.time() < fin:
         if os.path.exists(PARAR):
             return log('Parado con PARAR. %d refrescos' % vueltas)
         if bloqueado():
             return log('Teléfono bloqueado: paro. %d refrescos' % vueltas)
         refrescar(ancho, alto)
-        t0 = time.time()
         vueltas += 1
-        y = None
-        while time.time() - t0 < args.mirar:          # mira la pantalla hasta que aparece o se cumple el tiempo
-            y = pantalla.boton_agendar()
-            if y:
-                break
+        y, demora, _ = mirar(pantalla, args.mirar)
         if y and not armado:
             # todavía hay turnos de antes (o estás eligiendo el día): no se toca nada
             if vueltas % 10 == 1:
                 log('Hay turnos en pantalla desde antes: espero a ver la lista vacía para empezar a cazar')
         elif y:
-            demora = time.time() - t0
-            if args.probar:
-                tiempos.append(demora)
-                log('PRUEBA: apareció "Agendar" a los %.2f s del refresco (y=%d). No lo toco.' % (demora, y))
-            else:
-                tocar_xy(pantalla.x - 80, y, corrimiento=4)
-                log('TOQUÉ "Agendar" a los %.2f s del refresco (y=%d)' % (demora, y))
-                time.sleep(1.2)
-                ruta, lista = guardar_pantalla('peya_confirmar')
-                log('Pantalla de confirmación guardada en', ruta, '·', ' | '.join(t for t, _, _, _ in lista)[:300])
-                notificar('🛵 Toqué un turno en PeYa', 'Confirmalo vos: todavía no sé tocar la confirmación')
-                return
+            tocar_xy(pantalla.x - 80, y, corrimiento=4)
+            log('TOQUÉ "Agendar" a los %.2f s del refresco (y=%d), refresco %d' % (demora, y, vueltas))
+            time.sleep(1.2)
+            ruta, lista = guardar_pantalla('peya_confirmar')
+            log('Pantalla de confirmación guardada en', ruta, '·', ' | '.join(t for t, _, _, _ in lista)[:300])
+            notificar('🛵 Toqué un turno en PeYa', 'Confirmalo vos: todavía no sé tocar la confirmación')
+            return
         elif not armado:
             armado = True
             log('Lista vacía: empiezo a cazar (refresco %d)' % vueltas)
         pausa(args.min, args.max)
-    log('Pasaron %g minutos: paro. %d refrescos' % (args.minutos, vueltas)
-        + (', "Agendar" apareció en promedio a los %.2f s' % (sum(tiempos) / len(tiempos)) if tiempos else ''))
+    log('Pasaron %g minutos: paro. %d refrescos' % (args.minutos, vueltas))
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', action='store_true')
-    ap.add_argument('--probar', action='store_true', help='no toca "Agendar", solo mide cuándo aparece')
+    ap.add_argument('--ensayo', action='store_true',
+                    help='en el domingo: mide 3 refrescos, toca Agendar y guarda la confirmación SIN confirmar')
     ap.add_argument('--sin-ruta', action='store_true', help='no abre la app: empieza a refrescar donde estés')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--elegir', type=float, default=10, help='segundos para elegir el día después del filtro')
@@ -216,7 +253,12 @@ if __name__ == '__main__':
         adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
         pausa(7, 9)
         recorrer_ruta(ancho, alto)
-        notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
-        time.sleep(args.elegir)
-    log('Empiezo a refrescar' + (' (PRUEBA: no toco nada)' if args.probar else ''))
-    cazar(args, ancho, alto)
+        if not args.ensayo:   # el ensayo se queda en el domingo, donde termina el recorrido
+            notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
+            time.sleep(args.elegir)
+    if args.ensayo:
+        log('ENSAYO en el domingo')
+        ensayo(args, ancho, alto)
+    else:
+        log('Empiezo a cazar')
+        cazar(args, ancho, alto)
