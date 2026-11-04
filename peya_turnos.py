@@ -12,7 +12,8 @@ Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica,
 
 6. Toca "Agendar horario de conexión" en la ventana que sube, apenas deja de moverse.
 
-Para con PARAR (notificación o el acceso directo), al pasar --minutos, si bloqueás el teléfono, o al tomar un turno.
+Para con PARAR (notificación o el acceso directo), si bloqueás el teléfono, si la app sale de Horarios de
+conexión, al tomar un turno, o al pasar --minutos (por defecto, nunca).
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
   python peya_turnos.py --ensayo      # en el domingo (siempre hay turnos): mide, toca Agendar y NO confirma
@@ -387,37 +388,87 @@ def ensayo(args, ancho, alto):
     log('ENSAYO: en el refresco 3 no apareció "Agendar": no toqué nada')
 
 
+def refrescar_rapido(ancho, alto):
+    """El mismo tirón, mandado por la consola abierta sin esperar: se empieza a mirar la pantalla enseguida."""
+    x = int(ancho * random.uniform(0.15, 0.5))
+    y1, y2 = int(alto * random.uniform(0.50, 0.55)), int(alto * random.uniform(0.86, 0.90))
+    dur = random.randint(380, 440)
+    abrir_consola()
+    _SHELL.stdin.write('input swipe %d %d %d %d %d &\n' % (x, y1, x, y2, dur))
+    _SHELL.stdin.flush()
+    return dur / 1000
+
+
+def estado(texto):
+    """Actualiza la notificación fija (sin esperar: tarda medio segundo)."""
+    subprocess.Popen(['termux-notification', '--id', 'peya-estado', '--ongoing', '--title', 'PeYa: cazando',
+                      '--content', texto, '--button1', 'PARAR', '--button1-action',
+                      'sh /data/data/com.termux/files/home/bexo-scripts/telefono/peya.sh parar'],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def cazar(args, ancho, alto):
+    """Refresca cada --min a --max segundos, sin fin (o --minutos), mirando la pantalla todo el tiempo.
+    Apenas aparece "Agendar" lo toca y confirma. El log anota un resumen cada --resumen minutos
+    y todo el detalle (con capturas) cuando aparece un turno o algo sale raro."""
     pantalla = Pantalla(ancho, alto)
     abrir_consola()
-    fin = time.time() + args.minutos * 60
-    armado, vueltas = False, 0
+    inicio = time.time()
+    fin = inicio + args.minutos * 60 if args.minutos else float('inf')
+    armado, vueltas, avisos_antes = False, 0, 0
+    proximo_resumen = proximo_control = time.time()
     while time.time() < fin:
         if os.path.exists(PARAR):
-            return log('Parado con PARAR. %d refrescos' % vueltas)
-        if bloqueado():
-            return log('Teléfono bloqueado: paro. %d refrescos' % vueltas)
-        refrescar(ancho, alto)
+            return log('Parado con PARAR. %d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60))
+        if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
+            proximo_control = time.time() + 30
+            if bloqueado():
+                return log('Teléfono bloqueado: paro. %d refrescos' % vueltas)
+            if not pantalla.esta(pantalla.captura(), HORARIOS_LISTO):
+                ruta = foto('peya_fuera')
+                notificar('PeYa: paré', 'La app salió de Horarios de conexión')
+                return log('La pantalla ya no es Horarios de conexión: paro (captura %s)' % ruta)
+        if time.time() >= proximo_resumen:
+            proximo_resumen = time.time() + args.resumen * 60
+            texto = '%d refrescos en %.0f min · mirada %d ms · %s' % (
+                vueltas, (time.time() - inicio) / 60, pantalla.ms_por_captura(),
+                'cazando' if armado else 'esperando lista vacía')
+            log(texto)
+            estado(texto)
+        t_envio = time.time()
+        dur = refrescar_rapido(ancho, alto)
         vueltas += 1
-        y, demora, _ = mirar(pantalla, args.mirar)
+        ciclo = random.uniform(args.min, args.max)
+        y = None
+        while time.time() - t_envio < ciclo:      # mira la pantalla hasta el próximo refresco
+            y = pantalla.boton_agendar()
+            if y:
+                break
         if y and not armado:
-            # todavía hay turnos de antes (o estás eligiendo el día): no se toca nada
-            if vueltas % 10 == 1:
-                log('Hay turnos en pantalla desde antes: espero a ver la lista vacía para empezar a cazar')
-        elif y:
-            r = agarrar(pantalla, y, confirmar=True)
-            if not r:
-                log('Toqué "Agendar" (a los %.2f s del refresco) pero no vi la confirmación' % demora)
-                notificar('PeYa: toqué un turno', 'No vi la ventana de confirmación: fijate vos')
-                return
-            log('TURNO TOMADO: "Agendar" a los %.2f s del refresco, confirmación %.2f s después (refresco %d)'
-                % (demora, r[0], vueltas))
-            notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
+            avisos_antes += 1
+            if avisos_antes in (1, 20, 100):
+                log('Hay turnos en pantalla desde antes: no toco nada hasta ver la lista vacía')
+            continue
+        if not y:
+            if not armado:
+                armado = True
+                log('Lista vacía: empiezo a cazar (refresco %d)' % vueltas)
+            continue
+        visto = time.time()
+        r = agarrar(pantalla, y, confirmar=True)
+        suelta = t_envio + dur + 0.3            # el tirón termina ~0,3 s después de mandarlo (arranque de input)
+        if not r:
+            log('Toqué "Agendar" (visto %.2f s después de soltar el refresco %d) pero no vi la confirmación'
+                % (visto - suelta, vueltas))
+            notificar('PeYa: toqué un turno', 'No vi la ventana de confirmación: fijate vos')
             return
-        elif not armado:
-            armado = True
-            log('Lista vacía: empiezo a cazar (refresco %d)' % vueltas)
-        pausa(args.min, args.max)
+        log('TURNO TOMADO en el refresco %d: "Agendar" visto %.2f s después de soltar · confirmar listo %.2f s '
+            'después del toque · total %.2f s · mirada %d ms'
+            % (vueltas, visto - suelta, r[0], pantalla.fin - suelta, pantalla.ms_por_captura()))
+        time.sleep(0.5)
+        log('Captura después de confirmar:', foto('peya_tomado'))
+        notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
+        return
     log('Pasaron %g minutos: paro. %d refrescos' % (args.minutos, vueltas))
 
 
@@ -433,7 +484,8 @@ if __name__ == '__main__':
     ap.add_argument('--min', type=float, default=1.5, help='espera mínima entre refrescos, en segundos')
     ap.add_argument('--max', type=float, default=2.0, help='espera máxima entre refrescos, en segundos')
     ap.add_argument('--mirar', type=float, default=4, help='segundos que mira la pantalla después de cada refresco')
-    ap.add_argument('--minutos', type=float, default=60, help='cuánto tiempo caza como mucho')
+    ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')
+    ap.add_argument('--resumen', type=float, default=2, help='cada cuántos minutos anota un resumen en el log')
     args = ap.parse_args()
     if not conectar():
         # ADB a veces queda colgado con la conexión vieja (al apagar y prender la depuración cambia el puerto)
