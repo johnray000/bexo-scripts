@@ -10,10 +10,13 @@ Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica,
 5. Solo empieza a cazar después de ver la lista vacía una vez, para no agarrar un turno que ya estaba
    (por ejemplo, los del domingo mientras elegís el día).
 
-Para con PARAR (notificación o el acceso directo), al pasar --minutos, si bloqueás el teléfono, o al tocar un turno.
+6. Toca "Agendar horario de conexión" en la ventana que sube, apenas deja de moverse.
+
+Para con PARAR (notificación o el acceso directo), al pasar --minutos, si bloqueás el teléfono, o al tomar un turno.
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
   python peya_turnos.py --ensayo      # en el domingo (siempre hay turnos): mide, toca Agendar y NO confirma
+  python peya_turnos.py --ensayo --confirmar   # igual, pero toma el turno de verdad
   python peya_turnos.py               # lo corre telefono/peya.sh (acceso directo del escritorio)
 """
 import argparse
@@ -46,6 +49,12 @@ ROSA = (252, 214, 227)
 COLUMNA_X = 0.926                     # x = 1000 en 1080 de ancho
 DESDE_Y = 0.36                        # debajo del calendario y los filtros (y = 870 en 2400)
 ALTO_MIN_BOTON = 40                   # píxeles rosas seguidos para contar como botón (el botón mide ~110)
+# La ventana "Reservar este horario de conexión?": botón negro (23,23,23) "Agendar horario de conexión",
+# de lado a lado, abajo (y 1970-2110 en 2400). El fondo oscurecido es gris (89,89,89), no negro.
+NEGRO = (23, 23, 23)
+CONFIRMAR_X = 0.12                    # x = 130: a la izquierda del texto blanco del botón
+CONFIRMAR_DESDE_Y = 0.60
+ALTO_MIN_CONFIRMAR = 60               # el botón mide ~140
 PARAR = os.path.expanduser('~/.peya_parar')
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
@@ -101,19 +110,36 @@ class Pantalla:
         inicio = self.cabecera + self.y0 * ancho * 4
         self.cmd = ['adb', 'exec-out', 'screencap | tail -c +%d' % (inicio + 1)]
 
-    def boton_agendar(self):
-        """La y del centro del primer botón "Agendar" que se vea, o None."""
-        datos = subprocess.run(self.cmd, capture_output=True, timeout=10).stdout
-        seguidos, y = 0, self.y0
-        for fila in range(len(datos) // (self.ancho * 4)):
-            i = (fila * self.ancho + self.x) * 4
-            r, g, b = datos[i], datos[i + 1], datos[i + 2]
-            if abs(r - ROSA[0]) < 12 and abs(g - ROSA[1]) < 12 and abs(b - ROSA[2]) < 12:
+    def captura(self):
+        return subprocess.run(self.cmd, capture_output=True, timeout=10).stdout
+
+    def buscar(self, datos, fx, color, desde_y, alto_min, tol=12):
+        """La y del centro de la primera franja de `color` (al menos alto_min píxeles) en la columna fx, o None."""
+        x, seguidos = int(self.ancho * fx), 0
+        primera = max(0, int(self.alto * desde_y) - self.y0)
+        for fila in range(primera, len(datos) // (self.ancho * 4)):
+            i = (fila * self.ancho + x) * 4
+            if abs(datos[i] - color[0]) < tol and abs(datos[i + 1] - color[1]) < tol and abs(datos[i + 2] - color[2]) < tol:
                 seguidos += 1
-                if seguidos >= ALTO_MIN_BOTON:
+                if seguidos >= alto_min:
                     return self.y0 + fila - seguidos // 2 + 15   # un poco más abajo del medio de lo visto
             else:
                 seguidos = 0
+        return None
+
+    def boton_agendar(self):
+        """La y del primer botón rosa "Agendar" de la lista, o None."""
+        return self.buscar(self.captura(), COLUMNA_X, ROSA, DESDE_Y, ALTO_MIN_BOTON)
+
+    def boton_confirmar(self, segundos=4):
+        """Espera la ventana de confirmación y devuelve la y de su botón negro cuando deja de moverse
+        (la ventana sube con una animación: se toca apenas está quieta). None si no aparece."""
+        t0, antes = time.time(), None
+        while time.time() - t0 < segundos:
+            y = self.buscar(self.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16)
+            if y and antes and abs(y - antes) <= 4:
+                return y
+            antes = y
         return None
 
 
@@ -157,9 +183,24 @@ def mirar(pantalla, segundos):
 ENSAYO_ESPERA_RECARGA = False   # en el ensayo se espera a que la lista se borre y vuelva (prueba que recargó)
 
 
+def agarrar(pantalla, y, confirmar):
+    """Toca "Agendar" y, si `confirmar`, toca "Agendar horario de conexión" apenas la ventana queda quieta.
+    Devuelve cuánto tardó cada parte (o None si la ventana no apareció)."""
+    t0 = time.time()
+    tocar_xy(int(pantalla.ancho * COLUMNA_X) - 80, y, corrimiento=4)
+    yc = pantalla.boton_confirmar()
+    t1 = time.time()
+    if not yc:
+        guardar_pantalla('peya_confirmar')
+        return None
+    if confirmar:
+        tocar_xy(pantalla.ancho // 2, yc, corrimiento=4)
+    return t1 - t0, yc
+
+
 def ensayo(args, ancho, alto):
     """Domingo, donde siempre hay turnos: refresca 3 veces midiendo cuánto tarda en volver "Agendar",
-    lo toca y guarda la ventana de confirmación. NO confirma: el turno no se toma."""
+    lo toca y espera la ventana de confirmación. Solo con --confirmar toma el turno de verdad."""
     global ENSAYO_ESPERA_RECARGA
     ENSAYO_ESPERA_RECARGA = True
     pantalla = Pantalla(ancho, alto)
@@ -168,24 +209,29 @@ def ensayo(args, ancho, alto):
     for vuelta in range(1, 4):
         pausa(args.min, args.max)
         refrescar(ancho, alto)
+        t_suelta = time.time()
         y, demora, desaparecio = mirar(pantalla, args.mirar)
+        if y and vuelta == 3:
+            log('ENSAYO refresco 3: "Agendar" volvió a los %.2f s: lo toco' % demora)
+            r = agarrar(pantalla, y, args.confirmar)
+            if not r:
+                return log('ENSAYO: la ventana de confirmación no apareció en 4 s (pantalla guardada en Descargas)')
+            log('ENSAYO: la ventana de confirmación quedó quieta a los %.2f s del toque (botón en y=%d)' % r)
+            if args.confirmar:
+                log('ENSAYO: CONFIRMÉ el turno. Desde que solté el refresco: %.2f s' % (time.time() - t_suelta))
+                notificar('PeYa: turno tomado (ensayo)', 'Fijate en Mis horas de conexión')
+            else:
+                log('ENSAYO: NO confirmo (sin --confirmar). Hasta acá: %.2f s desde que solté el refresco'
+                    % (time.time() - t_suelta))
+                adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+            return
         if y:
             log('ENSAYO refresco %d: la lista se recargó y "Agendar" volvió a los %.2f s' % (vuelta, demora))
         elif not desaparecio:
-            log('ENSAYO refresco %d: "Agendar" nunca se fue: tirar hacia abajo NO recarga la lista' % vuelta)
+            log('ENSAYO refresco %d: "Agendar" nunca se fue: tirar hacia abajo NO recargó la lista' % vuelta)
         else:
             log('ENSAYO refresco %d: la lista se borró y no volvió en %g s' % (vuelta, args.mirar))
-    y = pantalla.boton_agendar()
-    if not y:
-        return log('ENSAYO: no hay "Agendar" para tocar')
-    t = time.time()
-    tocar_xy(pantalla.x - 80, y, corrimiento=4)
-    log('ENSAYO: toqué "Agendar" (y=%d). Guardo la ventana de confirmación, NO la confirmo' % y)
-    time.sleep(1.5)
-    ruta, lista = guardar_pantalla('peya_confirmar')
-    log('ENSAYO: guardada en %s (%.1f s después del toque) · %s'
-        % (ruta, time.time() - t, ' | '.join(t for t, _, _, _ in lista)[:300]))
-    notificar('PeYa: ensayo listo', 'Toqué Agendar y NO confirmé. Cerrá la ventana y mandá el archivo peya_confirmar')
+    log('ENSAYO: en el refresco 3 no apareció "Agendar": no toqué nada')
 
 
 def cazar(args, ancho, alto):
@@ -205,12 +251,14 @@ def cazar(args, ancho, alto):
             if vueltas % 10 == 1:
                 log('Hay turnos en pantalla desde antes: espero a ver la lista vacía para empezar a cazar')
         elif y:
-            tocar_xy(pantalla.x - 80, y, corrimiento=4)
-            log('TOQUÉ "Agendar" a los %.2f s del refresco (y=%d), refresco %d' % (demora, y, vueltas))
-            time.sleep(1.2)
-            ruta, lista = guardar_pantalla('peya_confirmar')
-            log('Pantalla de confirmación guardada en', ruta, '·', ' | '.join(t for t, _, _, _ in lista)[:300])
-            notificar('🛵 Toqué un turno en PeYa', 'Confirmalo vos: todavía no sé tocar la confirmación')
+            r = agarrar(pantalla, y, confirmar=True)
+            if not r:
+                log('Toqué "Agendar" (a los %.2f s del refresco) pero no vi la confirmación' % demora)
+                notificar('PeYa: toqué un turno', 'No vi la ventana de confirmación: fijate vos')
+                return
+            log('TURNO TOMADO: "Agendar" a los %.2f s del refresco, confirmación %.2f s después (refresco %d)'
+                % (demora, r[0], vueltas))
+            notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             return
         elif not armado:
             armado = True
@@ -224,6 +272,7 @@ if __name__ == '__main__':
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--ensayo', action='store_true',
                     help='en el domingo: mide 3 refrescos, toca Agendar y guarda la confirmación SIN confirmar')
+    ap.add_argument('--confirmar', action='store_true', help='en el ensayo: toma el turno de verdad')
     ap.add_argument('--sin-ruta', action='store_true', help='no abre la app: empieza a refrescar donde estés')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--elegir', type=float, default=10, help='segundos para elegir el día después del filtro')
