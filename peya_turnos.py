@@ -23,12 +23,23 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
 
-# Los botones para llegar a los turnos desde que se abre la app, por el texto que se ve en pantalla.
-# PENDIENTE: completar con lo que muestre --pantalla en cada paso del recorrido de john.
-RUTA = []
+# El recorrido desde que se abre la app hasta los turnos (pantallas de john, 04/11/2026, 1080x2400).
+# ('pos', x, y): toca por posición (fracción del ancho y alto), para botones sin texto como el menú.
+# ('texto', t): toca el botón con ese texto. ('empieza', t): el primero visible que empieza con t.
+# ('espera', s): espera s segundos.
+RUTA = [
+    ('pos', 0.102, 0.090),            # menú ☰ de arriba a la izquierda (no tiene texto)
+    ('texto', 'Horas de conexión'),
+    ('espera', 4),                    # carga la página de horarios
+    ('empieza', 'do '),               # el domingo de esta semana: ahí se cargan los filtros
+    ('empieza', 'Filtros'),
+    ('texto', '4 zonas'),             # filtro guardado
+    ('espera', 2.5),                  # john: esperar 2 segundos antes de aplicar
+    ('empieza', 'Aplicar filtro'),
+]
 PARAR = os.path.expanduser('~/.peya_parar')
 DESCARGAS = os.path.expanduser('~/storage/downloads')
-HORA = re.compile(r'\b\d{1,2}:\d{2}\b')   # un turno se reconoce por sus horas (ajustar con la pantalla real)
+HORARIO = re.compile(r'^\d{1,2}:\d{2} – \d{1,2}:\d{2}')   # '17:45 – 22:00 (4h 15m)'
 
 
 def paquete_peya():
@@ -48,15 +59,32 @@ def tocar_xy(x, y):
     adb('shell', 'input', 'tap', str(x + random.randint(-6, 6)), str(y + random.randint(-6, 6)))
 
 
-def tocar(texto, intentos=10):
+def visibles():
+    """Los textos de la pantalla que se ven (la página web también trae botones ocultos, con tamaño cero)."""
+    return [(t, x, y) for t, x, y, _ in textos()[0] if (x, y) != (0, 0)]
+
+
+def tocar(texto, empieza=False, intentos=10):
     for _ in range(intentos):
-        for t, x, y, _ in textos()[0]:
-            if t == texto:
+        for t, x, y in visibles():
+            if t == texto or (empieza and t.startswith(texto)):
                 tocar_xy(x, y)
                 pausa(2, 3.5)
                 return True
         time.sleep(1.5)
     raise SystemExit('No encontré "%s" en la pantalla de PeYa Rider' % texto)
+
+
+def recorrer_ruta():
+    ancho, alto = tamano_pantalla()
+    for paso in RUTA:
+        if paso[0] == 'pos':
+            tocar_xy(int(ancho * paso[1]), int(alto * paso[2]))
+            pausa(2, 3.5)
+        elif paso[0] == 'espera':
+            pausa(paso[1], paso[1] + 1)
+        else:
+            tocar(paso[1], empieza=paso[0] == 'empieza')
 
 
 def refrescar(ancho, alto):
@@ -67,8 +95,14 @@ def refrescar(ancho, alto):
 
 
 def turnos(lista):
-    """Los textos de la pantalla que parecen un turno (tienen una hora)."""
-    return {t for t, _, _, _ in lista if HORA.search(t)}
+    """Los turnos de la lista: 'horario · zona'. La página trae la lista entera, aunque no entre en pantalla."""
+    salida, textos_ = set(), [t for t, _, _, _ in lista]
+    for i, t in enumerate(textos_):
+        if HORARIO.match(t):
+            zona = textos_[i + 1] if i + 1 < len(textos_) and textos_[i + 1] != 'Agendar' else \
+                (textos_[i + 2] if i + 2 < len(textos_) else '')
+            salida.add('%s · %s' % (t.split(' (')[0], zona))
+    return salida
 
 
 def avisar(nuevos):
@@ -106,8 +140,6 @@ if __name__ == '__main__':
     if args.pantalla:
         pantalla(args.espera)
         sys.exit(0)
-    if not RUTA:
-        raise SystemExit('Falta armar el recorrido (RUTA) con las pantallas de PeYa Rider')
     if bloqueado():
         raise SystemExit('Teléfono bloqueado: desbloquealo y volvé a tocar el botón')
     if os.path.exists(PARAR):
@@ -116,8 +148,7 @@ if __name__ == '__main__':
     adb('shell', 'am', 'force-stop', paquete)
     adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
     pausa(7, 10)
-    for paso in RUTA:
-        tocar(paso)
+    recorrer_ruta()
     ancho, alto = tamano_pantalla()
     vistos = turnos(textos()[0])
     print(time.strftime('%H:%M'), 'Turnos al empezar:', sorted(vistos) or 'ninguno', flush=True)
