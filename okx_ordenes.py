@@ -50,6 +50,10 @@ def conectar():
     """Se conecta a la depuración inalámbrica del propio teléfono. El puerto cambia cada vez que se activa."""
     if '\tdevice' in adb('devices'):
         return True
+    # Puerto fijo 5555 (se activa una vez con "adb tcpip 5555" y dura hasta reiniciar el teléfono):
+    # no depende de que la Depuración inalámbrica siga prendida ni del wifi.
+    if 'connected' in adb('connect', '127.0.0.1:5555') and '\tdevice' in adb('devices'):
+        return True
     for linea in adb('mdns', 'services').splitlines():
         m = re.search(r'_adb-tls-connect\._tcp\.?\s+([\d.]+:\d+)', linea)
         if m and 'connected' in adb('connect', m.group(1)):
