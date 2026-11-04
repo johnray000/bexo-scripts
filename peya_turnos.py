@@ -73,6 +73,11 @@ NEGRO = (23, 23, 23)
 CONFIRMAR_X = 0.12                    # x = 130: a la izquierda del texto blanco del botón
 CONFIRMAR_DESDE_Y = 0.60
 ALTO_MIN_CONFIRMAR = 60               # el botón mide ~140
+# El cartel de abajo después de confirmar: verde "Has agendado correctamente…" o rojo con el error
+# (por ejemplo "Shift not contain PENDING swap": otro lo tomó antes). Se mira en x = 30, y = 2232.
+CARTEL = (0.028, 0.93)
+VERDE = (0, 124, 4)
+ROJO = (192, 36, 37)
 PARAR = os.path.expanduser('~/.peya_parar')
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
@@ -190,6 +195,18 @@ class Pantalla:
             if self.esta(self.captura(), marcas, tol):
                 return True
         return False
+
+    def cartel(self, segundos=4):
+        """Después de confirmar: 'verde' (tomado), 'rojo' (error) o None si no apareció ningún cartel."""
+        y = int(self.alto * CARTEL[1])
+        t0 = time.time()
+        while time.time() - t0 < segundos:
+            c = self.pixel(self.captura(y, y + 1), CARTEL[0], 0)
+            if parecido(c, VERDE, 30):
+                return 'verde'
+            if parecido(c, ROJO, 35):
+                return 'rojo'
+        return None
 
     def dia_elegido(self, segundos):
         """Qué columna de día está elegida (0 = lunes … 6 = domingo), esperando hasta `segundos`."""
@@ -341,8 +358,6 @@ def agarrar(pantalla, y, confirmar):
     if confirmar:
         tocar_xy(pantalla.ancho // 2, yc, corrimiento=4, esperar=False)
     pantalla.fin = time.time()
-    if confirmar:
-        time.sleep(1)   # que el toque llegue antes de seguir
     return t1 - t0, yc
 
 
@@ -427,7 +442,7 @@ def cazar(args, ancho, alto):
     abrir_consola()
     inicio = time.time()
     fin = inicio + args.minutos * 60 if args.minutos else float('inf')
-    armado, vueltas, avisos_antes = False, 0, 0
+    armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = proximo_control = time.time()
     while time.time() < fin:
         if os.path.exists(PARAR):
@@ -456,6 +471,8 @@ def cazar(args, ancho, alto):
             y = pantalla.boton_agendar()
             if y:
                 break
+        if y and vueltas <= pausa_hasta:
+            continue
         if y and not armado:
             avisos_antes += 1
             if avisos_antes in (1, 20, 100):
@@ -469,18 +486,29 @@ def cazar(args, ancho, alto):
         visto = time.time()
         r = agarrar(pantalla, y, confirmar=True)
         suelta = t_envio + dur + 0.3            # el tirón termina ~0,3 s después de mandarlo (arranque de input)
+        intentos += 1
         if not r:
-            log('Toqué "Agendar" (visto %.2f s después de soltar el refresco %d) pero no vi la confirmación'
-                % (visto - suelta, vueltas))
-            notificar('PeYa: toqué un turno', 'No vi la ventana de confirmación: fijate vos')
+            log('Intento %d: toqué "Agendar" (visto %.2f s después de soltar el refresco %d) pero no vi la '
+                'confirmación (captura %s). Sigo cazando' % (intentos, visto - suelta, vueltas, foto('peya_sin_confirmacion')))
+            adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+            pausa_hasta = vueltas + 10
+            continue
+        tiempos = '"Agendar" visto %.2f s después de soltar · confirmar listo %.2f s después del toque · total %.2f s' % (
+            visto - suelta, r[0], pantalla.fin - suelta)
+        resultado = pantalla.cartel()
+        if resultado == 'verde':
+            log('TURNO TOMADO (cartel verde) en el refresco %d, intento %d: %s' % (vueltas, intentos, tiempos))
+            log('Captura:', foto('peya_tomado'))
+            notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             return
-        log('TURNO TOMADO en el refresco %d: "Agendar" visto %.2f s después de soltar · confirmar listo %.2f s '
-            'después del toque · total %.2f s · mirada %d ms'
-            % (vueltas, visto - suelta, r[0], pantalla.fin - suelta, pantalla.ms_por_captura()))
-        time.sleep(0.5)
-        log('Captura después de confirmar:', foto('peya_tomado'))
-        notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
-        return
+        ruta = foto('peya_no_tomado')
+        log('Intento %d NO tomado (%s) en el refresco %d: %s · captura %s. Sigo cazando'
+            % (intentos, 'cartel rojo: otro lo tomó antes' if resultado == 'rojo' else 'sin cartel', vueltas, tiempos, ruta))
+        estado('Intento %d falló (%s). Sigo cazando' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'))
+        time.sleep(0.8)
+        if pantalla.buscar(pantalla.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16):
+            adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # quedó abierta la ventana: se cierra
+        pausa_hasta = vueltas + 10   # el turno fallido puede seguir en la lista: no se reintenta enseguida
     log('Pasaron %g minutos: paro. %d refrescos' % (args.minutos, vueltas))
 
 
