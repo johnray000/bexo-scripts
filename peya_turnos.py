@@ -704,6 +704,8 @@ def _cazar(args, ancho, alto, pantalla):
             return resumen_final(inicio, vueltas, historial, pantalla)
         if VOLUMEN_X2[0] != vol_visto:              # bajar volumen x2: pausa (o sigue, si ya estaba en pausa)
             vol_visto = VOLUMEN_X2[0]
+            subprocess.Popen(['termux-vibrate', '-d', '80'], stdout=subprocess.DEVNULL,   # vibrita corta: tomó el gesto
+                             stderr=subprocess.DEVNULL)
             if pausado:
                 pausado = False
                 log('▶  Sigo (bajar volumen x2)')

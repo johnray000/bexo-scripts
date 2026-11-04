@@ -21,7 +21,9 @@ echo $$ > "$PID"
 termux-wake-lock
 termux-notification --id peya-estado --ongoing --title "🟢 PeYa: arrancando ($DIA)" --content 'Abriendo la app…' \
   --button1 'PARAR DEL TODO' --button1-action "sh $P/bexo-scripts/telefono/peya.sh parar"
-cd ~/bexo-scripts && git pull -q --ff-only >> ~/peya.log 2>&1
+# core.fileMode false: un chmod en el teléfono no cuenta como cambio (si no, el git pull se niega y queda la versión vieja)
+cd ~/bexo-scripts && git config core.fileMode false && git pull -q --ff-only >> ~/peya.log 2>&1 \
+  || termux-notification --id peya-update --title '⚠️ PeYa: no se pudo actualizar' --content 'Sigue con la versión anterior. Mirá ~/peya.log'
 if ! python ~/bexo-scripts/peya_turnos.py --dia "$DIA" >> ~/peya.log 2>&1; then
   # el script se cortó con un error: queda parado y lo dice
   termux-notification --id peya-estado --title "⏹ PeYa: PARADO ($DIA)" \
