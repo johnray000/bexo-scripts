@@ -46,6 +46,16 @@ RUTA = [
     # ('empieza', 'Aplicar filtro'),
 ]
 DOMINGO = ('empieza', 'do ')          # el ensayo va al domingo, donde siempre hay turnos
+
+# El mismo recorrido, pero mirando colores de la pantalla (mucho más rápido que leer los textos):
+# se toca apenas aparece cada cosa. (x, y) en fracción de 1080x2400, color esperado.
+MAPA_LISTO = [((0.500, 0.904), (252, 214, 227))]                     # botón rosa "Ver horarios de conexión"
+MENU_ABIERTO = [((0.139, 0.217), (244, 244, 244)), ((0.553, 0.208), (244, 244, 244)),  # cuadros grises
+                ((0.102, 0.090), (241, 74, 128))]                    # y la cabecera rosa del menú
+HORAS_DE_CONEXION = (0.553, 0.227)
+HORARIOS_LISTO = [((0.056, 0.131), (23, 23, 23))]                    # pestaña negra de arriba
+DIAS_X = [100, 245, 392, 540, 687, 835, 980]                          # columnas lu…do (en 1080)
+DIA_Y = 0.283
 # El botón "Agendar" de cada turno: rosa claro (252,214,227), entre x 780 y 1040. Se busca en una columna.
 ROSA = (252, 214, 227)
 COLUMNA_X = 0.926                     # x = 1000 en 1080 de ancho
@@ -98,8 +108,15 @@ def recorrer_ruta(ancho, alto):
             tocar(paso[1], empieza=paso[0] == 'empieza')
 
 
+def parecido(c, color, tol):
+    return abs(c[0] - color[0]) < tol and abs(c[1] - color[1]) < tol and abs(c[2] - color[2]) < tol
+
+
+CONFIRMAR_Y_GUARDADA = os.path.expanduser('~/.peya_confirmar_y')   # dónde queda quieto el botón negro
+
+
 class Pantalla:
-    """Captura rápida: pide solo la parte de abajo de la pantalla y mira una columna de píxeles."""
+    """Captura rápida de la pantalla (píxeles crudos por ADB, sin uiautomator)."""
 
     def __init__(self, ancho, alto):
         self.ancho, self.alto = ancho, alto
@@ -107,24 +124,47 @@ class Pantalla:
         self.cabecera = len(crudo) - ancho * alto * 4      # 12 o 16 bytes según la versión de Android
         if self.cabecera not in (12, 16):
             raise SystemExit('No entiendo la captura de pantalla (%d bytes de más)' % self.cabecera)
-        self.y0 = int(alto * DESDE_Y)
         self.x = int(ancho * COLUMNA_X)
-        inicio = self.cabecera + self.y0 * ancho * 4
-        self.cmd = ['adb', 'exec-out', 'screencap | tail -c +%d' % (inicio + 1)]
+        self.capturas, self.tiempo = 0, 0.0
+        try:
+            with open(CONFIRMAR_Y_GUARDADA) as f:
+                self.confirmar_y = int(f.read())
+        except (OSError, ValueError):
+            self.confirmar_y = int(alto * 0.842)          # y = 2020 en 2400 (captura de john)
 
     def captura(self):
-        return subprocess.run(self.cmd, capture_output=True, timeout=10).stdout
+        t = time.time()
+        d = subprocess.run(['adb', 'exec-out', 'screencap'], capture_output=True, timeout=10).stdout[self.cabecera:]
+        self.capturas += 1
+        self.tiempo += time.time() - t
+        return d
+
+    def ms_por_captura(self):
+        return 1000 * self.tiempo / max(1, self.capturas)
+
+    def pixel(self, datos, fx, fy):
+        i = (int(self.alto * fy) * self.ancho + int(self.ancho * fx)) * 4
+        return datos[i], datos[i + 1], datos[i + 2]
+
+    def esta(self, datos, marcas, tol=14):
+        return all(parecido(self.pixel(datos, fx, fy), color, tol) for (fx, fy), color in marcas)
+
+    def esperar(self, marcas, segundos, tol=14):
+        t0 = time.time()
+        while time.time() - t0 < segundos:
+            if self.esta(self.captura(), marcas, tol):
+                return True
+        return False
 
     def buscar(self, datos, fx, color, desde_y, alto_min, tol=12):
         """La y del centro de la primera franja de `color` (al menos alto_min píxeles) en la columna fx, o None."""
         x, seguidos = int(self.ancho * fx), 0
-        primera = max(0, int(self.alto * desde_y) - self.y0)
-        for fila in range(primera, len(datos) // (self.ancho * 4)):
+        for fila in range(int(self.alto * desde_y), len(datos) // (self.ancho * 4)):
             i = (fila * self.ancho + x) * 4
-            if abs(datos[i] - color[0]) < tol and abs(datos[i + 1] - color[1]) < tol and abs(datos[i + 2] - color[2]) < tol:
+            if parecido((datos[i], datos[i + 1], datos[i + 2]), color, tol):
                 seguidos += 1
                 if seguidos >= alto_min:
-                    return self.y0 + fila - seguidos // 2 + 15   # un poco más abajo del medio de lo visto
+                    return fila - seguidos // 2 + 15   # un poco más abajo del medio de lo visto
             else:
                 seguidos = 0
         return None
@@ -134,23 +174,47 @@ class Pantalla:
         return self.buscar(self.captura(), COLUMNA_X, ROSA, DESDE_Y, ALTO_MIN_BOTON)
 
     def boton_confirmar(self, segundos=4):
-        """Espera la ventana de confirmación y devuelve la y de su botón negro cuando deja de moverse
-        (la ventana sube con una animación: se toca apenas está quieta). None si no aparece."""
+        """Espera el botón negro de la ventana de confirmación. Lo devuelve apenas está donde queda quieto
+        (lo aprendido la vez anterior), sin esperar a que termine de verse todo; si no, cuando deja de moverse."""
         t0, antes = time.time(), None
         while time.time() - t0 < segundos:
             y = self.buscar(self.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16)
+            if y and abs(y - self.confirmar_y) <= 25:
+                return y
             if y and antes and abs(y - antes) <= 4:
+                with open(CONFIRMAR_Y_GUARDADA, 'w') as f:
+                    f.write(str(y))
+                self.confirmar_y = y
                 return y
             antes = y
         return None
 
 
+def ruta_rapida(pantalla, dia=None):
+    """El recorrido mirando colores: toca cada cosa apenas aparece. Si algo no aparece, vuelve a leer textos."""
+    a, h = pantalla.ancho, pantalla.alto
+    if not pantalla.esperar(MAPA_LISTO, 20):
+        log('No reconocí el mapa: sigo por textos')
+        return False
+    tocar_xy(int(a * RUTA[0][1]), int(h * RUTA[0][2]))
+    if not pantalla.esperar(MENU_ABIERTO, 5, tol=30):
+        log('No reconocí el menú: sigo por textos')
+        tocar('Horas de conexión')
+    else:
+        tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
+    if not pantalla.esperar(HORARIOS_LISTO, 15):
+        raise SystemExit('No se abrió la página de horarios')
+    if dia is not None:
+        tocar_xy(int(DIAS_X[dia] * a / 1080), int(h * DIA_Y), corrimiento=4)
+    return True
+
+
 def refrescar(ancho, alto):
-    """Tira la lista hacia abajo (como con el dedo) para que se actualice. Un tirón largo y no tan rápido:
-    con 0,2 s la página a veces no lo tomaba como "refrescar"."""
+    """Tira la lista hacia abajo (como con el dedo) para que se actualice. Empieza en el medio de la lista:
+    arrancando arriba (sobre "APPLIED FILTERS") la página casi nunca lo tomaba como "refrescar"."""
     x = str(int(ancho * random.uniform(0.15, 0.5)))       # lejos de la columna de los botones
-    adb('shell', 'input', 'swipe', x, str(int(alto * random.uniform(0.38, 0.42))),
-        x, str(int(alto * random.uniform(0.80, 0.86))), str(random.randint(450, 600)))
+    adb('shell', 'input', 'swipe', x, str(int(alto * random.uniform(0.50, 0.55))),
+        x, str(int(alto * random.uniform(0.86, 0.90))), str(random.randint(250, 350)))
 
 
 def notificar(titulo, texto):
@@ -234,7 +298,8 @@ def ensayo(args, ancho, alto):
             r = agarrar(pantalla, y, args.confirmar)
             if not r:
                 return log('ENSAYO: la ventana de confirmación no apareció en 4 s (captura peya_sin_confirmacion en Descargas)')
-            log('ENSAYO: la ventana de confirmación quedó quieta a los %.2f s del toque (botón en y=%d)' % r)
+            log('ENSAYO: botón de confirmar listo a los %.2f s del toque (y=%d). Cada mirada a la pantalla: %d ms'
+                % (r + (pantalla.ms_por_captura(),)))
             if args.confirmar:
                 log('ENSAYO: CONFIRMÉ el turno. Desde que solté el refresco: %.2f s' % (time.time() - t_suelta))
                 notificar('PeYa: turno tomado (ensayo)', 'Fijate en Mis horas de conexión')
@@ -318,11 +383,14 @@ if __name__ == '__main__':
     if not args.sin_ruta:
         adb('shell', 'am', 'force-stop', PAQUETE)
         adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
-        pausa(7, 9)
-        recorrer_ruta(ancho, alto)
-        if args.ensayo:
-            tocar(DOMINGO[1], empieza=True)
+        t = time.time()
+        if ruta_rapida(Pantalla(ancho, alto), dia=6 if args.ensayo else None):
+            log('Recorrido hecho en %.1f s' % (time.time() - t))
         else:
+            recorrer_ruta(ancho, alto)
+            if args.ensayo:
+                tocar(DOMINGO[1], empieza=True)
+        if not args.ensayo:
             notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
             time.sleep(args.elegir)
     if args.ensayo:
