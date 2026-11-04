@@ -246,6 +246,20 @@ class Pantalla:
                 return 'rojo'
         return None
 
+    def en_horarios_rapido(self):
+        """¿Está PeYa en Horarios de conexión? Mira una sola fila (la pestaña negra de arriba): es muy barato.
+        Si no la ve, vuelve a mirar una vez antes de decir que no (una captura puede fallar)."""
+        y = int(self.alto * HORARIOS_LISTO[0][0][1])
+        for _ in range(2):
+            try:
+                fila = self.captura(y, y + 1)
+            except SinADB:
+                raise
+            if parecido(self.pixel(fila, HORARIOS_LISTO[0][0][0], 0), HORARIOS_LISTO[0][1], 25):
+                return True
+            time.sleep(0.3)
+        return False
+
     def dia_elegido(self, segundos):
         """Qué columna de día está elegida (0 = lunes … 6 = domingo), esperando hasta `segundos`."""
         t0 = time.time()
@@ -547,10 +561,6 @@ def refrescar_rapido(ancho, alto):
     return dur / 1000
 
 
-TOQUE = [0.0]          # cuándo tocaste la pantalla por última vez
-PAUSA_TOQUE = 8        # segundos sin tocar para volver a cazar
-
-
 def vigilar_volumen():
     """Botón de parar: apretar BAJAR VOLUMEN dos veces rápido. Escucha los botones físicos por ADB (los toques del script
     no pasan por ahí) y, al ver bajar volumen, deja el aviso de parar."""
@@ -562,9 +572,7 @@ def vigilar_volumen():
 
     def escuchar():
         for linea in proc.stdout:
-            if 'ABS_MT' in linea or 'BTN_TOUCH' in linea:
-                TOQUE[0] = time.time()          # tu dedo en la pantalla (los toques del script no llegan acá)
-            elif 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
+            if 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
                 ahora = time.time()
                 if ahora - ultimo[0] < 0.7:      # dos toques rápidos: uno solo no para (podés bajar el volumen)
                     open(PARAR, 'w').close()
@@ -665,9 +673,9 @@ def _cazar(args, ancho, alto, pantalla):
     inicio = time.time()
     fin = inicio + args.minutos * 60 if args.minutos else float('inf')
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
-    proximo_resumen = proximo_control = time.time()
+    proximo_resumen = time.time()
     vigia = Vigia(pantalla)
-    pausado = afuera = False
+    pausado, pausa_desde = False, 0
     historial = []   # los intentos de esta caza
     while time.time() < fin:
         if os.path.exists(PARAR):
@@ -675,29 +683,21 @@ def _cazar(args, ancho, alto, pantalla):
             log('⏹  Parado')
             anunciar('Caza parada')
             return resumen_final(inicio, vueltas, historial, pantalla)
-        if time.time() - TOQUE[0] < PAUSA_TOQUE:   # estás usando el teléfono: pausa, sin refrescar
+        if not pantalla.en_horarios_rapido():   # saliste de PeYa (inicio, otra app) o bloqueaste el teléfono
             if not pausado:
-                pausado = True
-                log('⏸  Pausa: estás tocando la pantalla')
-                estado('Pausa: estás usando el teléfono. Sigue %d s después de que dejes de tocar '
-                       '(con PeYa en Horarios)' % PAUSA_TOQUE)
-            time.sleep(0.3)
+                pausado, pausa_desde = True, time.time()
+                log('⏸  Pausa: PeYa no está en Horarios')
+                estado('Pausa. Volvé a PeYa → Horarios y sigue sola (se corta a los %d min)' % args.pausa_max)
+            elif time.time() - pausa_desde > args.pausa_max * 60:
+                log('⏹  %d min en pausa: paro' % args.pausa_max)
+                estado('Parado: %d min en pausa' % args.pausa_max)
+                return resumen_final(inicio, vueltas, historial, pantalla)
+            time.sleep(3)                         # en pausa solo mira una fila de la pantalla cada 3 s
             continue
-        if pausado or time.time() >= proximo_control:   # después de una pausa, o cada 30 s
-            proximo_control = time.time() + 30
-            if bloqueado():
-                return bloque('⏹  Teléfono bloqueado: paro', '%d refrescos' % vueltas)
-            if not en_horarios(pantalla):
-                if not pausado or not afuera:
-                    log('⏸  PeYa no está en Horarios: espero que vuelvas')
-                    estado('Pausa: dejá PeYa en Horarios de conexión y no toques %d s' % PAUSA_TOQUE)
-                pausado, afuera = True, True
-                time.sleep(2)
-                continue
-            if pausado:
-                pausado, afuera, armado = False, False, False   # al volver, espera ver la lista vacía otra vez
-                log('▶  Sigo cazando')
-                estado('Cazando de nuevo')
+        if pausado:
+            pausado, armado = False, False        # al volver espera ver la lista vacía otra vez
+            log('▶  Sigo cazando')
+            estado('Cazando de nuevo')
         if time.time() >= proximo_resumen:
             proximo_resumen = time.time() + args.resumen * 60
             texto = '%d refrescos · %.0f min · %d intentos' % (vueltas, (time.time() - inicio) / 60, intentos)
@@ -778,6 +778,7 @@ if __name__ == '__main__':
     ap.add_argument('--max', type=float, default=3.2, help='espera máxima entre refrescos, en segundos')
     ap.add_argument('--mirar', type=float, default=4, help='segundos que mira la pantalla después de cada refresco')
     ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')
+    ap.add_argument('--pausa-max', type=float, default=10, help='minutos en pausa antes de parar del todo')
     ap.add_argument('--resumen', type=float, default=10, help='cada cuántos minutos anota un resumen en el log')
     args = ap.parse_args()
     if args.estadisticas:
