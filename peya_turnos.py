@@ -249,12 +249,23 @@ def ruta_rapida(pantalla, dia=None):
     if not pantalla.esperar(MAPA_LISTO, 20):
         log('No reconocí el mapa: sigo por textos')
         return False
-    tocar_xy(int(a * RUTA[0][1]), int(h * RUTA[0][2]))
-    if not pantalla.esperar(MENU_ABIERTO, 5, tol=30):
-        log('No reconocí el menú: sigo por textos')
-        tocar('Horas de conexión')
+    # Abrir el menú. Una notificación que baja (como "Depuración inalámbrica conectada") puede tapar el botón ☰:
+    # si no se abre, se prueba deslizando desde el borde izquierdo (más abajo, no lo tapa nada) y se
+    # esconden las notificaciones.
+    for intento in range(4):
+        if intento % 2 == 0:
+            tocar_xy(int(a * RUTA[0][1]), int(h * RUTA[0][2]))
+        else:
+            adb('shell', 'input', 'swipe', '3', str(h // 2), str(int(a * 0.7)), str(h // 2), '250')
+        if pantalla.esperar(MENU_ABIERTO, 2.5, tol=30):
+            break
+        adb('shell', 'cmd', 'statusbar', 'collapse')
     else:
-        tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
+        log('No se abrió el menú: sigo por textos')
+        tocar_xy(int(a * RUTA[0][1]), int(h * RUTA[0][2]))
+        tocar('Horas de conexión')
+        return True
+    tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
     if not pantalla.esperar(HORARIOS_LISTO, 15):
         raise SystemExit('No se abrió la página de horarios')
     if pantalla.dia_elegido(15) is None:            # que cargue la fila de días antes de tocar nada
