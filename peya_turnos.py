@@ -334,6 +334,20 @@ def guardar_pantalla(nombre):
     return ruta, lista
 
 
+def bloque(titulo, *filas):
+    """Un evento en varias líneas cortas (la consola del teléfono es angosta):
+    14:41:15 ❌ Intento 1: otro lo tomó
+             Agendar visto    0.45 s
+    """
+    print(time.strftime('%H:%M:%S'), titulo, flush=True)
+    for f in filas:
+        print(' ' * 9 + f, flush=True)
+
+
+def corto(ruta):
+    return os.path.basename(ruta)
+
+
 def log(*cosas):
     print(time.strftime('%H:%M:%S'), *cosas, flush=True)
 
@@ -498,21 +512,20 @@ def _cazar(args, ancho, alto, pantalla):
     while time.time() < fin:
         if os.path.exists(PARAR):
             estado('Parado. %d refrescos' % vueltas)
-            return log('Parado (bajar volumen x2 o PARAR). %d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60))
+            return bloque('⏹  Parado', '%d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60),
+                          'Intentos: %d' % intentos)
         if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
             proximo_control = time.time() + 30
             if bloqueado():
-                return log('Teléfono bloqueado: paro. %d refrescos' % vueltas)
+                return bloque('⏹  Teléfono bloqueado: paro', '%d refrescos' % vueltas)
             if not en_horarios(pantalla):
                 ruta = foto('peya_fuera')
                 notificar('PeYa: paré', 'La app salió de Horarios de conexión')
-                return log('La pantalla ya no es Horarios de conexión: paro (captura %s)' % ruta)
+                return bloque('⏹  Salió de Horarios: paro', corto(ruta))
         if time.time() >= proximo_resumen:
             proximo_resumen = time.time() + args.resumen * 60
-            texto = '%d refrescos en %.0f min · mirada %d ms · %s' % (
-                vueltas, (time.time() - inicio) / 60, pantalla.ms_por_captura(),
-                'cazando' if armado else 'esperando lista vacía')
-            log(texto)
+            texto = '%d refrescos · %.0f min · %d intentos' % (vueltas, (time.time() - inicio) / 60, intentos)
+            bloque('🔄 ' + texto, 'Mirada: %d ms' % pantalla.ms_por_captura())
             estado(texto)
         t_envio = time.time()
         dur = refrescar_rapido(ancho, alto)
@@ -528,40 +541,42 @@ def _cazar(args, ancho, alto, pantalla):
         if y and not armado:
             avisos_antes += 1
             if avisos_antes in (1, 20, 100):
-                log('Hay turnos en pantalla desde antes: no toco nada hasta ver la lista vacía')
+                bloque('⏸  Hay turnos desde antes', 'Espero ver la lista vacía')
             continue
         if not y:
             if not armado:
                 armado = True
-                log('Lista vacía: empiezo a cazar (refresco %d)' % vueltas)
+                bloque('🎯 Lista vacía: cazando')
             continue
         visto = time.time()
         r = agarrar(pantalla, y, confirmar=True)
         suelta = t_envio + dur + 0.3            # el tirón termina ~0,3 s después de mandarlo (arranque de input)
         intentos += 1
         if not r:
-            log('Intento %d: toqué "Agendar" (visto %.2f s después de soltar el refresco %d) pero no vi la '
-                'confirmación (captura %s). Sigo cazando' % (intentos, visto - suelta, vueltas, foto('peya_sin_confirmacion')))
+            bloque('❌ Intento %d: no vi la confirmación' % intentos,
+                   'Agendar visto   %.2f s' % (visto - suelta),
+                   'Refresco %d' % vueltas, corto(foto('peya_sin_confirmacion')), 'Sigo cazando')
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
             pausa_hasta = vueltas + 10
             continue
-        tiempos = '"Agendar" visto %.2f s después de soltar · confirmar listo %.2f s después del toque · total %.2f s' % (
-            visto - suelta, r[0], pantalla.fin - suelta)
+        tiempos = ('Agendar visto   %.2f s' % (visto - suelta),
+                   'Confirmar listo %.2f s' % r[0],
+                   'Total           %.2f s' % (pantalla.fin - suelta))
         resultado = pantalla.cartel()
         if resultado == 'verde':
-            log('TURNO TOMADO (cartel verde) en el refresco %d, intento %d: %s' % (vueltas, intentos, tiempos))
-            log('Captura:', foto('peya_tomado'))
+            bloque('✅ TURNO TOMADO (intento %d)' % intentos, *tiempos,
+                   'Refresco %d' % vueltas, corto(foto('peya_tomado')))
             notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             return
         ruta = foto('peya_no_tomado')
-        log('Intento %d NO tomado (%s) en el refresco %d: %s · captura %s. Sigo cazando'
-            % (intentos, 'cartel rojo: otro lo tomó antes' if resultado == 'rojo' else 'sin cartel', vueltas, tiempos, ruta))
+        bloque('❌ Intento %d: %s' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'), *tiempos,
+               'Refresco %d' % vueltas, corto(ruta), 'Sigo cazando')
         estado('Intento %d falló (%s). Sigo cazando' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'))
         time.sleep(0.8)
         if pantalla.buscar(pantalla.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16):
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # quedó abierta la ventana: se cierra
         pausa_hasta = vueltas + 10   # el turno fallido puede seguir en la lista: no se reintenta enseguida
-    log('Pasaron %g minutos: paro. %d refrescos' % (args.minutos, vueltas))
+    bloque('⏹  Pasaron %g min: paro' % args.minutos, '%d refrescos' % vueltas)
 
 
 if __name__ == '__main__':
@@ -605,7 +620,7 @@ if __name__ == '__main__':
         adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
         t = time.time()
         if ruta_rapida(Pantalla(ancho, alto), dia=6 if args.ensayo else None):
-            log('Recorrido hecho en %.1f s' % (time.time() - t))
+            log('🛵 Recorrido: %.1f s' % (time.time() - t))
         else:
             recorrer_ruta(ancho, alto)
             if args.ensayo:
@@ -617,5 +632,5 @@ if __name__ == '__main__':
         log('ENSAYO en el domingo')
         ensayo(args, ancho, alto)
     else:
-        log('Empiezo a cazar. Para pararlo: BAJAR VOLUMEN dos veces rápido')
+        bloque('▶  Empiezo a cazar', 'Parar: bajar volumen x2', 'Capturas: Descargas')
         cazar(args, ancho, alto)
