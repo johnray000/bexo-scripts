@@ -14,7 +14,7 @@ Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica,
 
 6. Toca "Agendar horario de conexión" en la ventana que sube, apenas deja de moverse.
 
-Para con PARAR (notificación o el acceso directo), si bloqueás el teléfono, si la app sale de Horarios de
+Para al apretar BAJAR VOLUMEN, con PARAR (notificación o el acceso directo), si bloqueás el teléfono, si la app sale de Horarios de
 conexión, al tomar un turno, o al pasar --minutos (por defecto, nunca).
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
@@ -174,7 +174,16 @@ class Pantalla:
         else:
             cmd = 'screencap | tail -c +%d | head -c %d' % (self.cabecera + y0 * fila + 1, (y1 - y0) * fila)
             corte = 0
-        d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=10).stdout[corte:]
+        esperado = ((y1 if y1 is not None else self.alto) - y0) * fila
+        for _ in range(3):   # a veces ADB devuelve la captura cortada: se pide de nuevo
+            try:
+                d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=10).stdout[corte:]
+            except subprocess.TimeoutExpired:
+                d = b''
+            if len(d) >= esperado:
+                break
+        else:
+            d = d + bytes(esperado - len(d))   # lo que falte, en negro: no se toma por ningún botón
         self.capturas += 1
         self.tiempo += time.time() - t
         return d
@@ -426,6 +435,22 @@ def refrescar_rapido(ancho, alto):
     return dur / 1000
 
 
+def vigilar_volumen():
+    """Botón de parar: apretar BAJAR VOLUMEN. Escucha los botones físicos por ADB (los toques del script
+    no pasan por ahí) y, al ver bajar volumen, deja el aviso de parar."""
+    import threading
+    proc = subprocess.Popen(['adb', 'shell', 'getevent', '-lq'], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True)
+
+    def escuchar():
+        for linea in proc.stdout:
+            if 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
+                open(PARAR, 'w').close()
+                return
+    threading.Thread(target=escuchar, daemon=True).start()
+    return proc
+
+
 def estado(texto):
     """Actualiza la notificación fija (sin esperar: tarda medio segundo)."""
     subprocess.Popen(['termux-notification', '--id', 'peya-estado', '--ongoing', '--title', 'PeYa: cazando',
@@ -440,13 +465,22 @@ def cazar(args, ancho, alto):
     y todo el detalle (con capturas) cuando aparece un turno o algo sale raro."""
     pantalla = Pantalla(ancho, alto)
     abrir_consola()
+    volumen = vigilar_volumen()
+    try:
+        return _cazar(args, ancho, alto, pantalla)
+    finally:
+        volumen.kill()
+
+
+def _cazar(args, ancho, alto, pantalla):
     inicio = time.time()
     fin = inicio + args.minutos * 60 if args.minutos else float('inf')
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = proximo_control = time.time()
     while time.time() < fin:
         if os.path.exists(PARAR):
-            return log('Parado con PARAR. %d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60))
+            estado('Parado. %d refrescos' % vueltas)
+            return log('Parado (bajar volumen o PARAR). %d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60))
         if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
             proximo_control = time.time() + 30
             if bloqueado():
@@ -565,5 +599,5 @@ if __name__ == '__main__':
         log('ENSAYO en el domingo')
         ensayo(args, ancho, alto)
     else:
-        log('Empiezo a cazar')
+        log('Empiezo a cazar. Para pararlo: apretá BAJAR VOLUMEN')
         cazar(args, ancho, alto)
