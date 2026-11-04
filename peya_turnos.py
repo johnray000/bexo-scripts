@@ -2,7 +2,7 @@
 """Caza turnos en PeYa Rider: refresca la lista y toca "Agendar" apenas aparece un turno.
 
 Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica, al mismo teléfono).
-1. Abre la app de cero y sigue RUTA: menú → Horas de conexión → domingo → Filtros → 4 zonas → Aplicar.
+1. Abre la app de cero y sigue RUTA: menú → Horas de conexión (abre en hoy; el filtro ya lo guarda la app).
 2. Te da --elegir segundos para que toques el día que querés (hoy, mañana…). Lo podés cambiar cuando quieras.
 3. Refresca tirando la lista hacia abajo, cada --min a --max segundos (1,5 a 2 s: tus 1.700 ms, variando un poco).
 4. Después de cada refresco mira la pantalla muy seguido (una captura, sin uiautomator, que es lento)
@@ -37,13 +37,15 @@ PAQUETE = 'com.logistics.rider.pedidosya'
 RUTA = [
     ('pos', 0.102, 0.090),            # menú ☰ de arriba a la izquierda (no tiene texto)
     ('texto', 'Horas de conexión'),
-    ('espera', 4),                    # carga la página de horarios
-    ('empieza', 'do '),               # el domingo de esta semana: ahí se cargan los filtros
-    ('empieza', 'Filtros'),
-    ('texto', '4 zonas'),             # filtro guardado
-    ('espera', 2.5),                  # john: esperar 2 segundos antes de aplicar
-    ('empieza', 'Aplicar filtro'),
+    ('espera', 4),                    # carga la página de horarios (abre en hoy)
+    # Ya no hace falta: la app guarda el filtro aunque la cierres (john, 04/11). Por si algún día se pierde:
+    # ('empieza', 'do '),             # el domingo de esta semana: ahí se cargan los filtros
+    # ('empieza', 'Filtros'),
+    # ('texto', '4 zonas'),           # filtro guardado
+    # ('espera', 2.5),                # john: esperar 2 segundos antes de aplicar
+    # ('empieza', 'Aplicar filtro'),
 ]
+DOMINGO = ('empieza', 'do ')          # el ensayo va al domingo, donde siempre hay turnos
 # El botón "Agendar" de cada turno: rosa claro (252,214,227), entre x 780 y 1040. Se busca en una columna.
 ROSA = (252, 214, 227)
 COLUMNA_X = 0.926                     # x = 1000 en 1080 de ancho
@@ -144,15 +146,23 @@ class Pantalla:
 
 
 def refrescar(ancho, alto):
-    """Tira la lista hacia abajo (como con el dedo) para que se actualice."""
+    """Tira la lista hacia abajo (como con el dedo) para que se actualice. Un tirón largo y no tan rápido:
+    con 0,2 s la página a veces no lo tomaba como "refrescar"."""
     x = str(int(ancho * random.uniform(0.15, 0.5)))       # lejos de la columna de los botones
-    adb('shell', 'input', 'swipe', x, str(int(alto * random.uniform(0.40, 0.44))),
-        x, str(int(alto * random.uniform(0.70, 0.76))), str(random.randint(180, 260)))
+    adb('shell', 'input', 'swipe', x, str(int(alto * random.uniform(0.38, 0.42))),
+        x, str(int(alto * random.uniform(0.80, 0.86))), str(random.randint(450, 600)))
 
 
 def notificar(titulo, texto):
     subprocess.run(['termux-notification', '--id', 'peya-turno', '--priority', 'max', '--sound',
                     '--vibrate', '500,300,500', '--title', titulo, '--content', texto], check=False)
+
+
+def foto(nombre):
+    """Guarda una captura PNG en Descargas (para ver qué pasó cuando algo falla)."""
+    ruta = '/sdcard/Download/' + time.strftime(nombre + '_%H%M%S.png')
+    adb('shell', 'screencap', '-p', ruta)
+    return ruta
 
 
 def guardar_pantalla(nombre):
@@ -191,7 +201,7 @@ def agarrar(pantalla, y, confirmar):
     yc = pantalla.boton_confirmar()
     t1 = time.time()
     if not yc:
-        guardar_pantalla('peya_confirmar')
+        foto('peya_sin_confirmacion')
         return None
     if confirmar:
         tocar_xy(pantalla.ancho // 2, yc, corrimiento=4)
@@ -211,11 +221,19 @@ def ensayo(args, ancho, alto):
         refrescar(ancho, alto)
         t_suelta = time.time()
         y, demora, desaparecio = mirar(pantalla, args.mirar)
-        if y and vuelta == 3:
+        if vuelta == 3 and not y:
+            y = pantalla.boton_agendar()   # aunque no haya recargado, si hay "Agendar" se prueba la confirmación
+            if y:
+                log('ENSAYO refresco 3: no recargó (captura %s), pero toco "Agendar" igual para probar la ventana'
+                    % foto('peya_no_recargo'))
+        elif vuelta == 3:
             log('ENSAYO refresco 3: "Agendar" volvió a los %.2f s: lo toco' % demora)
+        elif not desaparecio:
+            foto('peya_no_recargo')
+        if y and vuelta == 3:
             r = agarrar(pantalla, y, args.confirmar)
             if not r:
-                return log('ENSAYO: la ventana de confirmación no apareció en 4 s (pantalla guardada en Descargas)')
+                return log('ENSAYO: la ventana de confirmación no apareció en 4 s (captura peya_sin_confirmacion en Descargas)')
             log('ENSAYO: la ventana de confirmación quedó quieta a los %.2f s del toque (botón en y=%d)' % r)
             if args.confirmar:
                 log('ENSAYO: CONFIRMÉ el turno. Desde que solté el refresco: %.2f s' % (time.time() - t_suelta))
@@ -302,7 +320,9 @@ if __name__ == '__main__':
         adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
         pausa(7, 9)
         recorrer_ruta(ancho, alto)
-        if not args.ensayo:   # el ensayo se queda en el domingo, donde termina el recorrido
+        if args.ensayo:
+            tocar(DOMINGO[1], empieza=True)
+        else:
             notificar('PeYa: elegí el día', 'Tenés %g segundos para tocar hoy o mañana' % args.elegir)
             time.sleep(args.elegir)
     if args.ensayo:
