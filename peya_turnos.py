@@ -363,7 +363,8 @@ def notificar(titulo, texto):
 
 
 def anunciar(frase):
-    """Lo dice en voz alta (sin vibrar)."""
+    """Tres pitidos agudos y lo dice en voz alta (sin vibrar)."""
+    pitido(3)
     subprocess.Popen(['termux-tts-speak', frase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
