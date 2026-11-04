@@ -593,6 +593,44 @@ def vigilar_volumen():
     return proc
 
 
+class Vigia:
+    """Dos miradas a la pantalla en paralelo, desfasadas: ve el botón "Agendar" cada ~0,12 s en vez de
+    cada ~0,24 s (cada captura tarda lo mismo, pero se superponen)."""
+
+    def __init__(self, pantalla, hilos=2):
+        import threading
+        self.pantalla, self.y, self.error = pantalla, None, None
+        self.on, self.hallado = threading.Event(), threading.Event()
+        for i in range(hilos):
+            threading.Thread(target=self._mirar, args=(i * 0.12,), daemon=True).start()
+
+    def _mirar(self, desfase):
+        time.sleep(desfase)
+        while True:
+            self.on.wait()
+            try:
+                y = self.pantalla.boton_agendar()
+            except SinADB as e:
+                self.error = e
+                self.hallado.set()
+                continue
+            if y and self.on.is_set():
+                self.y = y
+                self.hallado.set()
+
+    def mirar(self, segundos):
+        """Mira hasta `segundos`; devuelve la y de "Agendar" o None."""
+        self.y = None
+        self.hallado.clear()
+        self.on.set()
+        self.hallado.wait(segundos)
+        self.on.clear()
+        if self.error:
+            e, self.error = self.error, None
+            raise e
+        return self.y
+
+
 DIA_CAZA = ['hoy']
 SCRIPT_SH = '/data/data/com.termux/files/home/bexo-scripts/telefono/peya.sh'
 
