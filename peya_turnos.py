@@ -464,6 +464,19 @@ def estado(texto):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def en_horarios(pantalla):
+    """¿Sigue en Horarios de conexión? Mira la pestaña negra de arriba o el día elegido, y solo dice que no
+    después de 3 miradas seguidas (1 s entre cada una): una captura cortada o un tirón en curso no cuentan."""
+    for intento in range(3):
+        d = pantalla.captura()
+        if pantalla.esta(d, HORARIOS_LISTO, tol=25):
+            return True
+        if any(parecido(pantalla.pixel(d, (x - 40) / 1080, DIA_ELEGIDO_Y), DIA_ELEGIDO, 22) for x in DIAS_X):
+            return True
+        time.sleep(1)
+    return False
+
+
 def cazar(args, ancho, alto):
     """Refresca cada --min a --max segundos, sin fin (o --minutos), mirando la pantalla todo el tiempo.
     Apenas aparece "Agendar" lo toca y confirma. El log anota un resumen cada --resumen minutos
@@ -490,7 +503,7 @@ def _cazar(args, ancho, alto, pantalla):
             proximo_control = time.time() + 30
             if bloqueado():
                 return log('Teléfono bloqueado: paro. %d refrescos' % vueltas)
-            if not pantalla.esta(pantalla.captura(), HORARIOS_LISTO):
+            if not en_horarios(pantalla):
                 ruta = foto('peya_fuera')
                 notificar('PeYa: paré', 'La app salió de Horarios de conexión')
                 return log('La pantalla ya no es Horarios de conexión: paro (captura %s)' % ruta)
