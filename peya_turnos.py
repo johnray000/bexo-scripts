@@ -348,6 +348,12 @@ def notificar(titulo, texto):
                     '--vibrate', '500,300,500', '--title', titulo, '--content', texto], check=False)
 
 
+def anunciar(frase):
+    """Aviso que se nota aunque no mires: vibra fuerte y lo dice en voz alta."""
+    subprocess.Popen(['termux-vibrate', '-d', '1200', '-f'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(['termux-tts-speak', frase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def foto(nombre):
     """Guarda una captura PNG en Descargas (para ver qué pasó cuando algo falla)."""
     ruta = '/sdcard/Download/' + time.strftime(nombre + '_%H%M%S.png')
@@ -541,6 +547,10 @@ def refrescar_rapido(ancho, alto):
     return dur / 1000
 
 
+TOQUE = [0.0]          # cuándo tocaste la pantalla por última vez
+PAUSA_TOQUE = 8        # segundos sin tocar para volver a cazar
+
+
 def vigilar_volumen():
     """Botón de parar: apretar BAJAR VOLUMEN dos veces rápido. Escucha los botones físicos por ADB (los toques del script
     no pasan por ahí) y, al ver bajar volumen, deja el aviso de parar."""
@@ -552,7 +562,9 @@ def vigilar_volumen():
 
     def escuchar():
         for linea in proc.stdout:
-            if 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
+            if 'ABS_MT' in linea or 'BTN_TOUCH' in linea:
+                TOQUE[0] = time.time()          # tu dedo en la pantalla (los toques del script no llegan acá)
+            elif 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
                 ahora = time.time()
                 if ahora - ultimo[0] < 0.7:      # dos toques rápidos: uno solo no para (podés bajar el volumen)
                     open(PARAR, 'w').close()
@@ -655,20 +667,37 @@ def _cazar(args, ancho, alto, pantalla):
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = proximo_control = time.time()
     vigia = Vigia(pantalla)
+    pausado = afuera = False
     historial = []   # los intentos de esta caza
     while time.time() < fin:
         if os.path.exists(PARAR):
             estado('Parado. %d refrescos' % vueltas)
             log('⏹  Parado')
+            anunciar('Caza parada')
             return resumen_final(inicio, vueltas, historial, pantalla)
-        if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
+        if time.time() - TOQUE[0] < PAUSA_TOQUE:   # estás usando el teléfono: pausa, sin refrescar
+            if not pausado:
+                pausado = True
+                log('⏸  Pausa: estás tocando la pantalla')
+                estado('Pausa: estás usando el teléfono. Sigue %d s después de que dejes de tocar '
+                       '(con PeYa en Horarios)' % PAUSA_TOQUE)
+            time.sleep(0.3)
+            continue
+        if pausado or time.time() >= proximo_control:   # después de una pausa, o cada 30 s
             proximo_control = time.time() + 30
             if bloqueado():
                 return bloque('⏹  Teléfono bloqueado: paro', '%d refrescos' % vueltas)
             if not en_horarios(pantalla):
-                ruta = foto('peya_fuera')
-                notificar('PeYa: paré', 'La app salió de Horarios de conexión')
-                return bloque('⏹  Salió de Horarios: paro', corto(ruta))
+                if not pausado or not afuera:
+                    log('⏸  PeYa no está en Horarios: espero que vuelvas')
+                    estado('Pausa: dejá PeYa en Horarios de conexión y no toques %d s' % PAUSA_TOQUE)
+                pausado, afuera = True, True
+                time.sleep(2)
+                continue
+            if pausado:
+                pausado, afuera, armado = False, False, False   # al volver, espera ver la lista vacía otra vez
+                log('▶  Sigo cazando')
+                estado('Cazando de nuevo')
         if time.time() >= proximo_resumen:
             proximo_resumen = time.time() + args.resumen * 60
             texto = '%d refrescos · %.0f min · %d intentos' % (vueltas, (time.time() - inicio) / 60, intentos)
@@ -718,6 +747,7 @@ def _cazar(args, ancho, alto, pantalla):
             bloque('✅ TURNO TOMADO (intento %d)' % intentos, *tiempos, 'Refresco %d' % vueltas)
             resumen_final(inicio, vueltas, historial, pantalla)
             notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
+            anunciar('Turno tomado en Pedidos Ya')
             return
         if resultado != 'rojo':   # sin cartel es raro: se guarda qué había en pantalla
             corto_t += ' · ' + corto(foto('peya_sin_cartel'))
