@@ -365,9 +365,14 @@ def notificar(titulo, texto):
 
 
 def anunciar(frase):
-    """Tres pitidos agudos y lo dice en voz alta (sin vibrar)."""
-    pitido(3)
-    subprocess.Popen(['termux-tts-speak', frase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Pitido agudo y fuerte y DESPUÉS la voz (si arrancan juntos la voz corta el pitido). En otro hilo, para
+    no frenar nada; el script espera a que termine antes de salir."""
+    import threading
+
+    def sonar():
+        pitido('turno')
+        subprocess.run(['termux-tts-speak', frase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    threading.Thread(target=sonar).start()
 
 
 def foto(nombre):
@@ -605,21 +610,40 @@ def estado(texto, como='cazando'):
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def pitido(n=1):
-    """Pitido agudo (4000 Hz), al volumen que tengas."""
-    import math, struct, wave
-    ruta = os.path.expanduser('~/.peya_pitido_%d.wav' % n)
+def pitido(tipo='turno'):
+    """Dos sonidos distintos, a volumen máximo (después vuelve el volumen como estaba):
+    turno → tres pitidos agudos cortos (3200 Hz) · error → dos tonos graves largos que bajan (900 → 500 Hz).
+    Espera a que termine de sonar."""
+    import json, math, struct, wave
+    if tipo != 'turno':
+        tipo = 'error'
+    tonos = {'turno': [(3200, 0.22), (0, 0.08)] * 3,
+             'error': [(900, 0.45), (0, 0.12), (500, 0.6)]}[tipo]
+    ruta = os.path.expanduser('~/.peya_sonido_%s.wav' % tipo)
+    tasa = 44100
     if not os.path.exists(ruta):
-        tasa, muestras = 44100, []
-        for _ in range(n):
-            muestras += [int(30000 * math.sin(2 * math.pi * 4000 * i / tasa)) for i in range(int(tasa * 0.18))]
-            muestras += [0] * int(tasa * 0.1)
+        muestras = []
+        for hz, seg in tonos:
+            for i in range(int(tasa * seg)):
+                # onda cuadrada: suena más fuerte y "chillona" que una senoidal al mismo volumen
+                muestras.append(0 if hz == 0 else (32000 if math.sin(2 * math.pi * hz * i / tasa) >= 0 else -32000))
         with wave.open(ruta, 'wb') as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(tasa)
             w.writeframes(struct.pack('<%dh' % len(muestras), *muestras))
-    subprocess.Popen(['termux-media-player', 'play', ruta], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    antes = None
+    try:
+        for v in json.loads(subprocess.run(['termux-volume'], capture_output=True, text=True, timeout=5).stdout):
+            if v.get('stream') == 'music':
+                antes = v['volume']
+                subprocess.run(['termux-volume', 'music', str(v['max_volume'])], timeout=5)
+    except Exception:
+        pass
+    subprocess.run(['termux-media-player', 'play', ruta], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(sum(seg for _, seg in tonos) + 0.4)
+    if antes is not None:
+        subprocess.run(['termux-volume', 'music', str(antes)], check=False)
 
 
 def en_horarios(pantalla):
@@ -657,7 +681,7 @@ def cazar(args, ancho, alto):
             time.sleep(5)
         else:
             estado('Se cortó ADB (¿se apagó la Depuración inalámbrica?)', 'parado')
-            pitido(2)
+            pitido('error')
             return bloque('⏹  Sin ADB: paro', 'Prendé la Depuración', 'inalámbrica y arrancá', 'de nuevo')
         bloque('✅ Reconectado: sigo cazando')
         abrir_consola()
