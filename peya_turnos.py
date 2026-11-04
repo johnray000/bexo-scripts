@@ -350,6 +350,12 @@ def bloque(titulo, *filas):
         print(' ' * 9 + f, flush=True)
 
 
+def resumen_final(inicio, vueltas, intentos, totales):
+    bloque('📊 Resumen', '%d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60),
+           'Intentos: %d' % intentos,
+           ('Total promedio: %.2f s' % (sum(totales) / len(totales))) if totales else 'Sin intentos')
+
+
 def corto(ruta):
     return os.path.basename(ruta)
 
@@ -484,6 +490,44 @@ def estado(texto):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+class Vigia:
+    """Dos miradas a la pantalla en paralelo, desfasadas: ve el botón "Agendar" cada ~0,12 s en vez de
+    cada ~0,24 s (cada captura tarda lo mismo, pero se superponen)."""
+
+    def __init__(self, pantalla, hilos=2):
+        import threading
+        self.pantalla, self.y, self.error = pantalla, None, None
+        self.on, self.hallado = threading.Event(), threading.Event()
+        for i in range(hilos):
+            threading.Thread(target=self._mirar, args=(i * 0.12,), daemon=True).start()
+
+    def _mirar(self, desfase):
+        time.sleep(desfase)
+        while True:
+            self.on.wait()
+            try:
+                y = self.pantalla.boton_agendar()
+            except SinADB as e:
+                self.error = e
+                self.hallado.set()
+                continue
+            if y and self.on.is_set():
+                self.y = y
+                self.hallado.set()
+
+    def mirar(self, segundos):
+        """Mira hasta `segundos`; devuelve la y de "Agendar" o None."""
+        self.y = None
+        self.hallado.clear()
+        self.on.set()
+        self.hallado.wait(segundos)
+        self.on.clear()
+        if self.error:
+            e, self.error = self.error, None
+            raise e
+        return self.y
+
+
 def en_horarios(pantalla):
     """¿Sigue en Horarios de conexión? Mira la pestaña negra de arriba o el día elegido, y solo dice que no
     después de 3 miradas seguidas (1 s entre cada una): una captura cortada o un tirón en curso no cuentan."""
@@ -530,11 +574,13 @@ def _cazar(args, ancho, alto, pantalla):
     fin = inicio + args.minutos * 60 if args.minutos else float('inf')
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = proximo_control = time.time()
+    vigia = Vigia(pantalla)
+    totales = []
     while time.time() < fin:
         if os.path.exists(PARAR):
             estado('Parado. %d refrescos' % vueltas)
-            return bloque('⏹  Parado', '%d refrescos en %.0f min' % (vueltas, (time.time() - inicio) / 60),
-                          'Intentos: %d' % intentos)
+            log('⏹  Parado')
+            return resumen_final(inicio, vueltas, intentos, totales)
         if time.time() >= proximo_control:      # cada 30 s: ¿sigue en la página de horarios y desbloqueado?
             proximo_control = time.time() + 30
             if bloqueado():
@@ -546,17 +592,13 @@ def _cazar(args, ancho, alto, pantalla):
         if time.time() >= proximo_resumen:
             proximo_resumen = time.time() + args.resumen * 60
             texto = '%d refrescos · %.0f min · %d intentos' % (vueltas, (time.time() - inicio) / 60, intentos)
-            bloque('🔄 ' + texto, 'Mirada: %d ms' % pantalla.ms_por_captura())
+            log('🔄 %s · %d ms' % (texto, pantalla.ms_por_captura()))
             estado(texto)
         t_envio = time.time()
         dur = refrescar_rapido(ancho, alto)
         vueltas += 1
         ciclo = random.uniform(args.min, args.max)
-        y = None
-        while time.time() - t_envio < ciclo:      # mira la pantalla hasta el próximo refresco
-            y = pantalla.boton_agendar()
-            if y:
-                break
+        y = vigia.mirar(ciclo - (time.time() - t_envio))   # mira la pantalla hasta el próximo refresco
         if y and vueltas <= pausa_hasta:
             continue
         if y and not armado:
@@ -578,25 +620,29 @@ def _cazar(args, ancho, alto, pantalla):
                    'Agendar visto   %.2f s' % (visto - suelta),
                    'Refresco %d' % vueltas, corto(foto('peya_sin_confirmacion')), 'Sigo cazando')
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
-            pausa_hasta = vueltas + 10
+            pausa_hasta = vueltas + 2
             continue
         tiempos = ('Agendar visto   %.2f s' % (visto - suelta),
                    'Confirmar listo %.2f s' % r[0],
                    'Total           %.2f s' % (pantalla.fin - suelta))
+        totales.append(pantalla.fin - suelta)
+        corto_t = '%.2f+%.2f=%.2f s' % (visto - suelta, r[0], pantalla.fin - suelta)
         resultado = pantalla.cartel()
         if resultado == 'verde':
             bloque('✅ TURNO TOMADO (intento %d)' % intentos, *tiempos,
                    'Refresco %d' % vueltas, corto(foto('peya_tomado')))
+            resumen_final(inicio, vueltas, intentos, totales)
             notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             return
         ruta = foto('peya_no_tomado')
-        bloque('❌ Intento %d: %s' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'), *tiempos,
-               'Refresco %d' % vueltas, corto(ruta), 'Sigo cazando')
+        log('❌ #%d %s · %s' % (intentos, 'otro' if resultado == 'rojo' else 'sin cartel', corto_t))
         estado('Intento %d falló (%s). Sigo cazando' % (intentos, 'otro lo tomó' if resultado == 'rojo' else 'sin cartel'))
         time.sleep(0.8)
         if pantalla.buscar(pantalla.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16):
             adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # quedó abierta la ventana: se cierra
-        pausa_hasta = vueltas + 10   # el turno fallido puede seguir en la lista: no se reintenta enseguida
+        # el turno fallido puede seguir un momento en la lista: 2 refrescos sin tocar y después,
+        # a la primera lista vacía (o si no, igual), se vuelve a cazar
+        pausa_hasta = vueltas + 2
     bloque('⏹  Pasaron %g min: paro' % args.minutos, '%d refrescos' % vueltas)
 
 
@@ -613,7 +659,7 @@ if __name__ == '__main__':
     ap.add_argument('--max', type=float, default=3.2, help='espera máxima entre refrescos, en segundos')
     ap.add_argument('--mirar', type=float, default=4, help='segundos que mira la pantalla después de cada refresco')
     ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')
-    ap.add_argument('--resumen', type=float, default=2, help='cada cuántos minutos anota un resumen en el log')
+    ap.add_argument('--resumen', type=float, default=10, help='cada cuántos minutos anota un resumen en el log')
     args = ap.parse_args()
     if not conectar():
         # ADB a veces queda colgado con la conexión vieja (al apagar y prender la depuración cambia el puerto)
