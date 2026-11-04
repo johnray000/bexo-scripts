@@ -258,14 +258,13 @@ def ruta_rapida(pantalla, dia=None):
         else:
             adb('shell', 'input', 'swipe', '3', str(h // 2), str(int(a * 0.7)), str(h // 2), '250')
         if pantalla.esperar(MENU_ABIERTO, 2.5, tol=30):
+            tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
             break
         adb('shell', 'cmd', 'statusbar', 'collapse')
     else:
         log('No se abrió el menú: sigo por textos')
         tocar_xy(int(a * RUTA[0][1]), int(h * RUTA[0][2]))
         tocar('Horas de conexión')
-        return True
-    tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
     if not pantalla.esperar(HORARIOS_LISTO, 15):
         raise SystemExit('No se abrió la página de horarios')
     if pantalla.dia_elegido(15) is None:            # que cargue la fila de días antes de tocar nada
