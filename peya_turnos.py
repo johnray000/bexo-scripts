@@ -60,6 +60,7 @@ DIA_Y = 0.283
 ROSA = (252, 214, 227)
 COLUMNA_X = 0.926                     # x = 1000 en 1080 de ancho
 DESDE_Y = 0.36                        # debajo del calendario y los filtros (y = 870 en 2400)
+AGENDAR_FRANJA = (0.392, 0.51)        # y 940-1225: donde está el primer botón "Agendar"
 ALTO_MIN_BOTON = 40                   # píxeles rosas seguidos para contar como botón (el botón mide ~110)
 # La ventana "Reservar este horario de conexión?": botón negro (23,23,23) "Agendar horario de conexión",
 # de lado a lado, abajo (y 1970-2110 en 2400). El fondo oscurecido es gris (89,89,89), no negro.
@@ -75,10 +76,31 @@ def pausa(a, b):
     time.sleep(random.uniform(a, b))
 
 
-def tocar_xy(x, y, corrimiento=6):
-    """Toca con un pequeño corrimiento, para que no sea siempre el mismo punto exacto."""
-    adb('shell', 'input', 'tap', str(x + random.randint(-corrimiento, corrimiento)),
-        str(y + random.randint(-corrimiento, corrimiento)))
+_SHELL = None
+
+
+def tocar_xy(x, y, corrimiento=6, esperar=True):
+    """Toca con un pequeño corrimiento, para que no sea siempre el mismo punto exacto.
+    Con esperar=False manda el toque por una consola de ADB que queda abierta y sigue sin esperar
+    (ahorra abrir ADB y esperar a que Android termine el toque: unos 0,3-0,5 s)."""
+    global _SHELL
+    x, y = x + random.randint(-corrimiento, corrimiento), y + random.randint(-corrimiento, corrimiento)
+    if esperar:
+        adb('shell', 'input', 'tap', str(x), str(y))
+        return
+    if _SHELL is None or _SHELL.poll() is not None:
+        _SHELL = subprocess.Popen(['adb', 'shell'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, text=True)
+    _SHELL.stdin.write('input tap %d %d &\n' % (x, y))
+    _SHELL.stdin.flush()
+
+
+def abrir_consola():
+    """Abre de antemano la consola de ADB de los toques rápidos (abrirla tarda)."""
+    global _SHELL
+    if _SHELL is None or _SHELL.poll() is not None:
+        _SHELL = subprocess.Popen(['adb', 'shell'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, text=True)
 
 
 def visibles():
@@ -132,9 +154,17 @@ class Pantalla:
         except (OSError, ValueError):
             self.confirmar_y = int(alto * 0.842)          # y = 2020 en 2400 (captura de john)
 
-    def captura(self):
+    def captura(self, y0=0, y1=None):
+        """Las filas y0..y1 de la pantalla. Se recortan en el teléfono: viaja mucho menos que la pantalla entera."""
         t = time.time()
-        d = subprocess.run(['adb', 'exec-out', 'screencap'], capture_output=True, timeout=10).stdout[self.cabecera:]
+        fila = self.ancho * 4
+        if y1 is None:
+            cmd = 'screencap'
+            corte = self.cabecera
+        else:
+            cmd = 'screencap | tail -c +%d | head -c %d' % (self.cabecera + y0 * fila + 1, (y1 - y0) * fila)
+            corte = 0
+        d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=10).stdout[corte:]
         self.capturas += 1
         self.tiempo += time.time() - t
         return d
@@ -156,29 +186,37 @@ class Pantalla:
                 return True
         return False
 
-    def buscar(self, datos, fx, color, desde_y, alto_min, tol=12):
-        """La y del centro de la primera franja de `color` (al menos alto_min píxeles) en la columna fx, o None."""
+    def buscar(self, datos, fx, color, desde_y, alto_min, tol=12, y0=0):
+        """La y del centro de la primera franja de `color` (al menos alto_min píxeles) en la columna fx, o None.
+        `datos` empieza en la fila y0 de la pantalla."""
         x, seguidos = int(self.ancho * fx), 0
-        for fila in range(int(self.alto * desde_y), len(datos) // (self.ancho * 4)):
+        for fila in range(max(0, int(self.alto * desde_y) - y0), len(datos) // (self.ancho * 4)):
             i = (fila * self.ancho + x) * 4
             if parecido((datos[i], datos[i + 1], datos[i + 2]), color, tol):
                 seguidos += 1
                 if seguidos >= alto_min:
-                    return fila - seguidos // 2 + 15   # un poco más abajo del medio de lo visto
+                    return y0 + fila - seguidos // 2 + 15   # un poco más abajo del medio de lo visto
             else:
                 seguidos = 0
         return None
 
     def boton_agendar(self):
-        """La y del primer botón rosa "Agendar" de la lista, o None."""
-        return self.buscar(self.captura(), COLUMNA_X, ROSA, DESDE_Y, ALTO_MIN_BOTON)
+        """La y del primer botón rosa "Agendar" de la lista, o None. Mira solo la franja del primer turno
+        (y 940-1225: con o sin "APPLIED FILTERS" arriba), que es lo que se toca."""
+        y0, y1 = int(self.alto * AGENDAR_FRANJA[0]), int(self.alto * AGENDAR_FRANJA[1])
+        return self.buscar(self.captura(y0, y1), COLUMNA_X, ROSA, 0, ALTO_MIN_BOTON, y0=y0)
 
     def boton_confirmar(self, segundos=4):
         """Espera el botón negro de la ventana de confirmación. Lo devuelve apenas está donde queda quieto
         (lo aprendido la vez anterior), sin esperar a que termine de verse todo; si no, cuando deja de moverse."""
         t0, antes = time.time(), None
+        y0 = max(int(self.alto * CONFIRMAR_DESDE_Y), self.confirmar_y - 110)   # franja alrededor de donde queda
+        y1 = min(self.alto, self.confirmar_y + 110)
         while time.time() - t0 < segundos:
-            y = self.buscar(self.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16)
+            if os.path.exists(CONFIRMAR_Y_GUARDADA):
+                y = self.buscar(self.captura(y0, y1), CONFIRMAR_X, NEGRO, 0, ALTO_MIN_CONFIRMAR, tol=16, y0=y0)
+            else:   # la primera vez: toda la parte de abajo, hasta aprender dónde queda quieto
+                y = self.buscar(self.captura(), CONFIRMAR_X, NEGRO, CONFIRMAR_DESDE_Y, ALTO_MIN_CONFIRMAR, tol=16)
             if y and abs(y - self.confirmar_y) <= 25:
                 return y
             if y and antes and abs(y - antes) <= 4:
@@ -214,7 +252,7 @@ def refrescar(ancho, alto):
     arrancando arriba (sobre "APPLIED FILTERS") la página casi nunca lo tomaba como "refrescar"."""
     x = str(int(ancho * random.uniform(0.15, 0.5)))       # lejos de la columna de los botones
     adb('shell', 'input', 'swipe', x, str(int(alto * random.uniform(0.50, 0.55))),
-        x, str(int(alto * random.uniform(0.86, 0.90))), str(random.randint(250, 350)))
+        x, str(int(alto * random.uniform(0.86, 0.90))), str(random.randint(380, 440)))   # john: ~411 ms
 
 
 def notificar(titulo, texto):
@@ -261,14 +299,17 @@ def agarrar(pantalla, y, confirmar):
     """Toca "Agendar" y, si `confirmar`, toca "Agendar horario de conexión" apenas la ventana queda quieta.
     Devuelve cuánto tardó cada parte (o None si la ventana no apareció)."""
     t0 = time.time()
-    tocar_xy(int(pantalla.ancho * COLUMNA_X) - 80, y, corrimiento=4)
+    tocar_xy(int(pantalla.ancho * COLUMNA_X) - 80, y, corrimiento=4, esperar=False)
     yc = pantalla.boton_confirmar()
     t1 = time.time()
     if not yc:
         foto('peya_sin_confirmacion')
         return None
     if confirmar:
-        tocar_xy(pantalla.ancho // 2, yc, corrimiento=4)
+        tocar_xy(pantalla.ancho // 2, yc, corrimiento=4, esperar=False)
+    pantalla.fin = time.time()
+    if confirmar:
+        time.sleep(1)   # que el toque llegue antes de seguir
     return t1 - t0, yc
 
 
@@ -278,6 +319,7 @@ def ensayo(args, ancho, alto):
     global ENSAYO_ESPERA_RECARGA
     ENSAYO_ESPERA_RECARGA = True
     pantalla = Pantalla(ancho, alto)
+    abrir_consola()
     if not pantalla.boton_agendar():
         return log('ENSAYO: no veo ningún "Agendar" en pantalla. ¿Estás en el domingo, con turnos?')
     for vuelta in range(1, 4):
@@ -301,11 +343,11 @@ def ensayo(args, ancho, alto):
             log('ENSAYO: botón de confirmar listo a los %.2f s del toque (y=%d). Cada mirada a la pantalla: %d ms'
                 % (r + (pantalla.ms_por_captura(),)))
             if args.confirmar:
-                log('ENSAYO: CONFIRMÉ el turno. Desde que solté el refresco: %.2f s' % (time.time() - t_suelta))
+                log('ENSAYO: CONFIRMÉ el turno. Desde que solté el refresco: %.2f s' % (pantalla.fin - t_suelta))
                 notificar('PeYa: turno tomado (ensayo)', 'Fijate en Mis horas de conexión')
             else:
                 log('ENSAYO: NO confirmo (sin --confirmar). Hasta acá: %.2f s desde que solté el refresco'
-                    % (time.time() - t_suelta))
+                    % (pantalla.fin - t_suelta))
                 adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
             return
         if y:
@@ -319,6 +361,7 @@ def ensayo(args, ancho, alto):
 
 def cazar(args, ancho, alto):
     pantalla = Pantalla(ancho, alto)
+    abrir_consola()
     fin = time.time() + args.minutos * 60
     armado, vueltas = False, 0
     while time.time() < fin:
