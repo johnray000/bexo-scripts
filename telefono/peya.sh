@@ -27,6 +27,8 @@ if ! python ~/bexo-scripts/peya_turnos.py --dia "$DIA" >> ~/peya.log 2>&1; then
   termux-notification --id peya-estado --title "⏹ PeYa: PARADO ($DIA)" \
     --content "Error: $(tail -1 ~/peya.log | cut -c1-150)" \
     --button1 'CAZAR DE NUEVO' --button1-action "sh $P/bexo-scripts/telefono/peya.sh $DIA"
+  # el único sonido además de cuando toma un turno: dos pitidos por error
+  python -c "import sys; sys.path.insert(0, '$P/bexo-scripts'); import peya_turnos; peya_turnos.pitido(2)" 2>/dev/null
 fi
 termux-wake-unlock
 rm -f "$PID"

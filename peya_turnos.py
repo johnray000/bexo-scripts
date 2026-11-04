@@ -359,13 +359,11 @@ def refrescar(ancho, alto):
 
 
 def notificar(titulo, texto):
-    subprocess.run(['termux-notification', '--id', 'peya-turno', '--priority', 'max', '--sound',
-                    '--vibrate', '500,300,500', '--title', titulo, '--content', texto], check=False)
+    subprocess.run(['termux-notification', '--id', 'peya-turno', '--priority', 'max', '--title', titulo, '--content', texto], check=False)
 
 
 def anunciar(frase):
-    """Aviso que se nota aunque no mires: vibra fuerte y lo dice en voz alta."""
-    subprocess.Popen(['termux-vibrate', '-d', '1200', '-f'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Lo dice en voz alta (sin vibrar)."""
     subprocess.Popen(['termux-tts-speak', frase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -657,7 +655,6 @@ def cazar(args, ancho, alto):
         else:
             estado('Se cortó ADB (¿se apagó la Depuración inalámbrica?)', 'parado')
             pitido(2)
-            subprocess.run(['termux-vibrate', '-d', '1500'], check=False)
             return bloque('⏹  Sin ADB: paro', 'Prendé la Depuración', 'inalámbrica y arrancá', 'de nuevo')
         bloque('✅ Reconectado: sigo cazando')
         abrir_consola()
@@ -677,7 +674,6 @@ def _cazar(args, ancho, alto, pantalla):
             log('⏹  Parado')
             estado('Arrancá de nuevo desde el acceso directo o con el botón. %d refrescos, %d intentos'
                    % (vueltas, intentos), 'parado')
-            pitido(2)
             return resumen_final(inicio, vueltas, historial, pantalla)
         if VOLUMEN_X2[0] != vol_visto:              # bajar volumen x2: pausa (o sigue, si ya estaba en pausa)
             vol_visto = VOLUMEN_X2[0]
@@ -685,21 +681,18 @@ def _cazar(args, ancho, alto, pantalla):
                 pausado = False
                 log('▶  Sigo (bajar volumen x2)')
                 estado('Cazando de nuevo')
-                pitido(1)
                 armado = False
                 continue
             pausado, pausa_desde, manual, salio, en_peya_desde = True, time.time(), True, False, 0
             log('⏸  Pausa (bajar volumen x2)')
             estado('Para seguir: bajar volumen x2, o salí de PeYa y volvé a Horarios 5 s. '
                    'Se para sola a los %g min' % args.pausa_max, 'pausa')
-            pitido(1)
             continue
         if pausado:
             if time.time() - pausa_desde > args.pausa_max * 60:
                 log('⏹  %g min en pausa: paro' % args.pausa_max)
                 estado('%g min en pausa. Arrancá de nuevo desde el acceso directo o con el botón' % args.pausa_max,
                        'parado')
-                pitido(2)
                 return resumen_final(inicio, vueltas, historial, pantalla)
             if pantalla.en_horarios_rapido():
                 # sigue después de 5 s seguidos en Horarios; si la pausa fue con el volumen, además tenés que
@@ -712,7 +705,6 @@ def _cazar(args, ancho, alto, pantalla):
                     pausado, armado = False, False      # al volver espera ver la lista vacía otra vez
                     log('▶  Sigo cazando')
                     estado('Cazando de nuevo')
-                    pitido(1)
                     continue
             else:
                 salio, en_peya_desde = True, 0
@@ -823,7 +815,6 @@ if __name__ == '__main__':
               flush=True)
         time.sleep(args.espera)
         ruta, lista = guardar_pantalla('peya_pantalla')
-        subprocess.run(['termux-vibrate'], check=False)
         print('\n'.join(t for t, _, _, _ in lista))
         print('\nGuardado en', ruta)
         sys.exit(0)
