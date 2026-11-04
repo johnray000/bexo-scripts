@@ -56,6 +56,8 @@ HORAS_DE_CONEXION = (0.553, 0.227)
 HORARIOS_LISTO = [((0.056, 0.131), (23, 23, 23))]                    # pestaña negra de arriba
 DIAS_X = [100, 245, 392, 540, 687, 835, 980]                          # columnas lu…do (en 1080)
 DIA_Y = 0.283
+DIA_ELEGIDO = (153, 0, 49)            # el cuadrado bordó del día elegido, 40 px a la izquierda del centro
+DIA_ELEGIDO_Y = 0.2875                # y = 690
 # El botón "Agendar" de cada turno: rosa claro (252,214,227), entre x 780 y 1040. Se busca en una columna.
 ROSA = (252, 214, 227)
 COLUMNA_X = 0.926                     # x = 1000 en 1080 de ancho
@@ -186,6 +188,16 @@ class Pantalla:
                 return True
         return False
 
+    def dia_elegido(self, segundos):
+        """Qué columna de día está elegida (0 = lunes … 6 = domingo), esperando hasta `segundos`."""
+        t0 = time.time()
+        while time.time() - t0 < segundos:
+            d = self.captura()
+            for i, x in enumerate(DIAS_X):
+                if parecido(self.pixel(d, (x - 40) / 1080, DIA_ELEGIDO_Y), DIA_ELEGIDO, 22):
+                    return i
+        return None
+
     def buscar(self, datos, fx, color, desde_y, alto_min, tol=12, y0=0):
         """La y del centro de la primera franja de `color` (al menos alto_min píxeles) en la columna fx, o None.
         `datos` empieza en la fila y0 de la pantalla."""
@@ -242,8 +254,16 @@ def ruta_rapida(pantalla, dia=None):
         tocar_xy(int(a * HORAS_DE_CONEXION[0]), int(h * HORAS_DE_CONEXION[1]))
     if not pantalla.esperar(HORARIOS_LISTO, 15):
         raise SystemExit('No se abrió la página de horarios')
+    if pantalla.dia_elegido(15) is None:            # que cargue la fila de días antes de tocar nada
+        raise SystemExit('No cargó la fila de días')
+    time.sleep(0.5)
     if dia is not None:
-        tocar_xy(int(DIAS_X[dia] * a / 1080), int(h * DIA_Y), corrimiento=4)
+        for _ in range(4):                          # toca el día y confirma que quedó elegido
+            tocar_xy(int(DIAS_X[dia] * a / 1080), int(h * DIA_Y), corrimiento=4)
+            if pantalla.dia_elegido(2) == dia:
+                break
+        else:
+            raise SystemExit('No pude elegir el día %d' % dia)
     return True
 
 
