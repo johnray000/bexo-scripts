@@ -32,7 +32,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
+from okx_ordenes import adb, adb_bytes, bloqueado, conectar, consola, tamano_pantalla, textos  # noqa: E402
 
 PAQUETE = 'com.logistics.rider.pedidosya'
 # El recorrido desde que se abre la app hasta los turnos (pantallas de john, 04/11/2026, 1080x2400).
@@ -123,8 +123,7 @@ def tocar_xy(x, y, corrimiento=6, esperar=True):
         adb('shell', 'input', 'tap', str(x), str(y))
         return
     if _SHELL is None or _SHELL.poll() is not None:
-        _SHELL = subprocess.Popen(['adb', 'shell'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL, text=True)
+        _SHELL = consola()
     _SHELL.stdin.write('input tap %d %d &\n' % (x, y))
     _SHELL.stdin.flush()
 
@@ -133,8 +132,7 @@ def abrir_consola():
     """Abre de antemano la consola de ADB de los toques rápidos (abrirla tarda)."""
     global _SHELL
     if _SHELL is None or _SHELL.poll() is not None:
-        _SHELL = subprocess.Popen(['adb', 'shell'], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL, text=True)
+        _SHELL = consola()
 
 
 def visibles():
@@ -180,7 +178,7 @@ class Pantalla:
 
     def __init__(self, ancho, alto):
         self.ancho, self.alto = ancho, alto
-        crudo = subprocess.run(['adb', 'exec-out', 'screencap'], capture_output=True, timeout=20).stdout
+        crudo = adb_bytes('exec-out', 'screencap', espera=20)
         self.cabecera = len(crudo) - ancho * alto * 4      # 12 o 16 bytes según la versión de Android
         if not crudo:
             raise SystemExit('ADB no devuelve la pantalla: apagá y prendé la Depuración inalámbrica y arrancá de nuevo')
@@ -207,7 +205,7 @@ class Pantalla:
         esperado = ((y1 if y1 is not None else self.alto) - y0) * fila
         for _ in range(3):   # a veces ADB devuelve la captura cortada: se pide de nuevo
             try:
-                d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=4).stdout[corte:]
+                d = adb_bytes('exec-out', cmd, espera=4)[corte:]
             except subprocess.TimeoutExpired:
                 d = b''
             if len(d) >= esperado:
@@ -570,8 +568,7 @@ def vigilar_volumen():
     """Botón de parar: apretar BAJAR VOLUMEN dos veces rápido. Escucha los botones físicos por ADB (los toques del script
     no pasan por ahí) y, al ver bajar volumen, deja el aviso de parar."""
     import threading
-    proc = subprocess.Popen(['adb', 'shell', 'getevent', '-lq'], stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True)
+    proc = consola('getevent -lq', salida=True)
 
     ultimo = [0.0]
 

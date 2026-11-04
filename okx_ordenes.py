@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -36,7 +37,146 @@ RUTA = ['Trading P2P']          # en el menú: se busca por el texto
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 
 
+# ---- Ayudante: para seguir sin wifi ----
+# Al perder el wifi el teléfono reinicia ADB y se corta todo. El ayudante es un pequeño servidor que se arranca
+# UNA vez por ADB (en casa) y queda vivo hasta reiniciar el teléfono. Escucha SOLO dentro del teléfono
+# (127.0.0.1, no se ve desde ninguna red) y además pide una clave que solo conoce Termux. Corre como el
+# usuario "shell" de ADB, así que puede capturar la pantalla y tocar igual que ADB.
+AYUDANTE = ('127.0.0.1', 7766)
+CLAVE_AYUDANTE = os.path.expanduser('~/.peya_clave')
+SERVIDOR_AYUDANTE = '/data/local/tmp/peya_ayudante.sh'
+MODO = ['adb']   # 'adb' o 'ayudante'
+
+
+def _clave():
+    try:
+        with open(CLAVE_AYUDANTE) as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+def _socket_ayudante(espera):
+    so = socket.create_connection(AYUDANTE, timeout=espera)
+    so.sendall((_clave() + '\n').encode())
+    return so
+
+
+def ayudante_corre(cmd, espera=60):
+    """Corre un comando en el ayudante y devuelve lo que imprime (bytes)."""
+    try:
+        so = _socket_ayudante(espera)
+    except OSError:
+        return b''
+    partes = []
+    try:
+        so.sendall((cmd + '\nexit\n').encode())
+        while True:
+            d = so.recv(1 << 20)
+            if not d:
+                break
+            partes.append(d)
+    except socket.timeout:
+        raise subprocess.TimeoutExpired(cmd, espera)
+    except OSError:
+        pass
+    finally:
+        so.close()
+    return b''.join(partes)
+
+
+def ayudante_vivo():
+    try:
+        return ayudante_corre('echo peya-ok', 3).strip() == b'peya-ok'
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def arrancar_ayudante():
+    """Con ADB conectado: deja el ayudante corriendo (si no estaba). Dura hasta reiniciar el teléfono."""
+    if ayudante_vivo():
+        return True
+    clave = _clave()
+    if not clave:
+        import secrets
+        clave = secrets.token_hex(16)
+        with open(CLAVE_AYUDANTE, 'w') as f:
+            f.write(clave)
+        os.chmod(CLAVE_AYUDANTE, 0o600)
+    local = os.path.expanduser('~/.peya_ayudante.sh')
+    with open(local, 'w') as f:
+        f.write('#!/system/bin/sh\nread c\n[ "$c" = "%s" ] || exit 0\nexec sh 2>&1\n' % clave)
+    os.chmod(local, 0o600)
+    adb('push', local, SERVIDOR_AYUDANTE)
+    adb('shell', 'chmod', '700', SERVIDOR_AYUDANTE)
+    adb('shell', 'setsid nohup nc -L -s 127.0.0.1 -p %d %s </dev/null >/dev/null 2>&1 &'
+        % (AYUDANTE[1], SERVIDOR_AYUDANTE), espera=10)
+    for _ in range(10):
+        time.sleep(0.3)
+        if ayudante_vivo():
+            return True
+    return False
+
+
+class ConsolaAyudante:
+    """Como un "adb shell" abierto (stdin para mandar comandos, stdout para leer), pero por el ayudante."""
+
+    def __init__(self, cmd=None):
+        self.cerrada = False
+        self.stdin = self
+        try:
+            self.so = _socket_ayudante(5)
+            self.so.settimeout(None)
+            self.stdout = self.so.makefile('r', errors='replace')
+        except OSError:
+            self.so, self.stdout, self.cerrada = None, iter(()), True
+        if cmd:
+            self.write(cmd + '\n')
+
+    def write(self, texto):
+        try:
+            self.so.sendall(texto.encode())
+        except (OSError, AttributeError):
+            self.cerrada = True
+
+    def flush(self):
+        pass
+
+    def poll(self):
+        return 1 if self.cerrada else None
+
+    def kill(self):
+        self.cerrada = True
+        try:
+            self.so.close()
+        except (OSError, AttributeError):
+            pass
+
+
+def consola(cmd=None, salida=False):
+    """Una consola que queda abierta: "adb shell" o la del ayudante."""
+    if MODO[0] == 'ayudante':
+        return ConsolaAyudante(cmd)
+    return subprocess.Popen(['adb', 'shell'] + ([cmd] if cmd else []), stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE if salida else subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, text=True)
+
+
+def adb_bytes(*args, espera=60):
+    """Como adb(...) pero devuelve bytes (para la pantalla cruda)."""
+    if MODO[0] == 'ayudante' and args and args[0] in ('shell', 'exec-out'):
+        return ayudante_corre(' '.join(args[1:]), espera)
+    return subprocess.run(['adb'] + list(args), capture_output=True, timeout=espera).stdout
+
+
 def adb(*args, salida=True, espera=60):
+    if MODO[0] == 'ayudante' and args and args[0] in ('shell', 'exec-out'):
+        out = ayudante_corre(' '.join(args[1:]) + ('' if salida else '; echo "peya-rc=$?"'), espera)
+        texto = out.decode(errors='replace')
+        if salida:
+            return texto
+        m = re.search(r'peya-rc=(\d+)', texto)
+        return int(m.group(1)) if m else 1
     r = subprocess.run(['adb'] + list(args), capture_output=True, text=True, timeout=espera)
     return r.stdout if salida else r.returncode
 
@@ -50,6 +190,17 @@ def conectar():
     """Se conecta y deja elegido UN solo dispositivo: si quedan dos conexiones (la vieja del puerto 5555 y la
     nueva de la depuración inalámbrica) adb no sabe a cuál hablarle y todo sale vacío."""
     os.environ.pop('ANDROID_SERIAL', None)
+    MODO[0] = 'adb'
+    if _elegir_adb():
+        arrancar_ayudante()          # queda listo para cuando se vaya el wifi
+        return True
+    if ayudante_vivo():              # sin ADB (sin wifi) pero el ayudante sigue vivo: se usa él
+        MODO[0] = 'ayudante'
+        return True
+    return False
+
+
+def _elegir_adb():
     if not _conectar():
         return False
     vivos = []
@@ -80,7 +231,6 @@ def _conectar():
         if m and 'connected' in adb('connect', m.group(1)):
             return True
     # Si mdns no lo encuentra: probar los puertos que usa Android para la depuración inalámbrica.
-    import socket
     for puerto in range(30000, 50000):
         with socket.socket() as so:
             so.settimeout(0.02)
