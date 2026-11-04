@@ -14,7 +14,8 @@ Igual que okx_ordenes.py: maneja el teléfono por ADB (depuración inalámbrica,
 
 6. Toca "Agendar horario de conexión" en la ventana que sube, apenas deja de moverse.
 
-Para al apretar BAJAR VOLUMEN dos veces rápido, con PARAR (notificación o el acceso directo), si bloqueás el teléfono, si la app sale de Horarios de
+Pausa con BAJAR VOLUMEN x2, al bloquear el teléfono o al salir de PeYa (sigue a los 5 s de volver a Horarios).
+Para del todo con PARAR DEL TODO (notificación o el acceso directo), a los --pausa-max min de pausa, o si sale de Horarios de
 conexión, al tomar un turno, o al pasar --minutos (por defecto, nunca).
 
   python peya_turnos.py --pantalla    # guarda lo que hay en pantalla en Descargas
@@ -561,6 +562,9 @@ def refrescar_rapido(ancho, alto):
     return dur / 1000
 
 
+VOLUMEN_X2 = [0]   # cuántas veces apretaste bajar volumen x2
+
+
 def vigilar_volumen():
     """Botón de parar: apretar BAJAR VOLUMEN dos veces rápido. Escucha los botones físicos por ADB (los toques del script
     no pasan por ahí) y, al ver bajar volumen, deja el aviso de parar."""
@@ -574,58 +578,47 @@ def vigilar_volumen():
         for linea in proc.stdout:
             if 'KEY_VOLUMEDOWN' in linea and 'DOWN' in linea.split('KEY_VOLUMEDOWN')[1]:
                 ahora = time.time()
-                if ahora - ultimo[0] < 0.7:      # dos toques rápidos: uno solo no para (podés bajar el volumen)
-                    open(PARAR, 'w').close()
-                    return
-                ultimo[0] = ahora
+                if ahora - ultimo[0] < 0.7:      # dos toques rápidos: uno solo no hace nada (podés bajar el volumen)
+                    VOLUMEN_X2[0] += 1           # pausa (o sigue, si ya estaba en pausa)
+                    ultimo[0] = 0.0
+                else:
+                    ultimo[0] = ahora
     threading.Thread(target=escuchar, daemon=True).start()
     return proc
 
 
-def estado(texto):
-    """Actualiza la notificación fija (sin esperar: tarda medio segundo)."""
-    subprocess.Popen(['termux-notification', '--id', 'peya-estado', '--ongoing', '--title', 'PeYa: cazando',
-                      '--content', texto, '--button1', 'PARAR', '--button1-action',
-                      'sh /data/data/com.termux/files/home/bexo-scripts/telefono/peya.sh parar'],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+DIA_CAZA = ['hoy']
+SCRIPT_SH = '/data/data/com.termux/files/home/bexo-scripts/telefono/peya.sh'
 
 
-class Vigia:
-    """Dos miradas a la pantalla en paralelo, desfasadas: ve el botón "Agendar" cada ~0,12 s en vez de
-    cada ~0,24 s (cada captura tarda lo mismo, pero se superponen)."""
+def estado(texto, como='cazando'):
+    """La notificación fija dice siempre en qué está: cazando, en pausa o parado.
+    Cazando o en pausa tiene el botón PARAR; parado tiene CAZAR DE NUEVO (mismo día)."""
+    titulo = {'cazando': '🟢 PeYa: cazando (%s)', 'pausa': '⏸ PeYa: EN PAUSA (%s)',
+              'parado': '⏹ PeYa: PARADO (%s)'}[como] % DIA_CAZA[0]
+    cmd = ['termux-notification', '--id', 'peya-estado', '--title', titulo, '--content', texto]
+    if como == 'parado':
+        cmd += ['--button1', 'CAZAR DE NUEVO', '--button1-action', 'sh %s %s' % (SCRIPT_SH, DIA_CAZA[0])]
+    else:
+        cmd += ['--ongoing', '--button1', 'PARAR DEL TODO', '--button1-action', 'sh %s parar' % SCRIPT_SH]
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def __init__(self, pantalla, hilos=2):
-        import threading
-        self.pantalla, self.y, self.error = pantalla, None, None
-        self.on, self.hallado = threading.Event(), threading.Event()
-        for i in range(hilos):
-            threading.Thread(target=self._mirar, args=(i * 0.12,), daemon=True).start()
 
-    def _mirar(self, desfase):
-        time.sleep(desfase)
-        while True:
-            self.on.wait()
-            try:
-                y = self.pantalla.boton_agendar()
-            except SinADB as e:
-                self.error = e
-                self.hallado.set()
-                continue
-            if y and self.on.is_set():
-                self.y = y
-                self.hallado.set()
-
-    def mirar(self, segundos):
-        """Mira hasta `segundos`; devuelve la y de "Agendar" o None."""
-        self.y = None
-        self.hallado.clear()
-        self.on.set()
-        self.hallado.wait(segundos)
-        self.on.clear()
-        if self.error:
-            e, self.error = self.error, None
-            raise e
-        return self.y
+def pitido(n=1):
+    """Pitido agudo (4000 Hz), al volumen que tengas."""
+    import math, struct, wave
+    ruta = os.path.expanduser('~/.peya_pitido_%d.wav' % n)
+    if not os.path.exists(ruta):
+        tasa, muestras = 44100, []
+        for _ in range(n):
+            muestras += [int(30000 * math.sin(2 * math.pi * 4000 * i / tasa)) for i in range(int(tasa * 0.18))]
+            muestras += [0] * int(tasa * 0.1)
+        with wave.open(ruta, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(tasa)
+            w.writeframes(struct.pack('<%dh' % len(muestras), *muestras))
+    subprocess.Popen(['termux-media-player', 'play', ruta], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def en_horarios(pantalla):
@@ -662,7 +655,8 @@ def cazar(args, ancho, alto):
                 break
             time.sleep(5)
         else:
-            notificar('PeYa: paré', 'Se cortó ADB (¿se apagó la Depuración inalámbrica?)')
+            estado('Se cortó ADB (¿se apagó la Depuración inalámbrica?)', 'parado')
+            pitido(2)
             subprocess.run(['termux-vibrate', '-d', '1500'], check=False)
             return bloque('⏹  Sin ADB: paro', 'Prendé la Depuración', 'inalámbrica y arrancá', 'de nuevo')
         bloque('✅ Reconectado: sigo cazando')
@@ -675,29 +669,61 @@ def _cazar(args, ancho, alto, pantalla):
     armado, vueltas, avisos_antes, intentos, pausa_hasta = False, 0, 0, 0, 0
     proximo_resumen = time.time()
     vigia = Vigia(pantalla)
-    pausado, pausa_desde = False, 0
+    pausado, pausa_desde, manual, salio, en_peya_desde = False, 0, False, False, 0
+    vol_visto = VOLUMEN_X2[0]
     historial = []   # los intentos de esta caza
     while time.time() < fin:
         if os.path.exists(PARAR):
-            estado('Parado. %d refrescos' % vueltas)
             log('⏹  Parado')
-            anunciar('Caza parada')
+            estado('Arrancá de nuevo desde el acceso directo o con el botón. %d refrescos, %d intentos'
+                   % (vueltas, intentos), 'parado')
+            pitido(2)
             return resumen_final(inicio, vueltas, historial, pantalla)
-        if not pantalla.en_horarios_rapido():   # saliste de PeYa (inicio, otra app) o bloqueaste el teléfono
-            if not pausado:
-                pausado, pausa_desde = True, time.time()
-                log('⏸  Pausa: PeYa no está en Horarios')
-                estado('Pausa. Volvé a PeYa → Horarios y sigue sola (se corta a los %d min)' % args.pausa_max)
-            elif time.time() - pausa_desde > args.pausa_max * 60:
-                log('⏹  %d min en pausa: paro' % args.pausa_max)
-                estado('Parado: %d min en pausa' % args.pausa_max)
-                return resumen_final(inicio, vueltas, historial, pantalla)
-            time.sleep(3)                         # en pausa solo mira una fila de la pantalla cada 3 s
+        if VOLUMEN_X2[0] != vol_visto:              # bajar volumen x2: pausa (o sigue, si ya estaba en pausa)
+            vol_visto = VOLUMEN_X2[0]
+            if pausado:
+                pausado = False
+                log('▶  Sigo (bajar volumen x2)')
+                estado('Cazando de nuevo')
+                pitido(1)
+                armado = False
+                continue
+            pausado, pausa_desde, manual, salio, en_peya_desde = True, time.time(), True, False, 0
+            log('⏸  Pausa (bajar volumen x2)')
+            estado('Para seguir: bajar volumen x2, o salí de PeYa y volvé a Horarios 5 s. '
+                   'Se para sola a los %g min' % args.pausa_max, 'pausa')
+            pitido(1)
             continue
         if pausado:
-            pausado, armado = False, False        # al volver espera ver la lista vacía otra vez
-            log('▶  Sigo cazando')
-            estado('Cazando de nuevo')
+            if time.time() - pausa_desde > args.pausa_max * 60:
+                log('⏹  %g min en pausa: paro' % args.pausa_max)
+                estado('%g min en pausa. Arrancá de nuevo desde el acceso directo o con el botón' % args.pausa_max,
+                       'parado')
+                pitido(2)
+                return resumen_final(inicio, vueltas, historial, pantalla)
+            if pantalla.en_horarios_rapido():
+                # sigue después de 5 s seguidos en Horarios; si la pausa fue con el volumen, además tenés que
+                # haber salido de PeYa (si no, la pausa con volumen no serviría de nada)
+                if manual and not salio:
+                    time.sleep(1)
+                    continue
+                en_peya_desde = en_peya_desde or time.time()
+                if time.time() - en_peya_desde >= 5:
+                    pausado, armado = False, False      # al volver espera ver la lista vacía otra vez
+                    log('▶  Sigo cazando')
+                    estado('Cazando de nuevo')
+                    pitido(1)
+                    continue
+            else:
+                salio, en_peya_desde = True, 0
+            time.sleep(1)
+            continue
+        if not pantalla.en_horarios_rapido():   # saliste de PeYa (inicio, otra app) o bloqueaste el teléfono
+            pausado, pausa_desde, manual, salio, en_peya_desde = True, time.time(), False, True, 0
+            log('⏸  Pausa: PeYa no está en Horarios')
+            estado('Volvé a PeYa → Horarios y sigue sola a los 5 s. Se para sola a los %g min' % args.pausa_max,
+                   'pausa')
+            continue
         if time.time() >= proximo_resumen:
             proximo_resumen = time.time() + args.resumen * 60
             texto = '%d refrescos · %.0f min · %d intentos' % (vueltas, (time.time() - inicio) / 60, intentos)
@@ -748,6 +774,7 @@ def _cazar(args, ancho, alto, pantalla):
             resumen_final(inicio, vueltas, historial, pantalla)
             notificar('🛵 Turno tomado en PeYa', 'Fijate en Mis horas de conexión')
             anunciar('Turno tomado en Pedidos Ya')
+            estado('¡Turno tomado! Fijate en Mis horas de conexión', 'parado')
             return
         if resultado != 'rojo':   # sin cartel es raro: se guarda qué había en pantalla
             corto_t += ' · ' + corto(foto('peya_sin_cartel'))
@@ -828,5 +855,7 @@ if __name__ == '__main__':
         log('ENSAYO en el domingo')
         ensayo(args, ancho, alto)
     else:
-        bloque('▶  Empiezo a cazar: %s' % args.dia, 'Parar: bajar volumen x2', 'Capturas: Descargas')
+        DIA_CAZA[0] = args.dia
+        bloque('▶  Empiezo a cazar: %s' % args.dia, 'Pausa: bajar volumen x2', 'Parar: botón de la notificación')
+        estado('Arrancando')
         cazar(args, ancho, alto)
