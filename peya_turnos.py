@@ -140,6 +140,10 @@ def recorrer_ruta(ancho, alto):
             tocar(paso[1], empieza=paso[0] == 'empieza')
 
 
+class SinADB(Exception):
+    pass
+
+
 def parecido(c, color, tol):
     return abs(c[0] - color[0]) < tol and abs(c[1] - color[1]) < tol and abs(c[2] - color[2]) < tol
 
@@ -177,12 +181,14 @@ class Pantalla:
         esperado = ((y1 if y1 is not None else self.alto) - y0) * fila
         for _ in range(3):   # a veces ADB devuelve la captura cortada: se pide de nuevo
             try:
-                d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=10).stdout[corte:]
+                d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=4).stdout[corte:]
             except subprocess.TimeoutExpired:
                 d = b''
             if len(d) >= esperado:
                 break
         else:
+            if not d:
+                raise SinADB()                  # no llegó nada: se cortó la conexión de ADB
             d = d + bytes(esperado - len(d))   # lo que falte, en negro: no se toma por ningún botón
         self.capturas += 1
         self.tiempo += time.time() - t
@@ -497,11 +503,26 @@ def cazar(args, ancho, alto):
     y todo el detalle (con capturas) cuando aparece un turno o algo sale raro."""
     pantalla = Pantalla(ancho, alto)
     abrir_consola()
-    volumen = vigilar_volumen()
-    try:
-        return _cazar(args, ancho, alto, pantalla)
-    finally:
-        volumen.kill()
+    while True:
+        volumen = vigilar_volumen()
+        try:
+            return _cazar(args, ancho, alto, pantalla)
+        except SinADB:
+            bloque('⚠️  Se cortó ADB', 'Reconectando…')
+        finally:
+            volumen.kill()
+        global _SHELL
+        _SHELL = None
+        for _ in range(3):
+            if conectar():
+                break
+            time.sleep(5)
+        else:
+            notificar('PeYa: paré', 'Se cortó ADB (¿se apagó la Depuración inalámbrica?)')
+            subprocess.run(['termux-vibrate', '-d', '1500'], check=False)
+            return bloque('⏹  Sin ADB: paro', 'Prendé la Depuración', 'inalámbrica y arrancá', 'de nuevo')
+        bloque('✅ Reconectado: sigo cazando')
+        abrir_consola()
 
 
 def _cazar(args, ancho, alto, pantalla):
