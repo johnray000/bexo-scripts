@@ -320,8 +320,16 @@ def ensayo(args, ancho, alto):
     ENSAYO_ESPERA_RECARGA = True
     pantalla = Pantalla(ancho, alto)
     abrir_consola()
+    t0 = time.time()
+    while time.time() - t0 < 10 and not pantalla.boton_agendar():   # que cargue la lista del domingo
+        pass
     if not pantalla.boton_agendar():
-        return log('ENSAYO: no veo ningún "Agendar" en pantalla. ¿Estás en el domingo, con turnos?')
+        y0, y1 = int(alto * AGENDAR_FRANJA[0]), int(alto * AGENDAR_FRANJA[1])
+        recorte = pantalla.captura(y0, y1)
+        entera = pantalla.buscar(pantalla.captura(), COLUMNA_X, ROSA, DESDE_Y, ALTO_MIN_BOTON)
+        return log('ENSAYO: no veo ningún "Agendar" en 10 s (recorte: %d bytes de %d esperados; en la pantalla '
+                   'entera: %s; captura %s)' % (len(recorte), (y1 - y0) * ancho * 4, entera, foto('peya_sin_agendar')))
+    log('ENSAYO: lista del domingo cargada a los %.1f s' % (time.time() - t0))
     for vuelta in range(1, 4):
         pausa(args.min, args.max)
         refrescar(ancho, alto)
