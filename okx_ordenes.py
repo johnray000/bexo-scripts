@@ -92,15 +92,76 @@ def textos():
     return lista, xml
 
 
-def tocar(texto, intentos=10):
+def tocar(texto, intentos=10, parcial=False):
+    """Toca el primer texto de la pantalla igual a `texto` (o que lo contenga, con parcial). False si no aparece."""
     for _ in range(intentos):
         for t, x, y, _ in textos()[0]:
-            if t == texto:
+            if t == texto or (parcial and texto.lower() in t.lower()):
                 adb('shell', 'input', 'tap', str(x), str(y))
                 time.sleep(2)
                 return True
         time.sleep(1.5)
-    raise SystemExit('No encontré "%s" en la pantalla de OKX' % texto)
+    return False
+
+
+# Carteles que OKX a veces muestra al abrir (novedades, promociones): se cierran tocando uno de estos textos.
+CERRAR = ('Cerrar', 'Omitir', 'Ahora no', 'Más tarde', 'Entendido', 'Saltar', 'No, gracias')
+
+
+def cerrar_carteles():
+    for t, x, y, _ in textos()[0]:
+        if t in CERRAR:
+            adb('shell', 'input', 'tap', str(x), str(y))
+            time.sleep(2)
+            return True
+    return False
+
+
+def guardar_fallo(motivo):
+    """Guarda una captura y lo que había en pantalla en Descargas, para ver dónde se trabó. Termina con error."""
+    hora = time.strftime('%H%M%S')
+    adb('shell', 'screencap', '-p', '/sdcard/Download/okx_fallo_%s.png' % hora)
+    with open(os.path.join(DESCARGAS, 'okx_fallo_%s.xml' % hora), 'w') as f:
+        f.write(textos()[1])
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+    raise SystemExit('%s. Guardé una captura en Descargas (okx_fallo_%s.png)' % (motivo, hora))
+
+
+def en_completadas():
+    lista = textos()[0]
+    return bool(leer_ordenes(lista)) or any(rid == 'tv_order_type' for _, _, _, rid in lista)
+
+
+def llegar_a_completadas(paquete):
+    """Abre OKX de cero y llega a P2P → Órdenes → Completadas. Busca los botones por su texto y, si no los ve,
+    toca por posición. Si algo falla (un cartel nuevo, la app tardó), cierra OKX y prueba de nuevo, hasta 3 veces."""
+    ancho, alto = tamano_pantalla()
+    for intento in range(1, 4):
+        adb('shell', 'am', 'force-stop', paquete)
+        adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
+        time.sleep(8)
+        # En el inicio de OKX (animado) leer la pantalla puede colgarse: el menú se toca por posición sin leer.
+        adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
+        time.sleep(3)
+        if not tocar('Trading P2P', intentos=4):
+            # Quizás un cartel tapó el menú: se cierra y se toca el menú otra vez.
+            cerrar_carteles()
+            adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
+            time.sleep(3)
+            if not tocar('Trading P2P', intentos=4):
+                print('Intento %d: no encontré "Trading P2P"' % intento, file=sys.stderr, flush=True)
+                continue
+        time.sleep(3)
+        # La portada de P2P tiene un carrusel animado: Órdenes y Completadas se tocan por posición, sin leer.
+        for fx, fy in (ORDENES, COMPLETADAS):
+            adb('shell', 'input', 'tap', str(int(ancho * fx)), str(int(alto * fy)))
+            time.sleep(3)
+        if en_completadas():
+            return
+        if tocar('Completadas', intentos=2) and en_completadas():   # por si la pestaña se movió de lugar
+            return
+        print('Intento %d: no quedé en Completadas' % intento, file=sys.stderr, flush=True)
+    guardar_fallo('No pude llegar a Órdenes → Completadas en OKX')
 
 
 def paquete_okx():
@@ -195,12 +256,22 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--probar', action='store_true')
+    ap.add_argument('--actividad', action='store_true', help='muestra qué pantalla de OKX está abierta (tras --espera)')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--pantallas', type=int, default=40, help='máximo de veces que baja en la lista')
     ap.add_argument('--dias', type=int, default=3, help='lee las órdenes de los últimos N días')
     args = ap.parse_args()
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
+    if args.actividad:
+        print('En %d segundos miro qué pantalla está abierta: dejá OKX en Completadas y esperá a que vibre.'
+              % args.espera, flush=True)
+        time.sleep(args.espera)
+        subprocess.run(['termux-vibrate'], check=False)
+        for linea in adb('shell', 'dumpsys', 'activity', 'activities').splitlines():
+            if 'ResumedActivity' in linea:
+                print(linea.strip())
+        sys.exit(0)
     if args.pantalla:
         print('Ya podés salir de Termux. En %d segundos guarda lo que haya en pantalla: '
               'dejá OKX en la pantalla que quieras y esperá a que vibre.' % args.espera, flush=True)
@@ -216,19 +287,7 @@ if __name__ == '__main__':
     if bloqueado():
         raise SystemExit('Teléfono bloqueado: no leo OKX esta vez')
     cfg = leer_env()
-    paquete = paquete_okx()
-    adb('shell', 'am', 'force-stop', paquete)
-    adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
-    time.sleep(8)
-    ancho, alto = tamano_pantalla()
-    adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
-    time.sleep(3)
-    for paso in RUTA:
-        tocar(paso)
-    time.sleep(3)
-    for fx, fy in (ORDENES, COMPLETADAS):
-        adb('shell', 'input', 'tap', str(int(ancho * fx)), str(int(alto * fy)))
-        time.sleep(3)
+    llegar_a_completadas(paquete_okx())
     lista = recorrer(args.pantallas, args.dias)
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
     if args.probar:
