@@ -25,6 +25,7 @@ conexión, al tomar un turno, o al pasar --minutos (por defecto, nunca).
   python peya_turnos.py               # lo corre telefono/peya.sh (acceso directo del escritorio)
 """
 import argparse
+import gzip
 import os
 import random
 import subprocess
@@ -32,7 +33,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
+from okx_ordenes import adb, adb_bytes, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
 
 PAQUETE = 'com.logistics.rider.pedidosya'
 # El recorrido desde que se abre la app hasta los turnos (pantallas de john, 04/11/2026, 1080x2400).
@@ -188,6 +189,12 @@ class Pantalla:
             raise SystemExit('No entiendo la captura de pantalla (%d bytes de más)' % self.cabecera)
         self.x = int(ancho * COLUMNA_X)
         self.capturas, self.tiempo = 0, 0.0
+        # Comprimir en el teléfono: la franja que se mira es casi toda blanca, 1,2 MB pasan a ~20 KB.
+        # Mucho menos para cifrar y mandar por ADB (eso era buena parte del calor).
+        try:
+            self.gzip = gzip.decompress(adb_bytes('exec-out', 'echo peya | gzip -1', espera=5)) == b'peya\n'
+        except (OSError, EOFError, subprocess.TimeoutExpired, gzip.BadGzipFile):
+            self.gzip = False
         try:
             with open(CONFIRMAR_Y_GUARDADA) as f:
                 self.confirmar_y = int(f.read())
@@ -204,11 +211,16 @@ class Pantalla:
         else:
             cmd = 'screencap | tail -c +%d | head -c %d' % (self.cabecera + y0 * fila + 1, (y1 - y0) * fila)
             corte = 0
+            if self.gzip:
+                cmd += ' | gzip -1'
         esperado = ((y1 if y1 is not None else self.alto) - y0) * fila
         for _ in range(3):   # a veces ADB devuelve la captura cortada: se pide de nuevo
             try:
-                d = subprocess.run(['adb', 'exec-out', cmd], capture_output=True, timeout=4).stdout[corte:]
-            except subprocess.TimeoutExpired:
+                d = adb_bytes('exec-out', cmd, espera=4)
+                if self.gzip and y1 is not None:
+                    d = gzip.decompress(d) if d else b''
+                d = d[corte:]
+            except (subprocess.TimeoutExpired, OSError, EOFError, gzip.BadGzipFile):
                 d = b''
             if len(d) >= esperado:
                 break
@@ -794,6 +806,7 @@ def _cazar(args, ancho, alto, pantalla):
         ciclo = random.uniform(args.min, args.max)
         # La lista solo cambia al refrescar: se mira desde el tirón hasta que terminó de cargar (--mirar s después
         # de soltar) y el resto del ciclo se descansa. Mirar todo el tiempo recalentaba el teléfono y cansaba ADB.
+        time.sleep(max(0, dur - 0.05))     # mientras arrastra la lista no puede cambiar: no se mira
         y = vigia.mirar(min(ciclo, dur + args.mirar) - (time.time() - t_envio))
         if not y:
             time.sleep(max(0, ciclo - (time.time() - t_envio)))
@@ -864,8 +877,8 @@ if __name__ == '__main__':
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--dia', default='hoy', help='hoy, mañana o un día de esta semana (jueves, vi, …)')
     ap.add_argument('--elegir', type=float, default=0, help='segundos para que elijas otro día antes de empezar (0 = hoy)')
-    ap.add_argument('--min', type=float, default=2.7, help='espera mínima entre refrescos, en segundos')
-    ap.add_argument('--max', type=float, default=3.2, help='espera máxima entre refrescos, en segundos')
+    ap.add_argument('--min', type=float, default=3.2, help='espera mínima entre refrescos, en segundos')
+    ap.add_argument('--max', type=float, default=3.7, help='espera máxima entre refrescos, en segundos')
     ap.add_argument('--mirar', type=float, default=1.8,
                     help='segundos que mira la pantalla después de soltar cada refresco (después descansa)')
     ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')

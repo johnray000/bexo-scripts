@@ -41,6 +41,11 @@ def adb(*args, salida=True, espera=60):
     return r.stdout if salida else r.returncode
 
 
+def adb_bytes(*args, espera=60):
+    """Como adb(...) pero devuelve bytes (para la pantalla cruda)."""
+    return subprocess.run(['adb'] + list(args), capture_output=True, timeout=espera).stdout
+
+
 def tamano_pantalla():
     m = re.search(r'(\d+)x(\d+)', adb('shell', 'wm', 'size'))
     return (int(m.group(1)), int(m.group(2))) if m else (1080, 2400)
