@@ -34,6 +34,7 @@ ORDENES = (0.328, 0.904)        # "Órdenes" en la barra de abajo de P2P
 COMPLETADAS = (0.397, 0.123)    # pestaña "Completadas"
 RUTA = ['Trading P2P']          # en el menú: se busca por el texto
 DESCARGAS = os.path.expanduser('~/storage/downloads')
+ENLACE_ORDENES = 'okx://p2p/orders'   # probado el 06/11/2026: abre P2P → Órdenes
 # Enlaces directos a probar (--probar-enlaces): si alguno abre P2P, se saltea el menú del inicio.
 ENLACES_P2P = ['okx://p2p', 'okx://p2p/home', 'okx://p2p/order', 'okx://p2p/orders', 'okx://main/p2p',
                'okx://trade/p2p', 'okx://fiat/p2p', 'okex://p2p', 'okex://p2p/home',
@@ -171,6 +172,19 @@ def llegar_a_completadas(paquete):
     """Abre OKX de cero y llega a P2P → Órdenes → Completadas. Busca los botones por su texto y, si no los ve,
     toca por posición. Si algo falla (un cartel nuevo, la app tardó), cierra OKX y prueba de nuevo, hasta 3 veces."""
     ancho, alto = tamano_pantalla()
+    # Camino directo: el enlace okx://p2p/orders abre la lista de órdenes P2P sin pasar por el inicio ni el menú.
+    for intento in range(1, 3):
+        adb('shell', 'am', 'force-stop', paquete)
+        adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', ENLACE_ORDENES, paquete)
+        time.sleep(8 + 4 * intento)
+        cerrar_carteles()
+        if not tocar('Completadas', intentos=3):
+            adb('shell', 'input', 'tap', str(int(ancho * COMPLETADAS[0])), str(int(alto * COMPLETADAS[1])))
+        time.sleep(3)
+        if en_completadas():
+            return
+        print('Enlace directo, intento %d: no quedé en Completadas' % intento, file=sys.stderr, flush=True)
+    # Si el enlace dejó de andar (OKX lo cambió): el camino largo, por el menú del inicio.
     for intento in range(1, 4):
         adb('shell', 'am', 'force-stop', paquete)
         adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
