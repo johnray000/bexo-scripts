@@ -524,7 +524,7 @@ def ensayo(args, ancho, alto):
         pausa(args.min, args.max)
         refrescar(ancho, alto)
         t_suelta = time.time()
-        y, demora, desaparecio = mirar(pantalla, args.mirar)
+        y, demora, desaparecio = mirar(pantalla, max(4, args.mirar))
         if vuelta == 3 and not y:
             y = pantalla.boton_agendar()   # aunque no haya recargado, si hay "Agendar" se prueba la confirmación
             if y:
@@ -553,7 +553,7 @@ def ensayo(args, ancho, alto):
         elif not desaparecio:
             log('ENSAYO refresco %d: "Agendar" nunca se fue: tirar hacia abajo NO recargó la lista' % vuelta)
         else:
-            log('ENSAYO refresco %d: la lista se borró y no volvió en %g s' % (vuelta, args.mirar))
+            log('ENSAYO refresco %d: la lista se borró y no volvió en %g s' % (vuelta, max(4, args.mirar)))
     log('ENSAYO: en el refresco 3 no apareció "Agendar": no toqué nada')
 
 
@@ -792,7 +792,11 @@ def _cazar(args, ancho, alto, pantalla):
         dur = refrescar_rapido(ancho, alto)
         vueltas += 1
         ciclo = random.uniform(args.min, args.max)
-        y = vigia.mirar(ciclo - (time.time() - t_envio))   # mira la pantalla hasta el próximo refresco
+        # La lista solo cambia al refrescar: se mira desde el tirón hasta que terminó de cargar (--mirar s después
+        # de soltar) y el resto del ciclo se descansa. Mirar todo el tiempo recalentaba el teléfono y cansaba ADB.
+        y = vigia.mirar(min(ciclo, dur + args.mirar) - (time.time() - t_envio))
+        if not y:
+            time.sleep(max(0, ciclo - (time.time() - t_envio)))
         if y and vueltas <= pausa_hasta:
             continue
         if y and not armado:
@@ -862,7 +866,8 @@ if __name__ == '__main__':
     ap.add_argument('--elegir', type=float, default=0, help='segundos para que elijas otro día antes de empezar (0 = hoy)')
     ap.add_argument('--min', type=float, default=2.7, help='espera mínima entre refrescos, en segundos')
     ap.add_argument('--max', type=float, default=3.2, help='espera máxima entre refrescos, en segundos')
-    ap.add_argument('--mirar', type=float, default=4, help='segundos que mira la pantalla después de cada refresco')
+    ap.add_argument('--mirar', type=float, default=1.8,
+                    help='segundos que mira la pantalla después de soltar cada refresco (después descansa)')
     ap.add_argument('--minutos', type=float, default=0, help='cuánto tiempo caza como mucho (0 = sin fin)')
     ap.add_argument('--pausa-max', type=float, default=10, help='minutos en pausa antes de parar del todo')
     ap.add_argument('--resumen', type=float, default=10, help='cada cuántos minutos anota un resumen en el log')
