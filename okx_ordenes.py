@@ -139,18 +139,20 @@ def llegar_a_completadas(paquete):
     for intento in range(1, 4):
         adb('shell', 'am', 'force-stop', paquete)
         adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
-        time.sleep(8)
-        # En el inicio de OKX (animado) leer la pantalla puede colgarse: el menú se toca por posición sin leer.
-        adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
-        time.sleep(3)
-        if not tocar('Trading P2P', intentos=4):
-            # Quizás un cartel tapó el menú: se cierra y se toca el menú otra vez.
-            cerrar_carteles()
+        # El menú de arriba a la izquierda tarda en cargar y en el inicio (animado) leer la pantalla puede colgarse:
+        # se toca por posición y se mira si apareció el menú (ahí sí se puede leer). Si no, se espera más y se repite.
+        llego = False
+        for espera in (8, 6, 8, 10):
+            time.sleep(espera)
             adb('shell', 'input', 'tap', str(int(ancho * MENU[0])), str(int(alto * MENU[1])))
             time.sleep(3)
-            if not tocar('Trading P2P', intentos=4):
-                print('Intento %d: no encontré "Trading P2P"' % intento, file=sys.stderr, flush=True)
-                continue
+            if tocar('Trading P2P', intentos=2):
+                llego = True
+                break
+            cerrar_carteles()
+        if not llego:
+            print('Intento %d: el menú no abrió o no tiene "Trading P2P"' % intento, file=sys.stderr, flush=True)
+            continue
         time.sleep(3)
         # La portada de P2P tiene un carrusel animado: Órdenes y Completadas se tocan por posición, sin leer.
         for fx, fy in (ORDENES, COMPLETADAS):
@@ -256,6 +258,8 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--probar', action='store_true')
+    ap.add_argument('--enlaces', action='store_true', help='muestra los enlaces directos que acepta la app de OKX')
+    ap.add_argument('--abrir', help='abre OKX con este enlace y muestra qué pantalla quedó')
     ap.add_argument('--actividad', action='store_true', help='muestra qué pantalla de OKX está abierta (tras --espera)')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
     ap.add_argument('--pantallas', type=int, default=40, help='máximo de veces que baja en la lista')
@@ -263,6 +267,26 @@ if __name__ == '__main__':
     args = ap.parse_args()
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
+    if args.enlaces:
+        dump = adb('shell', 'dumpsys', 'package', paquete_okx())
+        vistos = []
+        for linea in dump.splitlines():
+            linea = linea.strip()
+            if re.match(r'(Scheme|Authority|Path|PathPrefix|PathPattern):', linea) and linea not in vistos:
+                vistos.append(linea)
+        ruta = os.path.join(DESCARGAS, 'okx_enlaces.txt')
+        with open(ruta, 'w') as f:
+            f.write('\n'.join(vistos))
+        print('\n'.join(vistos[:80]))
+        print('\n%d líneas, guardadas en %s' % (len(vistos), ruta))
+        sys.exit(0)
+    if args.abrir:
+        paquete = paquete_okx()
+        adb('shell', 'am', 'force-stop', paquete)
+        print(adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', args.abrir, paquete))
+        time.sleep(12)
+        print('\n'.join(t for t, _, _, _ in textos()[0][:40]))
+        sys.exit(0)
     if args.actividad:
         print('En %d segundos miro qué pantalla está abierta: dejá OKX en Completadas y esperá a que vibre.'
               % args.espera, flush=True)
