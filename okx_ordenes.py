@@ -34,6 +34,11 @@ ORDENES = (0.328, 0.904)        # "Órdenes" en la barra de abajo de P2P
 COMPLETADAS = (0.397, 0.123)    # pestaña "Completadas"
 RUTA = ['Trading P2P']          # en el menú: se busca por el texto
 DESCARGAS = os.path.expanduser('~/storage/downloads')
+# Enlaces directos a probar (--probar-enlaces): si alguno abre P2P, se saltea el menú del inicio.
+ENLACES_P2P = ['okx://p2p', 'okx://p2p/home', 'okx://p2p/order', 'okx://p2p/orders', 'okx://main/p2p',
+               'okx://trade/p2p', 'okx://fiat/p2p', 'okex://p2p', 'okex://p2p/home',
+               'https://www.okx.com/ul/p2p', 'https://www.okx.com/p2p-markets/uyu/buy-usdt',
+               'https://www.okx.com/es-la/p2p-markets/uyu/buy-usdt', 'https://app.okx.com/p2p']
 
 
 def adb(*args, salida=True, espera=60):
@@ -289,6 +294,7 @@ if __name__ == '__main__':
     ap.add_argument('--pantalla', action='store_true')
     ap.add_argument('--probar', action='store_true')
     ap.add_argument('--enlaces', action='store_true', help='muestra los enlaces directos que acepta la app de OKX')
+    ap.add_argument('--probar-enlaces', action='store_true', help='prueba varios enlaces directos a P2P y dice cuál funciona')
     ap.add_argument('--abrir', help='abre OKX con este enlace y muestra qué pantalla quedó')
     ap.add_argument('--actividad', action='store_true', help='muestra qué pantalla de OKX está abierta (tras --espera)')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla (--pantalla)')
@@ -309,6 +315,19 @@ if __name__ == '__main__':
             f.write('\n'.join(vistos))
         print('\n'.join(vistos[:80]))
         print('\n%d líneas, guardadas en %s' % (len(vistos), ruta))
+        sys.exit(0)
+    if args.probar_enlaces:
+        paquete = paquete_okx()
+        for uri in ENLACES_P2P:
+            adb('shell', 'am', 'force-stop', paquete)
+            adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', uri, paquete)
+            time.sleep(12)
+            foco = re.search(r'mCurrentFocus=\S+ \S+ (\S+)\}', adb('shell', 'dumpsys', 'window'))
+            foco = foco.group(1) if foco else '?'
+            vistos = [t for t, _, _, _ in textos()[0]] if paquete in foco else []
+            p2p = [t for t in vistos if 'P2P' in t or t in ('Completadas', 'Comprar', 'Vender', 'Órdenes')]
+            print('%-45s %s | %s' % (uri, foco.split('/')[-1][:40], ', '.join(p2p[:5]) or '-'), flush=True)
+        adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
         sys.exit(0)
     if args.abrir:
         paquete = paquete_okx()
