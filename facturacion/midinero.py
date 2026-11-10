@@ -6,6 +6,12 @@ El navegador guarda su perfil en ~/.midinero_perfil: si la web pide un código l
 en la terminal y después recuerda el dispositivo. Solo lee: no toca transferir ni nada que mueva plata.
 
   python3 midinero.py --explorar   # entra, guarda cada pantalla y los datos que trae la web en ~/midinero_explorar
+  python3 midinero.py --probar     # muestra las entradas de los últimos 9 días (no manda nada)
+  python3 midinero.py --desde 01/10/2026 --hasta 31/10/2026   # un mes entero
+  python3 midinero.py              # lee los últimos 9 días y los manda a "Movs UY" (lo del cron de los martes)
+
+Sale a internet por el túnel del teléfono (MiDinero bloquea IPs de fuera de Uruguay). Para mandar usa
+WEBAPP_URL y ORDENES_TOKEN del mismo .env, como prex.py.
 
 Lee MIDINERO_EMAIL y MIDINERO_CLAVE de /etc/subir-ordenes.env (o ~/.subir-ordenes.env).
 """
@@ -198,14 +204,137 @@ def explorar():
     print('\nTodo en %s. Copiá desde [01 entrada] hasta acá y pasáselo a Claude.' % EXPLORAR)
 
 
+CTA = 'MiDinero'
+MOVS_API = 'https://ms-serverside-personas.midinero.com.uy/api/Account/getMovements'
+DETALLE_API = 'https://personas-ss.midinero.com.uy/api/transfer/transferDetail'
+CUENTAS_API = 'https://ms-serverside-personas.midinero.com.uy/midinero.svc/obtenercuentasv2?productPreference=2'
+# Entradas que no son cobros (devoluciones de compras con tarjeta): no se mandan.
+EXCLUIR = re.compile(r'^GOOGLE\*|DEVOLUCI', re.I)
+
+
+def entrar(p):
+    """Abre la web por el túnel, entra con email y contraseña y espera la lista de movimientos.
+    Devuelve (navegador, página, encabezados de la sesión por servidor, documento de John)."""
+    cfg = leer_env()
+    for k in ('MIDINERO_EMAIL', 'MIDINERO_CLAVE'):
+        if not cfg.get(k):
+            raise SystemExit('Falta %s en el .env' % k)
+    sesion, doc = {}, {}
+
+    def al_pedir(q):   # la web manda su sesión en los encabezados: se reusan para pedir los datos
+        host = q.url.split('/')[2]
+        if host.startswith(('ms-serverside-personas.', 'personas-ss.')) and q.resource_type in ('xhr', 'fetch'):
+            h = {k: v for k, v in q.all_headers().items()
+                 if k.lower() not in ('cookie', 'content-length', 'host') and not k.startswith(':')}
+            if any(k.lower() == 'authorization' for k in h):
+                sesion[host] = h
+        m = re.search(r'customer-id=\d+_(\d+)', q.url)
+        if m:
+            doc['n'] = m.group(1)
+
+    nav = p.chromium.launch_persistent_context(PERFIL, headless=True, locale='es-UY', timezone_id='America/Montevideo',
+                                               viewport={'width': 1280, 'height': 900}, user_agent=NAVEGADOR,
+                                               proxy=proxy_telefono())
+    page = nav.pages[0] if nav.pages else nav.new_page()
+    page.on('request', al_pedir)
+    login(page, cfg)
+    if '/error/' in page.url:   # a veces el primer intento cae en error y el segundo entra
+        page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
+    if '/app/movimientos' not in page.url:
+        page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
+    time.sleep(5)
+    if '/app/movimientos' not in page.url or not sesion:
+        raise SystemExit('No pude entrar a MiDinero (quedó en %s).' % limpio(page.url))
+    documento = doc.get('n') or cfg.get('MIDINERO_DOCUMENTO', '')
+    if not documento:
+        raise SystemExit('No encontré tu documento: agregá MIDINERO_DOCUMENTO=... al .env.')
+    return nav, page, sesion, documento
+
+
+def pedir(nav, sesion, metodo, url, datos=None):
+    host = url.split('/')[2]
+    h = sesion.get(host) or next(iter(sesion.values()))
+    if metodo == 'GET':
+        r = nav.request.get(url, headers=h, timeout=60000)
+    else:
+        r = nav.request.post(url, headers=dict(h, **{'content-type': 'application/json'}), data=json.dumps(datos),
+                             timeout=60000)
+    if not r.ok:
+        raise SystemExit('MiDinero respondió %s a %s' % (r.status, limpio(url)))
+    return r.json()
+
+
+def entradas(desde, hasta):
+    """Las entradas de plata entre dos fechas (datetime.date), con el nombre de quien mandó cada una."""
+    from urllib.parse import urlencode
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        nav, page, sesion, documento = entrar(p)
+        try:
+            cuenta = pedir(nav, sesion, 'GET', CUENTAS_API)['datos']['list'][0]['cuentaNumero']
+            q = urlencode({'from': desde.strftime('%Y-%m-%dT00:00:00'), 'to': hasta.strftime('%Y-%m-%dT23:59:59'),
+                           'accountNumber': cuenta, 'limit': 1000})
+            movs = pedir(nav, sesion, 'GET', MOVS_API + '?' + q)
+            if len(movs) >= 1000:
+                print('Ojo: llegaron 1000 movimientos, puede haber más. Pedí menos días.', flush=True)
+            filas = []
+            for m in movs:
+                monto = (m.get('amount') or {}).get('amount') or 0
+                if monto <= 0 or EXCLUIR.search(m.get('description') or ''):
+                    continue
+                d = {}
+                if m.get('extendedId'):
+                    d = pedir(nav, sesion, 'POST', DETALLE_API, {'Document': documento, 'AccountNumber': int(cuenta),
+                                                                 'ExtendedId': m['extendedId']})
+                filas.append({'id': m['id'], 'fecha': m['date'], 'monto': monto, 'tipo': m.get('typeName') or '',
+                              'desc': m.get('description') or '', 'titular': (d.get('accountOriginName') or '').strip(),
+                              'doc_origen': d.get('accountOriginDocument') or '',
+                              'concepto': (d.get('concept') or '').strip(), 'ref_md': d.get('referenceNumber') or ''})
+            return filas
+        finally:
+            nav.close()
+
+
+def para_planilla(f):
+    """Una entrada con el formato que recibe 17_MovimientosUY.gs (el mismo de Prex e Itaú)."""
+    dia, hora = f['fecha'][:10], f['fecha'][11:16]
+    fecha = '%s/%s/%s - %s' % (dia[8:10], dia[5:7], dia[:4], hora)
+    detalle = f['concepto'] or ('' if f['titular'] else f['desc'])
+    return {'fecha_hora': fecha, 'monto': f['monto'], 'titular': f['titular'], 'descripcion': detalle,
+            'referencia': 'MD-%s' % f['id'], 'cta': CTA}
+
+
+def mandar(filas):
+    """Manda las filas al Apps Script (WEBAPP_URL, ORDENES_TOKEN del .env). Igual que prex.mandar, sin ADB."""
+    import urllib.request
+    cfg = leer_env()
+    cuerpo = json.dumps({'movimientosUY': filas, 'cta': CTA, 'token': cfg['ORDENES_TOKEN']}).encode()
+    req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read().decode('utf-8', 'replace'))
+
+
 def main():
+    from datetime import date, datetime, timedelta
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--explorar', action='store_true', help='guarda cada pantalla y los datos de la web')
+    ap.add_argument('--probar', action='store_true', help='muestra las entradas sin mandarlas a la planilla')
+    ap.add_argument('--dias', type=int, default=9, help='cuántos días para atrás (por defecto 9)')
+    ap.add_argument('--desde', help='dd/mm/aaaa')
+    ap.add_argument('--hasta', help='dd/mm/aaaa (por defecto hoy)')
     a = ap.parse_args()
     if a.explorar:
-        explorar()
-    else:
-        ap.print_help()
+        return explorar()
+    hasta = datetime.strptime(a.hasta, '%d/%m/%Y').date() if a.hasta else date.today()
+    desde = datetime.strptime(a.desde, '%d/%m/%Y').date() if a.desde else hasta - timedelta(days=a.dias)
+    filas = entradas(desde, hasta)
+    print('%d entradas de MiDinero del %s al %s' % (len(filas), desde.strftime('%d/%m'), hasta.strftime('%d/%m')))
+    for f in filas:
+        print('  %s  %10.2f  %-30s %s' % (f['fecha'][:16].replace('T', ' '), f['monto'], f['titular'][:30],
+                                         f['concepto'] or f['desc']))
+    if a.probar or not filas:
+        return
+    print('Planilla:', mandar([para_planilla(f) for f in filas]))
 
 
 if __name__ == '__main__':
