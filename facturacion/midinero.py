@@ -352,7 +352,13 @@ def _entradas(desde, hasta):
                 filas.append({'id': m['id'], 'fecha': m['date'], 'monto': monto, 'tipo': m.get('typeName') or '',
                               'desc': m.get('description') or '', 'titular': (d.get('accountOriginName') or '').strip(),
                               'doc_origen': d.get('accountOriginDocument') or '',
-                              'concepto': (d.get('concept') or '').strip(), 'ref_md': d.get('referenceNumber') or ''})
+                              'concepto': (d.get('concept') or '').strip(), 'ref_md': d.get('referenceNumber') or '',
+                              'ext': m.get('extendedId')})
+            for f in filas:   # última vuelta para los que quedaron sin nombre (suele ser el primero)
+                if f['ext'] and not f['titular']:
+                    d = pedir(nav, sesion, 'POST', DETALLE_API, {'Document': documento, 'AccountNumber': int(cuenta),
+                                                                 'ExtendedId': f['ext']}, tolerar=True)
+                    f['titular'] = (d.get('accountOriginName') or '').strip()
             return filas
         finally:
             nav.close()
