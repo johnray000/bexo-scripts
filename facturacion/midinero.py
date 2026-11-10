@@ -257,7 +257,7 @@ def entrar(p):
     return nav, page, sesion, documento, doc['cuenta']
 
 
-def pedir(nav, sesion, metodo, url, datos=None):
+def pedir(nav, sesion, metodo, url, datos=None, tolerar=False):
     host = url.split('/')[2]
     h = sesion.get(host) or next(iter(sesion.values()))
     if metodo == 'GET':
@@ -265,6 +265,9 @@ def pedir(nav, sesion, metodo, url, datos=None):
     else:
         r = nav.request.post(url, headers=dict(h, **{'content-type': 'application/json'}), data=json.dumps(datos),
                              timeout=60000)
+    if not r.ok and tolerar:   # un detalle que no se pudo leer no frena el resto
+        print('  (sin detalle: %s %s)' % (r.status, re.sub(r'\s+', ' ', r.text())[:200]), flush=True)
+        return {}
     if not r.ok:
         raise SystemExit('MiDinero respondió %s a %s' % (r.status, limpio(url)))
     return r.json()
@@ -302,7 +305,7 @@ def _entradas(desde, hasta):
                 d = {}
                 if m.get('extendedId'):
                     d = pedir(nav, sesion, 'POST', DETALLE_API, {'Document': documento, 'AccountNumber': int(cuenta),
-                                                                 'ExtendedId': m['extendedId']})
+                                                                 'ExtendedId': m['extendedId']}, tolerar=True)
                 filas.append({'id': m['id'], 'fecha': m['date'], 'monto': monto, 'tipo': m.get('typeName') or '',
                               'desc': m.get('description') or '', 'titular': (d.get('accountOriginName') or '').strip(),
                               'doc_origen': d.get('accountOriginDocument') or '',
@@ -347,8 +350,8 @@ def main():
     filas = entradas(desde, hasta)
     print('%d entradas de MiDinero del %s al %s' % (len(filas), desde.strftime('%d/%m'), hasta.strftime('%d/%m')))
     for f in filas:
-        print('  %s  %10.2f  %-30s %s' % (f['fecha'][:16].replace('T', ' '), f['monto'], f['titular'][:30],
-                                         f['concepto'] or f['desc']))
+        print('  %s  %10.2f  %-30s %s [%s]' % (f['fecha'][:16].replace('T', ' '), f['monto'], f['titular'][:30],
+                                              f['concepto'] or f['desc'], f['tipo']))
     if a.probar or not filas:
         return
     print('Planilla:', mandar([para_planilla(f) for f in filas]))
