@@ -16,8 +16,10 @@ if [ -d "$REPO/.git" ]; then git -C "$REPO" pull -q; else git clone -q https://g
 echo "== 3/5 Playwright y Chromium (la primera vez tarda unos minutos)"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade playwright
-sudo "$VENV/bin/playwright" install-deps chromium >/dev/null
-"$VENV/bin/playwright" install chromium >/dev/null
+# El node que trae Playwright a veces queda sin permiso de ejecución
+chmod +x "$VENV"/lib/python3*/site-packages/playwright/driver/node 2>/dev/null || true
+# Con --with-deps Playwright mismo usa sudo para los paquetes del sistema
+"$VENV/bin/playwright" install --with-deps chromium
 
 echo "== 4/5 Email y contraseña de MiDinero"
 touch "$ENVF"
