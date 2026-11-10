@@ -10,3 +10,6 @@ Log en el teléfono: `tail -5 ~/subir.log`
 - `alerta_compras.py`: alarma (notificación + voz) cuando alguien abre una orden en tu anuncio de compra;
   revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
   Log: `tail -5 ~/alerta.log`
+- `facturacion/notifs_apps.py`: anota los avisos de plata de MiDinero, Prex, OCA, Itaú y Mercado Pago
+  (solo lee las notificaciones). `telefono/avisos.sh` lo arranca si no está corriendo. Ver `facturacion/LEEME.md`.
+  Log: `tail -5 ~/avisos.log`
