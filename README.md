@@ -15,3 +15,5 @@ Log en el teléfono: `tail -5 ~/subir.log`
   `--pantalla NOMBRE` guarda la pantalla de cualquier app en Descargas y vibra al terminar.
 - `facturacion/itau.py`: lo mismo para la cuenta CC Pesos de Itaú (pestaña entradas; abre cada una para el ordenante).
   `telefono/movs_uy.sh` corre Prex y después Itaú (botón de los martes).
+- `facturacion/midinero.py`: MiDinero desde su web, en el VPS (la app no deja leer la pantalla). Playwright + Chromium;
+  `--explorar` guarda cada pantalla y los datos de la web. Necesita MIDINERO_EMAIL y MIDINERO_CLAVE en el .env.
