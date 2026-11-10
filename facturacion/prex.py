@@ -8,20 +8,25 @@ Transferir, Cargar ni nada que mueva plata. Al terminar vuelve al inicio y vibra
   python prex.py --pantalla prex_lista   # en 30 s guarda la pantalla en Descargas (prex_lista.xml) y vibra
   python prex.py --probar                # lee las entradas de los últimos 7 días y las muestra (no manda nada)
   python prex.py --probar --dias 3
+  python prex.py                         # lee y manda a la planilla (hoja "Movs UY" de Registro BEXO)
 
-Por ahora deja todo en Descargas/prex_entradas.csv. Mandarlo a la planilla es el paso siguiente.
+Siempre deja una copia en Descargas/prex_entradas.csv. Para mandar usa WEBAPP_URL y ORDENES_TOKEN de
+~/.subir-ordenes.env (los mismos de subir_ordenes.py); del lado de Apps Script lo recibe 17_MovimientosUY.gs.
 """
 import argparse
 import csv
+import json
 import os
 import re
 import subprocess
 import sys
 import time
+import urllib.request
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos, tocar  # noqa: E402
+from subir_ordenes import leer_env  # noqa: E402
 
 PAQUETE = 'air.Prex'
 DESCARGAS = os.path.expanduser('~/storage/downloads')
@@ -30,6 +35,8 @@ CSV = os.path.join(DESCARGAS, 'prex_entradas.csv')
 FECHA = re.compile(r'^\d{2}/\d{2}/\d{4}$')
 MONTO = re.compile(r'^(-\s*)?(U\$S|\$)\s*([\d.]+,\d{2})$')
 ESPERA_HUELLA_S = 120
+# Si Prex abre sin mostrar el cartel de la huella, se toca su botón de huella (texto o descripción con esto).
+BOTON_HUELLA = re.compile(r'huella|biom|fingerprint|digital', re.I)
 ROTULOS = ('Fecha y hora', 'Recibiste de', 'Titular', 'Entidad financiera', 'País', 'N° de cuenta', 'Motivo',
            'N° de referencia')
 
@@ -99,12 +106,42 @@ def hay(texto):
     return lambda lista: any(t == texto for t, _, _, _ in lista)
 
 
+def guardar_pantalla(nombre):
+    with open(os.path.join(DESCARGAS, nombre + '.xml'), 'w') as fh:
+        fh.write(textos()[1])
+
+
+def esperar_huella():
+    """Espera a que entres a Prex con tu huella. Si el cartel de la huella no aparece solo, toca el botón de huella
+    de la pantalla de ingreso (cada 10 s, por si el primer toque no lo abrió). La huella la ponés siempre vos."""
+    fin, ultimo_toque, guardada = time.time() + ESPERA_HUELLA_S, 0, False
+    while time.time() < fin:
+        lista = textos()[0]
+        if any(t == 'Movimientos' for t, _, _, _ in lista):
+            return True
+        if time.time() - ultimo_toque > 10:
+            for t, x, y, _ in lista:
+                if BOTON_HUELLA.search(t) and y > 0:
+                    adb('shell', 'input', 'tap', str(x), str(y))
+                    ultimo_toque = time.time()
+                    print('Toqué "%s" para que aparezca la huella' % t, flush=True)
+                    break
+            else:
+                if not guardada and lista and time.time() > fin - ESPERA_HUELLA_S + 20:
+                    guardar_pantalla('prex_ingreso')   # para ajustar el botón si no lo encontró
+                    guardada = True
+        time.sleep(3)
+    return False
+
+
 def abrir_movimientos():
     adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
     avisar('Prex', 'Poné tu huella en Prex. Después no toques la pantalla.')
     vibrar()
-    if not esperar(hay('Movimientos'), ESPERA_HUELLA_S, cada=3):
-        raise SystemExit('Prex no llegó al inicio en %d s (¿huella?)' % ESPERA_HUELLA_S)
+    if not esperar_huella():
+        guardar_pantalla('prex_fallo')
+        raise SystemExit('Prex no llegó al inicio en %d s (¿huella?). Guardé la pantalla en Descargas/prex_fallo.xml'
+                         % ESPERA_HUELLA_S)
     time.sleep(2)
     if not tocar('Movimientos') or not esperar(hay('Tus movimientos'), 30):
         raise SystemExit('No pude entrar a Movimientos')
@@ -113,7 +150,7 @@ def abrir_movimientos():
 
 def entradas(dias):
     """Recorre las entradas de los últimos `dias`, entrando al detalle de cada una."""
-    desde = datetime.now() - timedelta(days=dias)
+    desde = (datetime.now() - timedelta(days=dias)).replace(hour=0, minute=0, second=0, microsecond=0)   # días enteros
     alto = tamano_pantalla()[1]
     hechas, resultado = set(), []
     for _ in range(200):
@@ -154,6 +191,20 @@ def guardar_csv(lista):
                         e.get('N° de referencia', ''), e['desc'], e['tipo']])
 
 
+def para_planilla(lista):
+    return [{'fecha_hora': e.get('Fecha y hora', e['fecha']), 'monto': e['monto'], 'moneda': e['moneda'],
+             'titular': e.get('Titular', ''), 'cta': 'Prex', 'referencia': e.get('N° de referencia', ''),
+             'descripcion': e['desc']} for e in lista]
+
+
+def subir(lista):
+    cfg = leer_env()
+    cuerpo = json.dumps({'movimientosUY': para_planilla(lista), 'cta': 'Prex', 'token': cfg['ORDENES_TOKEN']}).encode()
+    req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read().decode('utf-8', 'replace'))
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--pantalla', metavar='NOMBRE', help='guarda la pantalla en Descargas/NOMBRE.xml y vibra')
@@ -185,4 +236,12 @@ if __name__ == '__main__':
     guardar_csv(lista)
     total = sum(e['monto'] for e in lista)
     print('\n%d entradas, total $ %.2f. Guardadas en %s' % (len(lista), total, CSV))
-    avisar('Prex ✅', '%d entradas leídas, total $ %.2f' % (len(lista), total))
+    if a.probar:
+        avisar('Prex ✅', '%d entradas leídas, total $ %.2f (prueba, no se mandaron)' % (len(lista), total))
+        sys.exit(0)
+    r = subir(lista)
+    print('Planilla:', r, flush=True)
+    if not r.get('ok'):
+        avisar('Prex ⚠️', 'No se pudo mandar a la planilla: %s' % r.get('error', r))
+        raise SystemExit(1)
+    avisar('Prex ✅', '%d entradas leídas, %d nuevas en la planilla' % (len(lista), r.get('nuevas', 0)))
