@@ -93,12 +93,15 @@ def filas_con_fecha(items, fecha_previa):
 
 
 def alinear(previas, nuevas):
-    """Cuántas filas del principio de `nuevas` son las últimas de `previas` (mismo texto y monto, en orden).
-    Así se sabe qué filas ya se vieron aunque haya dos iguales, y se les copia la fecha y si ya se leyeron."""
-    for k in range(min(len(previas), len(nuevas)), 0, -1):
-        if all((a['desc'], a['monto']) == (b['desc'], b['monto']) for a, b in zip(previas[-k:], nuevas[:k])):
-            return k
-    return 0
+    """(salteo, k): las filas nuevas[salteo:salteo+k] son las últimas k de `previas` (mismo texto y monto, en orden).
+    Así se sabe qué filas ya se vieron aunque haya dos iguales, y se les copia la fecha y si ya se leyeron.
+    `salteo` (hasta 2) tolera una fila cortada arriba que en la pantalla anterior no se leyó."""
+    for salteo in range(0, min(3, len(nuevas))):
+        resto = nuevas[salteo:]
+        for k in range(min(len(previas), len(resto)), 0, -1):
+            if all((a['desc'], a['monto']) == (b['desc'], b['monto']) for a, b in zip(previas[-k:], resto[:k])):
+                return salteo, k
+    return 0, 0
 
 
 def referencia(f, orden):
@@ -152,17 +155,31 @@ def deslizar(alto):
     time.sleep(2)
 
 
+MAX_MINUTOS = 15
+
+
 def entradas(desde, hasta):
     alto = tamano_pantalla()[1]
     previas, resultado, iguales, sin_cambio = [], [], {}, 0
     fecha_previa = date.today()
+    lugar_pedido = None                          # (fila, y) cuando se bajó para hacer lugar al detalle
+    fin = time.time() + MAX_MINUTOS * 60
+    mas_vieja = None
     for _ in range(1500):
+        if time.time() > fin:
+            print('Corté a los %d minutos: algo no avanzaba' % MAX_MINUTOS, flush=True)
+            guardar_pantalla('itau_trabado')
+            return resultado
         nuevas = filas_con_fecha(leer_pantalla(textos()[0]), fecha_previa)
-        k = alinear(previas, nuevas)
-        for a, b in zip(previas[-k:] if k else [], nuevas[:k]):
+        salteo, k = alinear(previas, nuevas)
+        for f in nuevas[:salteo]:
+            f['hecha'] = True                    # quedaron arriba: ya se vieron
+        for a, b in zip(previas[-k:] if k else [], nuevas[salteo:salteo + k]):
             b['fecha'], b['hecha'] = a['fecha'], a.get('hecha', False)
-        if previas and k == 0:
+        if previas and nuevas and k == 0:
             print('Aviso: no pude alinear con la pantalla anterior', flush=True)
+        if nuevas:
+            mas_vieja = min(mas_vieja or nuevas[-1]['fecha'], nuevas[-1]['fecha'])
         if nuevas:
             fecha_previa = nuevas[-1]['fecha']
         previas = nuevas
@@ -179,9 +196,14 @@ def entradas(desde, hasta):
             despues = [(f['desc'], f['monto']) for f in filas_con_fecha(leer_pantalla(textos()[0]), fecha_previa)]
             sin_cambio = sin_cambio + 1 if despues == firma else 0
             if sin_cambio >= 2:                  # el final de la lista
+                if mas_vieja and mas_vieja > desde:
+                    print('Aviso: la lista de Itaú termina el %s; antes de esa fecha no muestra nada (sin filtro)'
+                          % mas_vieja.strftime('%d/%m'), flush=True)
                 return resultado
             continue
-        if pendiente['y'] > alto * 0.6:           # que haya lugar abajo para el detalle
+        # Que haya lugar abajo para el detalle. Si ya se bajó y la fila no se movió (final de la lista), se abre igual.
+        if pendiente['y'] > alto * 0.6 and lugar_pedido != (pendiente['desc'], pendiente['monto'], pendiente['y']):
+            lugar_pedido = (pendiente['desc'], pendiente['monto'], pendiente['y'])
             deslizar(alto)
             continue
         adb('shell', 'input', 'tap', str(pendiente['x']), str(pendiente['y']))
