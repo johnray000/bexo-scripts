@@ -262,9 +262,17 @@ def entrar(p):
         page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
     if '/app/movimientos' not in page.url:
         page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
-    time.sleep(5)
+    for intento in range(3):   # espera a ver pasar la sesión y la cuenta; si no aparecen, recarga la página
+        for _ in range(10):
+            if sesion and doc.get('cuenta'):
+                break
+            page.wait_for_timeout(2000)
+        if sesion and doc.get('cuenta'):
+            break
+        page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
     if '/app/movimientos' not in page.url or not sesion or not doc.get('cuenta'):
-        raise SystemExit('No pude entrar a MiDinero (quedó en %s).' % limpio(page.url))
+        raise SystemExit('No pude entrar a MiDinero (quedó en %s; sesión: %s, cuenta: %s).'
+                         % (limpio(page.url), 'sí' if sesion else 'no', 'sí' if doc.get('cuenta') else 'no'))
     documento = doc.get('n') or cfg.get('MIDINERO_DOCUMENTO', '')
     if not documento:
         raise SystemExit('No encontré tu documento: agregá MIDINERO_DOCUMENTO=... al .env.')
