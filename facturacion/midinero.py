@@ -40,6 +40,11 @@ def tapar(x):
     return x
 
 
+def limpio(url):
+    """La dirección sin códigos de sesión, corta, para mostrar en la terminal."""
+    return re.sub(r'(code|state|session_state|sessionDataKey|token)=[^&]+', r'\1=…', url)[:160]
+
+
 def visibles(page, selector):
     return [e for e in page.query_selector_all(selector) if e.is_visible()]
 
@@ -112,11 +117,17 @@ def explorar():
 
     def al_navegar(frame):
         if frame == frame.page.main_frame:
-            print('  → %s' % re.sub(r'(code|state|sessionDataKey)=[^&]+', r'\1=…', frame.url)[:160], flush=True)
+            print('  → %s' % limpio(frame.url), flush=True)
 
     def al_responder(r):
-        if r.status >= 400 and 'midinero' in r.url:
-            print('  ! %s %s' % (r.status, r.url[:140]), flush=True)
+        tipo = r.request.resource_type
+        if tipo in ('xhr', 'fetch') or (r.status >= 400 and tipo != 'stylesheet'):
+            print('  %s %s %s %s' % ('!' if r.status >= 400 else '·', r.status, tipo, limpio(r.url)), flush=True)
+            if r.status >= 400:
+                try:
+                    print('      %s' % re.sub(r'\s+', ' ', r.text())[:300], flush=True)
+                except Exception:
+                    pass
         if 'json' in (r.headers.get('content-type') or '') and r.request.resource_type in ('xhr', 'fetch'):
             try:
                 respuestas.append({'url': r.url, 'estado': r.status, 'datos': tapar(r.json())})
@@ -131,6 +142,9 @@ def explorar():
         page = nav.pages[0] if nav.pages else nav.new_page()
         page.on('response', al_responder)
         page.on('framenavigated', al_navegar)
+        page.on('requestfailed', lambda q: print('  ✗ falló %s %s (%s)' % (q.resource_type, limpio(q.url), q.failure),
+                                                  flush=True))
+        page.on('console', lambda m: m.type == 'error' and print('  consola: %s' % m.text[:300], flush=True))
         page.goto(WEB, wait_until='networkidle', timeout=60000)
         guardar(page, 1, 'entrada')
         login(page, cfg)
