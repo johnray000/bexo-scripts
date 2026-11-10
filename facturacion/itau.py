@@ -116,7 +116,7 @@ def esperar_huella():
         lista = textos()[0]
         if any(t.startswith('CC Pesos') for t, _, _, _ in lista):
             return True
-        if time.time() - ultimo_toque > 10:
+        if time.time() - ultimo_toque > 30:   # tocar seguido cancela el cartel de la huella
             for t, x, y, _ in lista:
                 if t.strip().lower() == 'ingresar' and y > 0:
                     adb('shell', 'input', 'tap', str(x), str(y))
