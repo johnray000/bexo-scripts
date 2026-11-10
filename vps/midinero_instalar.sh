@@ -4,6 +4,12 @@
 set -e
 REPO=~/bexo-scripts
 VENV=~/venv-md
+# Si /home no deja ejecutar programas (noexec), el entorno va en /opt
+if findmnt -no OPTIONS -T "$HOME" | grep -q noexec; then
+  VENV=/opt/venv-md
+  sudo mkdir -p "$VENV"
+  sudo chown "$USER" "$VENV"
+fi
 ENVF=~/.subir-ordenes.env
 
 echo "== 1/5 Paquetes del sistema"
@@ -17,7 +23,16 @@ echo "== 3/5 Playwright y Chromium (la primera vez tarda unos minutos)"
 [ -x "$VENV/bin/python" ] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade playwright
 # El node que trae Playwright a veces queda sin permiso de ejecución
-chmod +x "$VENV"/lib/python3*/site-packages/playwright/driver/node 2>/dev/null || true
+NODE=$(ls "$VENV"/lib/python3*/site-packages/playwright/driver/node)
+chmod +x "$NODE" || true
+if ! "$NODE" --version >/dev/null 2>&1; then
+  echo "El programa de Playwright no arranca. Pasale esto a Claude:"
+  ls -l "$NODE"
+  findmnt -T "$NODE"
+  file "$NODE" 2>/dev/null || true
+  uname -m
+  exit 1
+fi
 # Con --with-deps Playwright mismo usa sudo para los paquetes del sistema
 "$VENV/bin/playwright" install --with-deps chromium
 
