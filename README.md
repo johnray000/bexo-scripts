@@ -17,3 +17,5 @@ Log en el teléfono: `tail -5 ~/subir.log`
   `telefono/movs_uy.sh` corre Prex y después Itaú (botón de los martes).
 - `facturacion/midinero.py`: MiDinero desde su web, en el VPS (la app no deja leer la pantalla). Playwright + Chromium;
   `--explorar` guarda cada pantalla y los datos de la web. Necesita MIDINERO_EMAIL y MIDINERO_CLAVE en el .env.
+  MiDinero bloquea IPs de fuera de Uruguay: el VPS sale por `telefono/tunel_vps.sh` (SSH del teléfono al VPS que deja
+  un proxy SOCKS en 127.0.0.1:1080 del VPS; lo levanta alerta.sh cada 15 min si está VPS_SSH en el .env). Log: `~/tunel.log`.
