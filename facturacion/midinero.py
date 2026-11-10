@@ -94,9 +94,23 @@ def guardar(page, n, nombre):
 def login(page, cfg):
     """Escribe email y contraseña si la web los pide. Si después pide un código, lo pedís en la terminal."""
     page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
-    if not visibles(page, 'input[type=password]'):
+    # con la sesión guardada la web se redirige sola un par de veces: esperar a que quede quieta
+    claves = []
+    for _ in range(15):
+        try:
+            if '/app/movimientos' in page.url and page.wait_for_load_state('networkidle', timeout=10000) is None:
+                time.sleep(2)
+                if '/app/movimientos' in page.url:
+                    return
+            claves = visibles(page, 'input[type=password]')
+            if claves:
+                break
+        except Exception:   # "Execution context was destroyed": estaba navegando, se vuelve a mirar
+            pass
+        time.sleep(2)
+    if not claves:
         return
-    clave = visibles(page, 'input[type=password]')[0]
+    clave = claves[0]
     email = [e for e in visibles(page, 'input') if (e.get_attribute('type') or 'text') in ('email', 'text')]
     if email:
         email[0].fill(cfg['MIDINERO_EMAIL'])
@@ -280,9 +294,9 @@ def entradas(desde, hasta, intentos=3):
         try:
             return _entradas(desde, hasta)
         except Exception as e:
-            if 'PROXY' not in str(e) and 'ERR_CONNECTION' not in str(e) or n == intentos - 1:
+            if not re.search(r'PROXY|ERR_CONNECTION|context was destroyed|Timeout', str(e)) or n == intentos - 1:
                 raise
-            print('Se cortó el túnel del teléfono, reintento en 30 s...', flush=True)
+            print('Falló la entrada (%s), reintento en 30 s...' % str(e).splitlines()[0][:120], flush=True)
             time.sleep(30)
 
 
