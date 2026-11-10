@@ -51,9 +51,13 @@ def proxy_telefono():
     """MiDinero bloquea las IP de fuera de Uruguay: el VPS sale por el túnel del teléfono (telefono/tunel_vps.sh),
     que deja un proxy en 127.0.0.1:1080 del VPS. Sin túnel no se puede entrar."""
     import socket
-    try:
-        socket.create_connection(('127.0.0.1', PUERTO_TUNEL), timeout=3).close()
-    except OSError:
+    for _ in range(12):   # si se cortó, el teléfono reconecta en unos segundos: espera hasta 2 minutos
+        try:
+            socket.create_connection(('127.0.0.1', PUERTO_TUNEL), timeout=3).close()
+            break
+        except OSError:
+            time.sleep(10)
+    else:
         raise SystemExit('El túnel del teléfono no está conectado (puerto %d). Mirá ~/tunel.log en Termux.' % PUERTO_TUNEL)
     return {'server': 'socks5://127.0.0.1:%d' % PUERTO_TUNEL}
 
@@ -264,7 +268,19 @@ def pedir(nav, sesion, metodo, url, datos=None):
     return r.json()
 
 
-def entradas(desde, hasta):
+def entradas(desde, hasta, intentos=3):
+    """Como _entradas, reintentando si el túnel del teléfono se corta a mitad de camino."""
+    for n in range(intentos):
+        try:
+            return _entradas(desde, hasta)
+        except Exception as e:
+            if 'PROXY' not in str(e) and 'ERR_CONNECTION' not in str(e) or n == intentos - 1:
+                raise
+            print('Se cortó el túnel del teléfono, reintento en 30 s...', flush=True)
+            time.sleep(30)
+
+
+def _entradas(desde, hasta):
     """Las entradas de plata entre dos fechas (datetime.date), con el nombre de quien mandó cada una."""
     from urllib.parse import urlencode
     from playwright.sync_api import sync_playwright
