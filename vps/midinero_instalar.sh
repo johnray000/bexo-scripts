@@ -54,5 +54,4 @@ echo "== 5/5 Entrando a MiDinero"
 "$VENV/bin/python" "$REPO/facturacion/midinero.py" --explorar
 
 echo
-echo "Listo. Bajá este archivo con el engranaje de la ventana SSH > Descargar archivo:"
-ls "$HOME/midinero_explorar.tar.gz"
+echo "Listo."
