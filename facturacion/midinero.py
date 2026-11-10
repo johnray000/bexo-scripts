@@ -24,6 +24,9 @@ WEB = 'https://webpersonas.midinero.com.uy'
 MOVIMIENTOS = WEB + '/app/movimientos'
 PERFIL = os.path.expanduser('~/.midinero_perfil')
 EXPLORAR = os.path.expanduser('~/midinero_explorar')
+# Como un Chrome normal de Windows: algunas webs rechazan al navegador "sin ventana".
+NAVEGADOR = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+             'Chrome/130.0.0.0 Safari/537.36')
 # Campos que no se guardan en los archivos de exploración (sesión, claves).
 SECRETO = re.compile(r'token|jwt|password|clave|secret|session|cookie|authorization', re.I)
 
@@ -57,7 +60,8 @@ def guardar(page, n, nombre):
     html = re.sub(r'(type="password"[^>]*value=")[^"]*', r'\1***', html)
     with open(base + '.html', 'w') as fh:
         fh.write(html)
-    print('\n[%02d %s]\n  %s' % (n, nombre, resumen(page)), flush=True)
+    texto = re.sub(r'\s+', ' ', page.inner_text('body') or '').strip()
+    print('\n[%02d %s]\n  %s\n  texto: %s' % (n, nombre, resumen(page), texto[:400]), flush=True)
 
 
 def login(page, cfg):
@@ -70,7 +74,12 @@ def login(page, cfg):
     if email:
         email[0].fill(cfg['MIDINERO_EMAIL'])
     clave.fill(cfg['MIDINERO_CLAVE'])
-    clave.press('Enter')
+    boton = [b for b in visibles(page, 'button, input[type=submit]')
+             if re.search(r'iniciar', (b.inner_text() or b.get_attribute('value') or ''), re.I)]
+    if boton:
+        boton[0].click()
+    else:
+        clave.press('Enter')
     page.wait_for_load_state('networkidle', timeout=60000)
     time.sleep(3)
 
@@ -101,7 +110,13 @@ def explorar():
     os.makedirs(EXPLORAR)
     respuestas = []
 
+    def al_navegar(frame):
+        if frame == frame.page.main_frame:
+            print('  → %s' % re.sub(r'(code|state|sessionDataKey)=[^&]+', r'\1=…', frame.url)[:160], flush=True)
+
     def al_responder(r):
+        if r.status >= 400 and 'midinero' in r.url:
+            print('  ! %s %s' % (r.status, r.url[:140]), flush=True)
         if 'json' in (r.headers.get('content-type') or '') and r.request.resource_type in ('xhr', 'fetch'):
             try:
                 respuestas.append({'url': r.url, 'estado': r.status, 'datos': tapar(r.json())})
@@ -111,9 +126,11 @@ def explorar():
     with sync_playwright() as p:
         nav = p.chromium.launch_persistent_context(PERFIL, headless=True, locale='es-UY',
                                                    timezone_id='America/Montevideo',
-                                                   viewport={'width': 1280, 'height': 900})
+                                                   viewport={'width': 1280, 'height': 900},
+                                                   user_agent=NAVEGADOR)
         page = nav.pages[0] if nav.pages else nav.new_page()
         page.on('response', al_responder)
+        page.on('framenavigated', al_navegar)
         page.goto(WEB, wait_until='networkidle', timeout=60000)
         guardar(page, 1, 'entrada')
         login(page, cfg)
@@ -130,8 +147,7 @@ def explorar():
     print('\nDatos que trajo la web (%d respuestas):' % len(respuestas))
     for r in respuestas:
         print('  %s %s  %s' % (r['estado'], r['url'][:100], json.dumps(r['datos'], ensure_ascii=False)[:150]))
-    shutil.make_archive(EXPLORAR, 'gztar', EXPLORAR)
-    print('\nTodo en %s y en %s.tar.gz (ese es el que me pasás)' % (EXPLORAR, EXPLORAR))
+    print('\nTodo en %s. Copiá desde [01 entrada] hasta acá y pasáselo a Claude.' % EXPLORAR)
 
 
 def main():
