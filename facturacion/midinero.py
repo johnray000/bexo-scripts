@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Lee los movimientos de MiDinero desde su web (webpersonas.midinero.com.uy), en el VPS, sin el teléfono.
+
+La app no deja leer su pantalla, así que se usa la web con un navegador sin ventana (Playwright + Chromium).
+El navegador guarda su perfil en ~/.midinero_perfil: si la web pide un código la primera vez, lo escribís vos
+en la terminal y después recuerda el dispositivo. Solo lee: no toca transferir ni nada que mueva plata.
+
+  python3 midinero.py --explorar   # entra, guarda cada pantalla y los datos que trae la web en ~/midinero_explorar
+
+Lee MIDINERO_EMAIL y MIDINERO_CLAVE de /etc/subir-ordenes.env (o ~/.subir-ordenes.env).
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from subir_ordenes import leer_env  # noqa: E402
+
+WEB = 'https://webpersonas.midinero.com.uy'
+MOVIMIENTOS = WEB + '/app/movimientos'
+PERFIL = os.path.expanduser('~/.midinero_perfil')
+EXPLORAR = os.path.expanduser('~/midinero_explorar')
+# Campos que no se guardan en los archivos de exploración (sesión, claves).
+SECRETO = re.compile(r'token|jwt|password|clave|secret|session|cookie|authorization', re.I)
+
+
+def tapar(x):
+    """Copia de x sin los valores de campos con nombre de secreto."""
+    if isinstance(x, dict):
+        return {k: ('***' if SECRETO.search(k) else tapar(v)) for k, v in x.items()}
+    if isinstance(x, list):
+        return [tapar(v) for v in x]
+    return x
+
+
+def visibles(page, selector):
+    return [e for e in page.query_selector_all(selector) if e.is_visible()]
+
+
+def resumen(page):
+    """Lo que hay en pantalla, para la terminal: campos para escribir y botones."""
+    campos = ['%s(%s)' % (e.get_attribute('type') or 'text', e.get_attribute('name') or e.get_attribute('placeholder') or '')
+              for e in visibles(page, 'input')]
+    botones = [(e.inner_text() or '').strip()[:30] for e in visibles(page, 'button, [role=button], a')]
+    return 'URL %s\n  campos: %s\n  botones: %s' % (page.url, ', '.join(campos) or '-',
+                                                     ', '.join(b for b in botones if b)[:400] or '-')
+
+
+def guardar(page, n, nombre):
+    base = os.path.join(EXPLORAR, '%02d_%s' % (n, nombre))
+    page.screenshot(path=base + '.png', full_page=True)
+    html = page.content()
+    html = re.sub(r'(type="password"[^>]*value=")[^"]*', r'\1***', html)
+    with open(base + '.html', 'w') as fh:
+        fh.write(html)
+    print('\n[%02d %s]\n  %s' % (n, nombre, resumen(page)), flush=True)
+
+
+def login(page, cfg):
+    """Escribe email y contraseña si la web los pide. Si después pide un código, lo pedís en la terminal."""
+    page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
+    if not visibles(page, 'input[type=password]'):
+        return
+    clave = visibles(page, 'input[type=password]')[0]
+    email = [e for e in visibles(page, 'input') if (e.get_attribute('type') or 'text') in ('email', 'text')]
+    if email:
+        email[0].fill(cfg['MIDINERO_EMAIL'])
+    clave.fill(cfg['MIDINERO_CLAVE'])
+    clave.press('Enter')
+    page.wait_for_load_state('networkidle', timeout=60000)
+    time.sleep(3)
+
+
+def pedir_codigo(page):
+    """Si quedó un campo para escribir (código por SMS o mail), lo escribís vos. Nunca se inventa ni se saltea."""
+    campos = [e for e in visibles(page, 'input') if (e.get_attribute('type') or 'text') not in ('hidden', 'checkbox')]
+    if not campos or not sys.stdin.isatty():
+        return False
+    codigo = input('\nLa web pide algo más (mirá 02_despues_login.png). Si es un código, escribilo acá '
+                   '(Enter vacío para seguir sin escribir): ').strip()
+    if not codigo:
+        return False
+    campos[0].fill(codigo)
+    campos[0].press('Enter')
+    page.wait_for_load_state('networkidle', timeout=60000)
+    time.sleep(3)
+    return True
+
+
+def explorar():
+    from playwright.sync_api import sync_playwright
+    cfg = leer_env()
+    for k in ('MIDINERO_EMAIL', 'MIDINERO_CLAVE'):
+        if not cfg.get(k):
+            raise SystemExit('Falta %s en el .env' % k)
+    shutil.rmtree(EXPLORAR, ignore_errors=True)
+    os.makedirs(EXPLORAR)
+    respuestas = []
+
+    def al_responder(r):
+        if 'json' in (r.headers.get('content-type') or '') and r.request.resource_type in ('xhr', 'fetch'):
+            try:
+                respuestas.append({'url': r.url, 'estado': r.status, 'datos': tapar(r.json())})
+            except Exception:
+                pass
+
+    with sync_playwright() as p:
+        nav = p.chromium.launch_persistent_context(PERFIL, headless=True, locale='es-UY',
+                                                   timezone_id='America/Montevideo',
+                                                   viewport={'width': 1280, 'height': 900})
+        page = nav.pages[0] if nav.pages else nav.new_page()
+        page.on('response', al_responder)
+        page.goto(WEB, wait_until='networkidle', timeout=60000)
+        guardar(page, 1, 'entrada')
+        login(page, cfg)
+        guardar(page, 2, 'despues_login')
+        if '/app/movimientos' not in page.url and pedir_codigo(page):
+            guardar(page, 3, 'despues_codigo')
+        page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
+        time.sleep(5)
+        guardar(page, 4, 'movimientos')
+        nav.close()
+
+    with open(os.path.join(EXPLORAR, 'datos_web.json'), 'w') as fh:
+        json.dump(respuestas, fh, ensure_ascii=False, indent=1)
+    print('\nDatos que trajo la web (%d respuestas):' % len(respuestas))
+    for r in respuestas:
+        print('  %s %s  %s' % (r['estado'], r['url'][:100], json.dumps(r['datos'], ensure_ascii=False)[:150]))
+    shutil.make_archive(EXPLORAR, 'gztar', EXPLORAR)
+    print('\nTodo en %s y en %s.tar.gz (ese es el que me pasás)' % (EXPLORAR, EXPLORAR))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--explorar', action='store_true', help='guarda cada pantalla y los datos de la web')
+    a = ap.parse_args()
+    if a.explorar:
+        explorar()
+    else:
+        ap.print_help()
+
+
+if __name__ == '__main__':
+    main()
