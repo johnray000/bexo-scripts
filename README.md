@@ -13,3 +13,5 @@ Log en el teléfono: `tail -5 ~/subir.log`
 - `facturacion/prex.py`: lee las entradas de plata de Prex (lista de Movimientos + detalle de cada una) por ADB.
   La huella la ponés vos; solo lee. `--probar` las muestra y las guarda en Descargas/prex_entradas.csv.
   `--pantalla NOMBRE` guarda la pantalla de cualquier app en Descargas y vibra al terminar.
+- `facturacion/itau.py`: lo mismo para la cuenta CC Pesos de Itaú (pestaña entradas; abre cada una para el ordenante).
+  `telefono/movs_uy.sh` corre Prex y después Itaú (botón de los martes).

@@ -225,8 +225,13 @@ def para_planilla(lista):
 
 
 def subir(lista):
+    return mandar(para_planilla(lista), 'Prex')
+
+
+def mandar(filas, cta):
+    """Manda filas {fecha_hora, monto, moneda, titular, cta, referencia, descripcion} a la hoja Movs UY."""
     cfg = leer_env()
-    cuerpo = json.dumps({'movimientosUY': para_planilla(lista), 'cta': 'Prex', 'token': cfg['ORDENES_TOKEN']}).encode()
+    cuerpo = json.dumps({'movimientosUY': filas, 'cta': cta, 'token': cfg['ORDENES_TOKEN']}).encode()
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read().decode('utf-8', 'replace'))
