@@ -234,7 +234,11 @@ def mandar(filas, cta):
     cuerpo = json.dumps({'movimientosUY': filas, 'cta': cta, 'token': cfg['ORDENES_TOKEN']}).encode()
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:
-        return json.loads(r.read().decode('utf-8', 'replace'))
+        res = json.loads(r.read().decode('utf-8', 'replace'))
+    if res.get('ok'):   # cuándo se leyó cada app, para el botón de los martes (telefono/movs_uy_boton.sh)
+        with open(os.path.expanduser('~/.movs_uy_ultima_' + cta.lower()), 'w') as fh:
+            fh.write(str(int(time.time())))
+    return res
 
 
 if __name__ == '__main__':
@@ -282,5 +286,3 @@ if __name__ == '__main__':
         avisar('Prex ⚠️', 'No se pudo mandar a la planilla: %s' % r.get('error', r))
         raise SystemExit(1)
     avisar('Prex ✅', '%d entradas leídas, %d nuevas en la planilla' % (len(lista), r.get('nuevas', 0)))
-    with open(os.path.expanduser('~/.movs_uy_ultima'), 'w') as fh:   # para el botón de los martes (movs_uy_boton.sh)
-        fh.write(str(int(time.time())))
