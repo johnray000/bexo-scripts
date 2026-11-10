@@ -313,6 +313,11 @@ def _entradas(desde, hasta):
                 if m.get('extendedId'):
                     d = pedir(nav, sesion, 'POST', DETALLE_API, {'Document': documento, 'AccountNumber': int(cuenta),
                                                                  'ExtendedId': m['extendedId']}, tolerar=True)
+                    if not d:   # a veces el primero choca con el detalle que abrió la web: un reintento
+                        time.sleep(3)
+                        d = pedir(nav, sesion, 'POST', DETALLE_API, {'Document': documento,
+                                                                     'AccountNumber': int(cuenta),
+                                                                     'ExtendedId': m['extendedId']}, tolerar=True)
                 filas.append({'id': m['id'], 'fecha': m['date'], 'monto': monto, 'tipo': m.get('typeName') or '',
                               'desc': m.get('description') or '', 'titular': (d.get('accountOriginName') or '').strip(),
                               'doc_origen': d.get('accountOriginDocument') or '',
