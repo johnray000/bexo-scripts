@@ -212,7 +212,7 @@ CTA = 'MiDinero'
 MOVS_API = 'https://ms-serverside-personas.midinero.com.uy/api/Account/getMovements'
 DETALLE_API = 'https://personas-ss.midinero.com.uy/api/transfer/transferDetail'
 # Entradas que no son cobros (devoluciones de compras con tarjeta): no se mandan.
-EXCLUIR = re.compile(r'^GOOGLE\*|DEVOLUCI', re.I)
+EXCLUIR = re.compile(r'^GOOGLE\*|DEVOLUCI|^DEV\.', re.I)
 
 
 def entrar(p):
@@ -230,7 +230,7 @@ def entrar(p):
             h = {k: v for k, v in q.all_headers().items()
                  if k.lower() not in ('cookie', 'content-length', 'host') and not k.startswith(':')}
             if any(k.lower() == 'authorization' for k in h):
-                sesion[host] = h
+                sesion['detalle' if 'transferDetail' in q.url else host] = h
         m = re.search(r'customer-id=\d+_(\d+)', q.url)
         if m:
             doc['n'] = m.group(1)
@@ -259,7 +259,8 @@ def entrar(p):
 
 def pedir(nav, sesion, metodo, url, datos=None, tolerar=False):
     host = url.split('/')[2]
-    h = sesion.get(host) or next(iter(sesion.values()))
+    # el detalle exige los encabezados exactos que manda la web al abrir un 🔎 (si no: "aplicación no activa")
+    h = (sesion.get('detalle') if 'transferDetail' in url else None) or sesion.get(host) or next(iter(sesion.values()))
     if metodo == 'GET':
         r = nav.request.get(url, headers=h, timeout=60000)
     else:
@@ -295,12 +296,18 @@ def _entradas(desde, hasta):
             q = urlencode({'from': desde.strftime('%Y-%m-%dT00:00:00'), 'to': hasta.strftime('%Y-%m-%dT23:59:59'),
                            'accountNumber': cuenta, 'limit': 1000})
             movs = pedir(nav, sesion, 'GET', MOVS_API + '?' + q)
+            try:   # abre el 🔎 de una recarga para copiar los encabezados que usa la web en el detalle
+                page.get_by_text(re.compile('RECARGA', re.I)).first.click(timeout=15000)
+                page.wait_for_load_state('networkidle', timeout=30000)
+                time.sleep(2)
+            except Exception:
+                pass
             if len(movs) >= 1000:
                 print('Ojo: llegaron 1000 movimientos, puede haber más. Pedí menos días.', flush=True)
             filas = []
             for m in movs:
                 monto = (m.get('amount') or {}).get('amount') or 0
-                if monto <= 0 or EXCLUIR.search(m.get('description') or ''):
+                if monto <= 0 or EXCLUIR.search(m.get('description') or '') or EXCLUIR.search(m.get('typeName') or ''):
                     continue
                 d = {}
                 if m.get('extendedId'):
