@@ -292,7 +292,8 @@ def pedir(nav, sesion, metodo, url, datos=None, tolerar=False):
         print('  (sin detalle: %s %s)' % (r.status, re.sub(r'\s+', ' ', r.text())[:200]), flush=True)
         return {}
     if not r.ok:
-        raise SystemExit('MiDinero respondió %s a %s' % (r.status, limpio(url)))
+        raise SystemExit('MiDinero respondió %s a %s: %s' % (r.status, limpio(url).split('?')[0],
+                                                            re.sub(r'\s+', ' ', r.text())[:300]))
     return r.json()
 
 
@@ -315,9 +316,17 @@ def _entradas(desde, hasta):
     with sync_playwright() as p:
         nav, page, sesion, documento, cuenta = entrar(p)
         try:
-            q = urlencode({'from': desde.strftime('%Y-%m-%dT00:00:00'), 'to': hasta.strftime('%Y-%m-%dT23:59:59'),
-                           'accountNumber': cuenta, 'limit': 1000})
-            movs = pedir(nav, sesion, 'GET', MOVS_API + '?' + q)
+            from datetime import timedelta
+            movs, vistos, ini = [], set(), desde
+            while ini <= hasta:   # de a 7 días: con rangos largos (un mes) MiDinero responde 400
+                fin = min(ini + timedelta(days=6), hasta)
+                q = urlencode({'from': ini.strftime('%Y-%m-%dT00:00:00'), 'to': fin.strftime('%Y-%m-%dT23:59:59'),
+                               'accountNumber': cuenta, 'limit': 1000})
+                for m in pedir(nav, sesion, 'GET', MOVS_API + '?' + q):
+                    if m['id'] not in vistos:
+                        vistos.add(m['id'])
+                        movs.append(m)
+                ini = fin + timedelta(days=1)
             try:   # abre el 🔎 de una recarga para copiar los encabezados que usa la web en el detalle
                 page.get_by_text(re.compile('RECARGA', re.I)).first.click(timeout=15000)
                 page.wait_for_load_state('networkidle', timeout=30000)
