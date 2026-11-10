@@ -23,6 +23,7 @@ from subir_ordenes import leer_env  # noqa: E402
 WEB = 'https://webpersonas.midinero.com.uy'
 MOVIMIENTOS = WEB + '/app/movimientos'
 PERFIL = os.path.expanduser('~/.midinero_perfil')
+PUERTO_TUNEL = 1080
 EXPLORAR = os.path.expanduser('~/midinero_explorar')
 # Como un Chrome normal de Windows: algunas webs rechazan al navegador "sin ventana".
 NAVEGADOR = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -38,6 +39,17 @@ def tapar(x):
     if isinstance(x, list):
         return [tapar(v) for v in x]
     return x
+
+
+def proxy_telefono():
+    """MiDinero bloquea las IP de fuera de Uruguay: el VPS sale por el túnel del teléfono (telefono/tunel_vps.sh),
+    que deja un proxy en 127.0.0.1:1080 del VPS. Sin túnel no se puede entrar."""
+    import socket
+    try:
+        socket.create_connection(('127.0.0.1', PUERTO_TUNEL), timeout=3).close()
+    except OSError:
+        raise SystemExit('El túnel del teléfono no está conectado (puerto %d). Mirá ~/tunel.log en Termux.' % PUERTO_TUNEL)
+    return {'server': 'socks5://127.0.0.1:%d' % PUERTO_TUNEL}
 
 
 def limpio(url):
@@ -138,7 +150,7 @@ def explorar():
         nav = p.chromium.launch_persistent_context(PERFIL, headless=True, locale='es-UY',
                                                    timezone_id='America/Montevideo',
                                                    viewport={'width': 1280, 'height': 900},
-                                                   user_agent=NAVEGADOR)
+                                                   user_agent=NAVEGADOR, proxy=proxy_telefono())
         page = nav.pages[0] if nav.pages else nav.new_page()
         page.on('response', al_responder)
         page.on('framenavigated', al_navegar)
