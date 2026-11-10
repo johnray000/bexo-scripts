@@ -211,14 +211,13 @@ def explorar():
 CTA = 'MiDinero'
 MOVS_API = 'https://ms-serverside-personas.midinero.com.uy/api/Account/getMovements'
 DETALLE_API = 'https://personas-ss.midinero.com.uy/api/transfer/transferDetail'
-CUENTAS_API = 'https://ms-serverside-personas.midinero.com.uy/midinero.svc/obtenercuentasv2?productPreference=2'
 # Entradas que no son cobros (devoluciones de compras con tarjeta): no se mandan.
 EXCLUIR = re.compile(r'^GOOGLE\*|DEVOLUCI', re.I)
 
 
 def entrar(p):
     """Abre la web por el túnel, entra con email y contraseña y espera la lista de movimientos.
-    Devuelve (navegador, página, encabezados de la sesión por servidor, documento de John)."""
+    Devuelve (navegador, página, encabezados de la sesión por servidor, documento de John, n° de cuenta)."""
     cfg = leer_env()
     for k in ('MIDINERO_EMAIL', 'MIDINERO_CLAVE'):
         if not cfg.get(k):
@@ -235,6 +234,9 @@ def entrar(p):
         m = re.search(r'customer-id=\d+_(\d+)', q.url)
         if m:
             doc['n'] = m.group(1)
+        m = re.search(r'getMovements\?.*accountNumber=(\d+)', q.url)
+        if m:   # la cuenta sale del pedido que hace la propia web (obtenercuentasv2 no acepta GET)
+            doc['cuenta'] = m.group(1)
 
     nav = p.chromium.launch_persistent_context(PERFIL, headless=True, locale='es-UY', timezone_id='America/Montevideo',
                                                viewport={'width': 1280, 'height': 900}, user_agent=NAVEGADOR,
@@ -247,12 +249,12 @@ def entrar(p):
     if '/app/movimientos' not in page.url:
         page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
     time.sleep(5)
-    if '/app/movimientos' not in page.url or not sesion:
+    if '/app/movimientos' not in page.url or not sesion or not doc.get('cuenta'):
         raise SystemExit('No pude entrar a MiDinero (quedó en %s).' % limpio(page.url))
     documento = doc.get('n') or cfg.get('MIDINERO_DOCUMENTO', '')
     if not documento:
         raise SystemExit('No encontré tu documento: agregá MIDINERO_DOCUMENTO=... al .env.')
-    return nav, page, sesion, documento
+    return nav, page, sesion, documento, doc['cuenta']
 
 
 def pedir(nav, sesion, metodo, url, datos=None):
@@ -285,9 +287,8 @@ def _entradas(desde, hasta):
     from urllib.parse import urlencode
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        nav, page, sesion, documento = entrar(p)
+        nav, page, sesion, documento, cuenta = entrar(p)
         try:
-            cuenta = pedir(nav, sesion, 'GET', CUENTAS_API)['datos']['list'][0]['cuentaNumero']
             q = urlencode({'from': desde.strftime('%Y-%m-%dT00:00:00'), 'to': hasta.strftime('%Y-%m-%dT23:59:59'),
                            'accountNumber': cuenta, 'limit': 1000})
             movs = pedir(nav, sesion, 'GET', MOVS_API + '?' + q)
