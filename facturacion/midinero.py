@@ -142,7 +142,13 @@ def explorar():
                     pass
         if 'json' in (r.headers.get('content-type') or '') and r.request.resource_type in ('xhr', 'fetch'):
             try:
-                respuestas.append({'url': r.url, 'estado': r.status, 'datos': tapar(r.json())})
+                cuerpo = r.request.post_data
+                try:
+                    cuerpo = tapar(json.loads(cuerpo)) if cuerpo else None
+                except ValueError:
+                    pass
+                respuestas.append({'url': r.url, 'estado': r.status, 'metodo': r.request.method, 'envio': cuerpo,
+                                   'datos': tapar(r.json())})
             except Exception:
                 pass
 
@@ -181,10 +187,14 @@ def explorar():
         json.dump(respuestas, fh, ensure_ascii=False, indent=1)
     print('\nDatos que trajo la web (%d respuestas):' % len(respuestas))
     for r in respuestas:
-        if not re.search(r'midinero\.com\.uy/(api/Account|midinero\.svc/(?!getuser))', r['url']):
+        if not re.search(r'midinero\.com\.uy/(api/(Account|transfer)|midinero\.svc/(?!getuser|obtenercuentas))',
+                         r['url'], re.I):
             continue
         d = r['datos'][:2] if isinstance(r['datos'], list) else r['datos']
-        print('\n  %s %s\n  %s' % (r['estado'], limpio(r['url']), json.dumps(d, ensure_ascii=False)[:2500]))
+        print('\n  %s %s %s' % (r['estado'], r['metodo'], limpio(r['url'])))
+        if r['envio']:
+            print('  envía: %s' % json.dumps(r['envio'], ensure_ascii=False)[:800])
+        print('  %s' % json.dumps(d, ensure_ascii=False)[:2500])
     print('\nTodo en %s. Copiá desde [01 entrada] hasta acá y pasáselo a Claude.' % EXPLORAR)
 
 
