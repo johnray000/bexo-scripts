@@ -37,6 +37,8 @@ FECHA = re.compile(r'^\d{2}/\d{2}/\d{4}$')
 MONTO = re.compile(r'^(-\s*)?(U\$S|\$)\s*([\d.]+,\d{2})$')
 ESPERA_HUELLA_S = 120
 # Si Prex abre sin mostrar el cartel de la huella, se toca su botón de huella (texto o descripción con esto).
+# Entradas que no son cobros (devoluciones de compras con tarjeta): no se leen ni se mandan.
+EXCLUIR = re.compile(r'^GOOGLE\*', re.I)
 BOTON_HUELLA = re.compile(r'huella|biom|fingerprint|digital', re.I)
 ROTULOS = ('Fecha y hora', 'Recibiste de', 'Titular', 'Entidad financiera', 'País', 'N° de cuenta', 'Motivo',
            'N° de referencia')
@@ -166,7 +168,7 @@ def entradas(desde, hasta):
     hechas, resultado, sin_crecer = set(), [], 0
     for _ in range(1500):
         todas = leer_lista(textos()[0])
-        filas = [f for f in todas if f['monto'] > 0
+        filas = [f for f in todas if f['monto'] > 0 and f['tipo'] != 'purchase' and not EXCLUIR.search(f['desc'])
                  and desde <= datetime.strptime(f['fecha'], '%d/%m/%Y').date() <= hasta]
         pendientes = [f for f in filas if (f['fecha'], f['desc'], f['monto'], f['n']) not in hechas]
         if not pendientes:
@@ -208,10 +210,18 @@ def guardar_csv(lista):
                         e.get('N° de referencia', ''), e['desc'], e['tipo']])
 
 
+def detalle_util(desc, titular):
+    """El detalle solo si agrega algo: "Prex a Prex de Juan" repite el nombre, "CARGA ABITAB" sin titular también.
+    "CARGA TRANSFERENCIA BANCARIA / 39674060" sí se deja (dice de dónde vino)."""
+    if desc.startswith('Prex a Prex') or not titular or desc == titular:
+        return ''
+    return desc
+
+
 def para_planilla(lista):
     return [{'fecha_hora': e.get('Fecha y hora', e['fecha']), 'monto': e['monto'], 'moneda': e['moneda'],
-             'titular': e.get('Titular', ''), 'cta': 'Prex', 'referencia': e.get('N° de referencia', ''),
-             'descripcion': e['desc']} for e in lista]
+             'titular': e.get('Titular', '') or e['desc'], 'cta': 'Prex', 'referencia': e.get('N° de referencia', ''),
+             'descripcion': detalle_util(e['desc'], e.get('Titular', ''))} for e in lista]
 
 
 def subir(lista):
