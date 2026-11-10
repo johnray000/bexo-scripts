@@ -133,7 +133,7 @@ def explorar():
 
     def al_responder(r):
         tipo = r.request.resource_type
-        if tipo in ('xhr', 'fetch') or (r.status >= 400 and tipo != 'stylesheet'):
+        if 'midinero.com.uy' in r.url and 'ahora.' not in r.url and (tipo in ('xhr', 'fetch') or r.status >= 400):
             print('  %s %s %s %s' % ('!' if r.status >= 400 else '·', r.status, tipo, limpio(r.url)), flush=True)
             if r.status >= 400:
                 try:
@@ -166,13 +166,25 @@ def explorar():
         page.goto(MOVIMIENTOS, wait_until='networkidle', timeout=60000)
         time.sleep(5)
         guardar(page, 4, 'movimientos')
+        antes = len(respuestas)
+        try:   # abre el detalle (🔎) de la primera recarga, para ver qué datos trae
+            page.get_by_text(re.compile('RECARGA', re.I)).first.click(timeout=10000)
+            page.wait_for_load_state('networkidle', timeout=30000)
+            time.sleep(4)
+            guardar(page, 5, 'detalle')
+        except Exception as e:
+            print('  No pude abrir un detalle: %s' % str(e)[:200])
+        print('\nRespuestas al abrir el detalle: %d' % (len(respuestas) - antes))
         nav.close()
 
     with open(os.path.join(EXPLORAR, 'datos_web.json'), 'w') as fh:
         json.dump(respuestas, fh, ensure_ascii=False, indent=1)
     print('\nDatos que trajo la web (%d respuestas):' % len(respuestas))
     for r in respuestas:
-        print('  %s %s  %s' % (r['estado'], r['url'][:100], json.dumps(r['datos'], ensure_ascii=False)[:150]))
+        if not re.search(r'midinero\.com\.uy/(api/Account|midinero\.svc/(?!getuser))', r['url']):
+            continue
+        d = r['datos'][:2] if isinstance(r['datos'], list) else r['datos']
+        print('\n  %s %s\n  %s' % (r['estado'], limpio(r['url']), json.dumps(d, ensure_ascii=False)[:2500]))
     print('\nTodo en %s. Copiá desde [01 entrada] hasta acá y pasáselo a Claude.' % EXPLORAR)
 
 
