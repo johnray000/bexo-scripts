@@ -8,6 +8,7 @@ Transferir, Cargar ni nada que mueva plata. Al terminar vuelve al inicio y vibra
   python prex.py --pantalla prex_lista   # en 30 s guarda la pantalla en Descargas (prex_lista.xml) y vibra
   python prex.py --probar                # lee las entradas de los últimos 7 días y las muestra (no manda nada)
   python prex.py --probar --dias 3
+  python prex.py --desde 01/10/2026 --hasta 31/10/2026   # un mes entero (o desde una fecha hasta hoy)
   python prex.py                         # lee y manda a la planilla (hoja "Movs UY" de Registro BEXO)
 
 Siempre deja una copia en Descargas/prex_entradas.csv. Para mandar usa WEBAPP_URL y ORDENES_TOKEN de
@@ -148,25 +149,41 @@ def abrir_movimientos():
     time.sleep(3)   # que cargue la lista
 
 
-def entradas(dias):
-    """Recorre las entradas de los últimos `dias`, entrando al detalle de cada una."""
-    desde = (datetime.now() - timedelta(days=dias)).replace(hour=0, minute=0, second=0, microsecond=0)   # días enteros
+def deslizar(hacia_abajo, alto, rapido=False):
+    """hacia_abajo=True muestra lo más viejo (la lista sube). rapido: un envión largo, para llegar al final."""
+    y1, y2 = (0.8, 0.45) if hacia_abajo else (0.45, 0.8)
+    if rapido:
+        y1, y2 = (0.85, 0.25) if hacia_abajo else (0.25, 0.85)
+    adb('shell', 'input', 'swipe', '540', str(int(alto * y1)), '540', str(int(alto * y2)), '150' if rapido else '700')
+    time.sleep(1.5)
+
+
+def entradas(desde, hasta):
+    """Recorre las entradas entre `desde` y `hasta` (fechas, días enteros), entrando al detalle de cada una.
+    Prex carga la lista de a partes: si lo más viejo cargado todavía es posterior a `desde`, baja hasta el final
+    para que cargue más, y para cuando la lista deja de crecer."""
     alto = tamano_pantalla()[1]
-    hechas, resultado = set(), []
-    for _ in range(200):
-        filas = [f for f in leer_lista(textos()[0])
-                 if f['monto'] > 0 and datetime.strptime(f['fecha'], '%d/%m/%Y') >= desde]
+    hechas, resultado, sin_crecer = set(), [], 0
+    for _ in range(1500):
+        todas = leer_lista(textos()[0])
+        filas = [f for f in todas if f['monto'] > 0
+                 and desde <= datetime.strptime(f['fecha'], '%d/%m/%Y').date() <= hasta]
         pendientes = [f for f in filas if (f['fecha'], f['desc'], f['monto'], f['n']) not in hechas]
         if not pendientes:
-            return resultado
-        f = pendientes[0]
-        if f['y'] == 0 or f['y'] > alto * 0.85:            # fuera de pantalla: bajar un poco y volver a mirar
-            adb('shell', 'input', 'swipe', '540', str(int(alto * 0.8)), '540', str(int(alto * 0.45)), '700')
-            time.sleep(1.5)
+            mas_vieja = min((datetime.strptime(f['fecha'], '%d/%m/%Y').date() for f in todas), default=desde)
+            if mas_vieja < desde or sin_crecer >= 3:
+                return resultado
+            for _ in range(4):                               # al final de la lista, para que cargue más
+                deslizar(True, alto, rapido=True)
+            time.sleep(3)
+            sin_crecer = sin_crecer + 1 if len(leer_lista(textos()[0])) == len(todas) else 0
             continue
-        if f['y'] < alto * 0.3:                             # tapada por los filtros de arriba: subir un poco
-            adb('shell', 'input', 'swipe', '540', str(int(alto * 0.45)), '540', str(int(alto * 0.7)), '700')
-            time.sleep(1.5)
+        f = pendientes[0]
+        if f['y'] == 0 or f['y'] > alto * 0.85 or f['y'] < alto * 0.3:
+            # Fuera de pantalla (o tapada por los filtros de arriba): hacia dónde está, según las filas que se ven.
+            visibles = [i for i, g in enumerate(todas) if alto * 0.3 <= g['y'] <= alto * 0.85]
+            i = todas.index(f)
+            deslizar(not visibles or i > visibles[-1] or (f['y'] > alto * 0.85), alto)
             continue
         adb('shell', 'input', 'tap', str(f['x']), str(f['y']))
         det = leer_detalle(esperar(hay('Fecha y hora'), 20) or [])
@@ -210,7 +227,9 @@ if __name__ == '__main__':
     ap.add_argument('--pantalla', metavar='NOMBRE', help='guarda la pantalla en Descargas/NOMBRE.xml y vibra')
     ap.add_argument('--espera', type=int, default=30, help='segundos antes de guardar la pantalla')
     ap.add_argument('--probar', action='store_true', help='lee las entradas y las muestra, sin mandar nada')
-    ap.add_argument('--dias', type=int, default=7)
+    ap.add_argument('--dias', type=int, default=7, help='últimos N días (días enteros)')
+    ap.add_argument('--desde', help='dd/mm/aaaa: desde este día (en vez de --dias)')
+    ap.add_argument('--hasta', help='dd/mm/aaaa: hasta este día (por defecto hoy)')
     a = ap.parse_args()
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
@@ -229,7 +248,10 @@ if __name__ == '__main__':
         raise SystemExit('Teléfono bloqueado: desbloquealo y volvé a probar')
     try:
         abrir_movimientos()
-        lista = entradas(a.dias)
+        hoy = datetime.now().date()
+        desde = datetime.strptime(a.desde, '%d/%m/%Y').date() if a.desde else hoy - timedelta(days=a.dias)
+        hasta = datetime.strptime(a.hasta, '%d/%m/%Y').date() if a.hasta else hoy
+        lista = entradas(desde, hasta)
     finally:
         adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
         vibrar(800)
@@ -245,3 +267,5 @@ if __name__ == '__main__':
         avisar('Prex ⚠️', 'No se pudo mandar a la planilla: %s' % r.get('error', r))
         raise SystemExit(1)
     avisar('Prex ✅', '%d entradas leídas, %d nuevas en la planilla' % (len(lista), r.get('nuevas', 0)))
+    with open(os.path.expanduser('~/.movs_uy_ultima'), 'w') as fh:   # para el botón de los martes (movs_uy_boton.sh)
+        fh.write(str(int(time.time())))
