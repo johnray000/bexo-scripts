@@ -2,6 +2,7 @@
 # Lo corre Termux cada 15 minutos: si la alarma de compras no está corriendo, la arranca.
 # Así sigue andando aunque Android la cierre o reinicies el teléfono.
 sh ~/bexo-scripts/telefono/boton.sh
+sh ~/bexo-scripts/telefono/movs_uy_boton.sh
 PID=~/.alerta_compras.pid
 if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then exit 0; fi
 cd ~/bexo-scripts && git pull -q --ff-only >> ~/alerta.log 2>&1
