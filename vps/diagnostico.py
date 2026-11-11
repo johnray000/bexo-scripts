@@ -416,6 +416,24 @@ def rastrear_planilla(texto):
 
 def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
+    if modo == 'evidencia':   # para buscar la causa de fondo de la sordera: todo junto, para pegar en el chat
+        print('== Ahora: %s' % datetime.now(TZ).strftime('%d/%m %H:%M'))
+        print('== Contenedor: %s' % docker('inspect', '-f', '{{.Config.Image}} reinicios={{.RestartCount}} desde={{.State.StartedAt}} oom={{.State.OOMKilled}}', 'waha').strip())
+        print('== Motor: %s' % re.findall(r'WHATSAPP_DEFAULT_ENGINE=\w+', docker('inspect', '-f', '{{.Config.Env}}', 'waha')))
+        print('== Memoria MB (total usada libre compartida cache disponible): %s' % ' '.join(cmd('free', '-m').split()[7:13]))
+        print('== OOM del kernel (24 h): %s' % (cmd('sudo', '-n', 'journalctl', '-k', '--since', '24 hours ago', '--no-pager').lower().count('out of memory')))
+        ev = cortes_waha('24h')
+        print('== %d cortes en 24 h' % len(ev))
+        for ts, txt in ev:
+            print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt[:110]))
+        ses, _ = waha_json('/api/sessions/%s' % SESION)
+        print('== Sesión: %s' % json.dumps({k: (ses or {}).get(k) for k in ('status', 'engine', 'me')}, ensure_ascii=False)[:300])
+        print('== Últimas 40 líneas raras del log (12 h)')
+        raras = [l for l in docker('logs', '--since', '12h', '--timestamps', 'waha').splitlines()
+                 if re.search(r'error|warn|fail|close|stream|decrypt|conflict|timeout|logout|restart', l, re.I)]
+        for l in raras[-40:]:
+            print(l[11:19], l[31:][:150])
+        return 0
     if modo == 'cortes':   # para investigar el motivo: cada corte de las últimas 24 h con su línea de log
         ev = cortes_waha('24h')
         print('%d cortes con WhatsApp en 24 h' % len(ev))
