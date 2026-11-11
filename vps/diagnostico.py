@@ -314,14 +314,29 @@ def etapas_planilla(d):
         anotar(5, OK, '%d comprobantes en 24 h, el último %s (%s)' % (len(comp), hora(comp[0]['recibido'] / 1000), comp[0]['nombre'][:20]))
     else:
         anotar(5, OK, 'Sin comprobantes en las últimas 24 h')
-    if d.get('ultimoBuffer'):
-        anotar(5, OK, 'Último mensaje que llegó a la planilla: hace %s' % hace(ahora - d['ultimoBuffer'] / 1000))
-    # Cruce WAHA ↔ planilla: mensajes que WAHA recibió hace más de 10 min y nunca llegaron al Buffer.
-    # Se exigen 2 chats distintos para no confundir con un número bloqueado a propósito (BLACKLIST de doPost).
-    buf = (d.get('ultimoBuffer') or 0) / 1000
-    perdidos = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > buf + 600 and ahora - ts > 600]
-    if len(perdidos) >= 2:
-        anotar(5, FALLA, 'WAHA recibió mensajes de %s que no llegaron a la planilla (webhook cortado)' % ', '.join(perdidos[:3]))
+    # Último mensaje que llegó a la planilla (Buffer, Bandeja_Entrada o Historial; el Buffer solo se vacía).
+    # Si la planilla es vieja y no lo manda, no se cruza: mejor no decir nada que dar una falla falsa.
+    ult = (d.get('ultimoMensaje') or 0) / 1000
+    if 'ultimoMensaje' in d:
+        sin_msj = ahora - ult if ult else 999999
+        de_dia = 9 <= datetime.fromtimestamp(ahora, TZ).hour < 23
+        txt = 'Último mensaje que llegó a la planilla: %s' % (('%s, hace %s' % (hora(ult), hace(sin_msj))) if ult else 'ninguno')
+        # De día, 2 h sin ningún mensaje es lo que pasa cuando WAHA queda sorda (10/11 y 11/11). Es falla, no aviso:
+        # si de verdad nadie escribió, el costo es tocar DIAGNÓSTICO una vez.
+        if de_dia and sin_msj > 2 * 3600:
+            waha_mas_nuevo = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > ult + 600]
+            causa = ('WAHA sí recibió (%s): el webhook no entrega' % ', '.join(waha_mas_nuevo[:2])) if waha_mas_nuevo \
+                else 'WAHA tampoco recibió nada: probablemente sorda (re-vincular)'
+            anotar(5, FALLA, '%s. %s' % (txt, causa))
+        else:
+            anotar(5, OK, txt)
+        # Cruce WAHA ↔ planilla: 2+ chats con mensajes en WAHA que la planilla nunca vio (10 min de margen).
+        # Se exigen 2 chats para no confundir con un número bloqueado a propósito (BLACKLIST de doPost).
+        perdidos = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > ult + 600 and ahora - ts > 600]
+        if len(perdidos) >= 2 and not (de_dia and sin_msj > 2 * 3600):
+            anotar(5, FALLA, 'WAHA recibió mensajes de %s que no llegaron a la planilla (webhook cortado)' % ', '.join(perdidos[:3]))
+    else:
+        anotar(5, AVISO, 'Actualizá 18_Diagnostico.gs (la versión instalada no dice cuándo llegó el último mensaje)')
     trabados = [f for f in comp if f['estado'] == 'PENDIENTE' and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60]
     for f in trabados[:3]:
         anotar(5, FALLA, 'Sin leer (PENDIENTE hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
