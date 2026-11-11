@@ -19,3 +19,6 @@ Log en el teléfono: `tail -5 ~/subir.log`
   `--explorar` guarda cada pantalla y los datos de la web. Necesita MIDINERO_EMAIL y MIDINERO_CLAVE en el .env.
   MiDinero bloquea IPs de fuera de Uruguay: el VPS sale por `telefono/tunel_vps.sh` (SSH del teléfono al VPS que deja
   un proxy SOCKS en 127.0.0.1:1080 del VPS; lo levanta alerta.sh cada 15 min si está VPS_SSH en el .env). Log: `~/tunel.log`.
+- `cazar_p2p.py`: cazar oportunidades P2P en OKX, Bybit y Binance. Paso 1 (`--grabar okx|bybit|binance`): mientras
+  hacés a mano el recorrido hasta el botón final (sin tocarlo), graba cada pantalla, cada toque y los tiempos, y deja
+  un .zip en Descargas para armar el recorrido automático. No toca nada. `--enlaces APP` lista los enlaces directos.
