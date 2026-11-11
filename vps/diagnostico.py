@@ -435,7 +435,17 @@ def main():
         e, t = malas[0]
         extra = len([1 for _, n, _ in resultados if n != OK]) - 1
         print('%s Etapa %d: %s%s' % (peor, e, t, ' (y %d más)' % extra if extra else ''))
-    nombres = {1: 'VPS', 2: 'WAHA recibe', 3: 'Webhook', 4: 'Planilla', 5: 'Comprobantes', 6: 'Pre-órdenes'}
+    nombres = {1: 'VPS', 2: 'WAHA', 3: 'Webhook', 4: 'Planilla', 5: 'Comprobantes', 6: 'Pre-órdenes'}
+    # La notificación del teléfono corta el texto largo: primero una línea con las 6 etapas,
+    # después solo lo que no está bien, y al final el detalle completo.
+    def nivel(etapa):
+        ns = [n for e, n, _ in resultados if e == etapa]
+        return FALLA if FALLA in ns else AVISO if AVISO in ns else OK if ns else '·'
+    print(' · '.join('%d %s %s' % (e, nombres[e], nivel(e)) for e in sorted(nombres)))
+    for e, n, t in resultados:
+        if n != OK:
+            print('%s %d: %s' % (n, e, t))
+    print('— Detalle')
     for etapa in sorted(nombres):
         print('— %d %s' % (etapa, nombres[etapa]))
         for e, n, t in resultados:
