@@ -22,3 +22,5 @@ Log en el teléfono: `tail -5 ~/subir.log`
 - `cazar_p2p.py`: cazar oportunidades P2P en OKX, Bybit y Binance. Paso 1 (`--grabar okx|bybit|binance`): mientras
   hacés a mano el recorrido hasta el botón final (sin tocarlo), graba cada pantalla, cada toque y los tiempos, y deja
   un .zip en Descargas para armar el recorrido automático. No toca nada. `--enlaces APP` lista los enlaces directos.
+  `--radar` lee las oportunidades del radar (radar-p2p, por Tailscale; RADAR_CLAVE en el .env) y `--ensayo` abre en la
+  app el anuncio de la última y graba el recorrido desde ahí.

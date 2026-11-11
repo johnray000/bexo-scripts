@@ -10,6 +10,9 @@ cada pantalla nueva, cada toque tuyo y cuánto tardó cada paso. Con eso se arma
   python cazar_p2p.py --grabar binance
   python cazar_p2p.py --grabar okx --sin-abrir   # no abre la app: graba desde donde estés
   python cazar_p2p.py --enlaces bybit     # lista los enlaces directos que acepta la app (para saltear pantallas)
+  python cazar_p2p.py --radar             # muestra las oportunidades que ve el radar (OKX, Bybit, Binance)
+  python cazar_p2p.py --ensayo            # abre en la app el anuncio de la última oportunidad y graba lo que hacés
+  python cazar_p2p.py --grabar binance --link URL   # abre ese link en la app y graba desde ahí
 
 ⚠️ Llegá hasta la pantalla donde está el botón final de Comprar / Vender, con el monto puesto, y AHÍ tocá TERMINÉ
    en la notificación. El último toque no lo hagas: el script nunca lo hace por vos.
@@ -18,23 +21,68 @@ Deja en Descargas una carpeta cazar_<app>_<hora>/ con una captura y el XML de ca
 recorrido.txt (paso a paso con los tiempos) y todo junto en cazar_<app>_<hora>.zip para mandarlo al chat.
 """
 import argparse
+import base64
+import json
 import os
 import re
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from okx_ordenes import adb, adb_bytes, conectar, tamano_pantalla  # noqa: E402
+from subir_ordenes import leer_env  # noqa: E402
 
 HOME = os.path.expanduser('~')
 DESCARGAS = os.path.join(HOME, 'storage', 'downloads')
 PARAR = os.path.join(HOME, '.cazar_parar')
 # Cómo reconocer el paquete de cada app entre los instalados (pm list packages).
 APPS = {'okx': ('okx', 'okinc'), 'bybit': ('bybit',), 'binance': ('binance',)}
+# Cómo nombra el radar a cada exchange (radar-p2p, /api/movil) → app del teléfono.
+APP_DE = {'OKX': 'okx', 'Bybit': 'bybit', 'Binance': 'binance'}
+RADAR_URL = 'http://100.116.121.75:8095'   # el radar en el VPS, por Tailscale
+
+
+def leer_radar(cfg):
+    """Lo que muestra la página /movil del radar (oportunidades, rutas, tus anuncios). Solo lee."""
+    url = cfg.get('RADAR_URL', RADAR_URL).rstrip('/') + '/api/movil'
+    req = urllib.request.Request(url)
+    if cfg.get('RADAR_CLAVE'):
+        par = '%s:%s' % (cfg.get('RADAR_USUARIO', 'admin'), cfg['RADAR_CLAVE'])
+        req.add_header('Authorization', 'Basic ' + base64.b64encode(par.encode()).decode())
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode())
+
+
+def oportunidades(datos):
+    """Las oportunidades del radar (de la más nueva a la más vieja) con una punta en OKX, Bybit o Binance.
+    Para cada una, la punta a tomar primero: la compra (tomás un anuncio de venta), salvo que esa punta sea de otro
+    exchange. abierta = el radar la sigue viendo (último ciclo hace menos de 2,5 vueltas)."""
+    ahora, vuelta = datos.get('ahora') or time.time(), datos.get('intervalo') or 120
+    lista = []
+    for e in datos.get('episodios') or []:
+        puntas = [('compra', e.get('ae'), e.get('ac'), e.get('an'), e.get('al')),
+                  ('venta', e.get('be'), e.get('bc'), e.get('bn'), e.get('bl'))]
+        for lado, ex, coin, quien, link in puntas:
+            if ex in APP_DE and link:
+                lista.append({'app': APP_DE[ex], 'lado': lado, 'coin': coin, 'fiat': e.get('f'), 'quien': quien,
+                              'link': link, 'spread': e.get('max'), 'abierta': ahora - e['fin'] <= vuelta * 2.5,
+                              'hace_min': int((ahora - e['fin']) / 60),
+                              'ruta': '%s %s → %s %s' % (e.get('ae'), e.get('ac'), e.get('be'), e.get('bc'))})
+                break
+    return lista
+
+
+def abrir_link(app, link):
+    """Abre el link dentro de la app (sin pasar por el navegador). False si la app no acepta ese link."""
+    pkg = paquete(app)
+    adb('shell', 'am', 'force-stop', pkg)
+    r = adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', link, pkg)
+    return 'Error' not in r and 'unable to resolve' not in r.lower()
 
 
 def paquete(app):
@@ -160,7 +208,7 @@ class Toques(threading.Thread):
             self.proc.terminate()
 
 
-def grabar(app, segundos, abrir):
+def grabar(app, segundos, abrir, link=None):
     pkg = paquete(app)
     ancho, alto = tamano_pantalla()
     hora = time.strftime('%H%M%S')
@@ -176,7 +224,11 @@ def grabar(app, segundos, abrir):
     t0 = time.time()
     toques = Toques(t0, ancho, alto)
     toques.start()
-    if abrir:
+    if link:
+        if not abrir_link(app, link):
+            print('La app no abrió el link: la abro desde el inicio', flush=True)
+            adb('shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1')
+    elif abrir:
         adb('shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1')
     pantallas = []            # (segundos, n, firma, foco, elementos)
     ultima = None
@@ -209,6 +261,7 @@ def grabar(app, segundos, abrir):
     eventos.sort(key=lambda e: e[0])
     lineas = ['Recorrido %s · %s · pantalla %dx%d · %s' % (app.upper(), pkg, ancho, alto,
                                                             time.strftime('%d/%m/%Y %H:%M')),
+              'Abrió: %s' % (link or ('app desde el inicio' if abrir else 'pantalla actual')),
               'Total: %.1f s, %d pantallas, %d toques' % (t_fin, len(pantallas), len(toques.toques)), '']
     vista = []
     for t, tipo, e in eventos:
@@ -253,14 +306,38 @@ if __name__ == '__main__':
     ap.add_argument('--grabar', choices=sorted(APPS), help='graba el recorrido que hacés a mano en esa app')
     ap.add_argument('--enlaces', choices=sorted(APPS), help='lista los enlaces directos que acepta la app')
     ap.add_argument('--sin-abrir', action='store_true', help='no abre la app: graba desde la pantalla actual')
+    ap.add_argument('--link', help='con --grabar: abre este link en la app en vez del inicio')
+    ap.add_argument('--radar', action='store_true', help='muestra las oportunidades del radar (solo lee)')
+    ap.add_argument('--ensayo', action='store_true',
+                    help='abre en la app el anuncio de la última oportunidad del radar y graba tu recorrido')
     ap.add_argument('--segundos', type=int, default=180, help='tiempo máximo de grabación')
     args = ap.parse_args()
-    if not (args.grabar or args.enlaces):
+    if not (args.grabar or args.enlaces or args.radar or args.ensayo):
         ap.print_help()
         sys.exit(0)
+    elegida = None
+    if args.radar or args.ensayo:
+        try:
+            ops = oportunidades(leer_radar(leer_env()))
+        except Exception as e:
+            raise SystemExit('No pude leer el radar (%s). ¿Tailscale prendido en el teléfono? '
+                             '¿RADAR_CLAVE en ~/.subir-ordenes.env?' % e)
+        for o in ops:
+            print('%s %-7s %5.2f%%  %s %s %s · %s · tomar %s de %s\n         %s' % (
+                '🟢' if o['abierta'] else '⚪', o['app'], o['spread'] or 0, o['fiat'], o['ruta'],
+                'ABIERTA' if o['abierta'] else 'hace %d min' % o['hace_min'], o['coin'], o['lado'],
+                o['quien'] or '?', o['link']), flush=True)
+        if not ops:
+            print('El radar no tiene oportunidades recientes con OKX, Bybit o Binance.')
+        if args.radar or not ops:
+            sys.exit(0)
+        elegida = ops[0]
+        print('\nEnsayo con: %s en %s (%s)' % (elegida['quien'], elegida['app'], elegida['ruta']), flush=True)
     if not conectar():
         raise SystemExit('Sin ADB: activá Depuración inalámbrica (Opciones de desarrollador) y que haya wifi')
     if args.enlaces:
         enlaces(args.enlaces)
+    elif elegida:
+        grabar(elegida['app'], args.segundos, True, elegida['link'])
     else:
-        grabar(args.grabar, args.segundos, not args.sin_abrir)
+        grabar(args.grabar, args.segundos, not args.sin_abrir, args.link)
