@@ -170,6 +170,27 @@ def etapa_vps():
         anotar(1, AVISO, 'Túnel del teléfono desconectado (solo hace falta para MiDinero los martes)')
 
 
+ENTRANTES_POR_CHAT = {}   # último mensaje entrante por chat según WAHA (lo llena etapa_waha, lo cruza la etapa 5)
+CORTE_RE = re.compile(r'stream errored|connection (?:closed|lost|failure)|conflict|logged ?out|restart required', re.I)
+
+
+def cortes_waha(desde):
+    """Cortes con WhatsApp según el log de WAHA. Las líneas a menos de 60 s entre sí cuentan como UN corte
+    (un corte deja varias líneas: error, cierre, reconexión). Devuelve [(datetime, primera línea), ...]."""
+    eventos = []
+    for linea in docker('logs', '--since', desde, '--timestamps', 'waha').splitlines():
+        if not CORTE_RE.search(linea):
+            continue
+        try:
+            ts = datetime.strptime(linea[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if eventos and (ts - eventos[-1][0]).total_seconds() < 60:
+            continue
+        eventos.append((ts, linea[31:].strip()[:160]))
+    return eventos
+
+
 # ---------------- Etapa 2: WAHA recibe ----------------
 def etapa_waha():
     ses, c = waha_json('/api/sessions/%s' % SESION)
@@ -183,8 +204,11 @@ def etapa_waha():
     for ch in chats_recientes(12)[:6]:
         for m in entrantes(ch['id'], 2):
             ts = int(m.get('timestamp') or 0)
+            quien = ch.get('name') or ch['id'].split('@')[0]
+            if ts:
+                ENTRANTES_POR_CHAT[quien] = max(ts, ENTRANTES_POR_CHAT.get(quien, 0))
             if ts and (not ultimo or ts > ultimo[0]):
-                ultimo = (ts, ch.get('name') or ch['id'].split('@')[0])
+                ultimo = (ts, quien)
     ahora = time.time()
     if not ultimo:
         anotar(2, AVISO, 'No encontré mensajes entrantes en WAHA')
@@ -198,10 +222,11 @@ def etapa_waha():
             txt += '. Si alguien te escribió después, WAHA está sorda'
         anotar(2, nivel, txt)
 
-    logs = docker('logs', '--since', '1h', 'waha')
-    errs = len(re.findall(r'stream errored|Connection Closed|connection (?:closed|lost)', logs, re.I))
-    if errs:
-        anotar(2, AVISO if errs < 5 else FALLA, '%d cortes de conexión con WhatsApp en la última hora' % errs)
+    ev = cortes_waha('1h')
+    if ev:
+        # Solo aviso: si WAHA sigue WORKING y recibiendo, los cortes no son una falla (todavía). Se investigan aparte.
+        anotar(2, AVISO, '%d cortes con WhatsApp en la última hora (último %s). Detalle: diagnostico.py cortes'
+               % (len(ev), ev[-1][0].astimezone(TZ).strftime('%H:%M')))
     return ses
 
 
@@ -291,6 +316,12 @@ def etapas_planilla(d):
         anotar(5, OK, 'Sin comprobantes en las últimas 24 h')
     if d.get('ultimoBuffer'):
         anotar(5, OK, 'Último mensaje que llegó a la planilla: hace %s' % hace(ahora - d['ultimoBuffer'] / 1000))
+    # Cruce WAHA ↔ planilla: mensajes que WAHA recibió hace más de 10 min y nunca llegaron al Buffer.
+    # Se exigen 2 chats distintos para no confundir con un número bloqueado a propósito (BLACKLIST de doPost).
+    buf = (d.get('ultimoBuffer') or 0) / 1000
+    perdidos = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > buf + 600 and ahora - ts > 600]
+    if len(perdidos) >= 2:
+        anotar(5, FALLA, 'WAHA recibió mensajes de %s que no llegaron a la planilla (webhook cortado)' % ', '.join(perdidos[:3]))
     trabados = [f for f in comp if f['estado'] == 'PENDIENTE' and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60]
     for f in trabados[:3]:
         anotar(5, FALLA, 'Sin leer (PENDIENTE hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
@@ -370,6 +401,12 @@ def rastrear_planilla(texto):
 
 def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
+    if modo == 'cortes':   # para investigar el motivo: cada corte de las últimas 24 h con su línea de log
+        ev = cortes_waha('24h')
+        print('%d cortes con WhatsApp en 24 h' % len(ev))
+        for ts, txt in ev:
+            print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt))
+        return 0
     if modo == 'rastrear':
         texto = ' '.join(sys.argv[2:])
         print('— En WAHA')
