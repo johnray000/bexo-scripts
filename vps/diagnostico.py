@@ -418,6 +418,8 @@ def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
     if modo == 'evidencia':   # para buscar la causa de fondo de la sordera: todo junto, para pegar en el chat
         print('== Ahora: %s' % datetime.now(TZ).strftime('%d/%m %H:%M'))
+        # Dos contenedores con la misma sesión vinculada se pisan ("conflict"/"replaced") y uno queda sordo
+        print('== Contenedores:\n%s' % docker('ps', '-a', '--format', '{{.Names}} | {{.Image}} | {{.Status}} | {{.Ports}}').strip())
         print('== Contenedor: %s' % docker('inspect', '-f', '{{.Config.Image}} reinicios={{.RestartCount}} desde={{.State.StartedAt}} oom={{.State.OOMKilled}}', 'waha').strip())
         print('== Motor: %s' % re.findall(r'WHATSAPP_DEFAULT_ENGINE=\w+', docker('inspect', '-f', '{{.Config.Env}}', 'waha')))
         print('== Memoria MB (total usada libre compartida cache disponible): %s' % ' '.join(cmd('free', '-m').split()[7:13]))
