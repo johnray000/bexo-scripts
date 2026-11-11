@@ -12,10 +12,15 @@ LOG=~/diagnostico.log
 
 correr() {   # $@ = argumentos para diagnostico.py
   [ -n "$VPS" ] || { echo "❌ Falta VPS_SSH en ~/.subir-ordenes.env"; return 2; }
-  OUT=$(ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new "$VPS" python3 - "$@" < "$PY" 2>&1)
+  # LogLevel=ERROR: sin avisos de SSH (p. ej. "post-quantum") que tapan el resultado en la notificación
+  OUT=$(ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR \
+    "$VPS" python3 - "$@" < "$PY" 2>~/.diag_ssh_err)
   r=$?
   # 255 = no pudo entrar por SSH
-  [ $r -eq 255 ] && echo "❌ Etapa 1: no pude entrar al VPS por SSH (¿VPS apagado o sin internet?)"
+  if [ $r -eq 255 ]; then
+    echo "❌ Etapa 1: no pude entrar al VPS por SSH (¿VPS apagado o sin internet?)"
+    head -3 ~/.diag_ssh_err
+  fi
   echo "$OUT"
   return $r
 }
