@@ -231,21 +231,96 @@ def etapa_webhook(ses):
 
 
 # ---------------- Etapa 4: la planilla responde ----------------
+def consultar_planilla(url, buscar=''):
+    """Pide a la planilla las etapas 5-6 (18_Diagnostico.gs). Devuelve (dict|None, código, texto, segundos).
+    Va marcado fromMe: si la planilla todavía no tiene 18_Diagnostico.gs, doPost lo ignora sin guardar nada."""
+    token = leer_env('~/.subir-ordenes.env', 'ORDENES_TOKEN')
+    cuerpo = json.dumps({'diagnostico': True, 'token': token, 'buscar': buscar, 'event': 'message', 'session': SESION,
+                         'payload': {'fromMe': True, 'from': 'diagnostico@c.us', 'body': 'diagnostico'}}).encode()
+    t0 = time.time()
+    c, t = pedir(url, datos=cuerpo, cabeceras={'Content-Type': 'application/json'}, espera=60)
+    seg = time.time() - t0
+    try:
+        return json.loads(t), c, t, seg
+    except ValueError:
+        return None, c, t, seg
+
+
 def etapa_planilla(url):
     if not url:
         anotar(4, AVISO, 'No sé cuál es el /exec (falta WEBAPP_URL en ~/.subir-ordenes.env)')
-        return
-    falso = json.dumps({'event': 'message', 'session': SESION, 'diagnostico': True,
-                        'payload': {'fromMe': True, 'from': 'diagnostico@c.us', 'body': 'diagnostico'}}).encode()
-    t0 = time.time()
-    c, t = pedir(url, datos=falso, cabeceras={'Content-Type': 'application/json'}, espera=40)
-    seg = time.time() - t0
+        return None
+    d, c, t, seg = consultar_planilla(url)
+    lenta = AVISO if seg > 20 else OK
+    if d and d.get('ok'):
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        return d
     if 'ignorado_saliente' in t:
-        anotar(4, OK if seg < 15 else AVISO, 'La planilla responde (%.1f s)' % seg)
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        anotar(5, AVISO, 'Falta instalar 18_Diagnostico.gs en Apps Script (ver diagnostico/LEEME.md)')
+        return None
+    if d and d.get('error') == 'no autorizado':
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        anotar(5, AVISO, 'La planilla no aceptó el token (ORDENES_TOKEN de ~/.subir-ordenes.env)')
+        return None
+    if d and d.get('error'):
+        anotar(4, FALLA, 'La planilla dio error: %s' % d['error'][:100])
     elif c == 0:
         anotar(4, FALLA, 'La planilla no responde: %s' % t[:80])
     else:
         anotar(4, FALLA, 'La planilla respondió raro (código %s): %s' % (c, re.sub(r'<[^>]+>', ' ', t)[:100].strip()))
+    return None
+
+
+def desc(f):
+    return '%s %s %s %s' % (hora(f['recibido'] / 1000), f['nombre'][:18], f['moneda'] or '', ('%g' % f['monto']) if f['monto'] else '')
+
+
+# ---------------- Etapas 5 y 6: Movimientos y pre-orden ----------------
+ESPERA_MIN = 10   # un comprobante sin leer o sin pre-orden después de esto es sospechoso
+
+
+def etapas_planilla(d):
+    ahora = d['ahora'] / 1000
+    comp = d.get('comprobantes') or []
+
+    # 5: llegó a Movimientos y se leyó
+    if comp:
+        anotar(5, OK, '%d comprobantes en 24 h, el último %s (%s)' % (len(comp), hora(comp[0]['recibido'] / 1000), comp[0]['nombre'][:20]))
+    else:
+        anotar(5, OK, 'Sin comprobantes en las últimas 24 h')
+    if d.get('ultimoBuffer'):
+        anotar(5, OK, 'Último mensaje que llegó a la planilla: hace %s' % hace(ahora - d['ultimoBuffer'] / 1000))
+    trabados = [f for f in comp if f['estado'] == 'PENDIENTE' and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60]
+    for f in trabados[:3]:
+        anotar(5, FALLA, 'Sin leer (PENDIENTE hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
+    revisar = [f for f in comp if f['estado'] == 'REVISAR']
+    for f in revisar[:3]:
+        anotar(5, AVISO, 'En REVISAR, no sale pre-orden hasta que lo revises: %s' % desc(f))
+    if len(revisar) > 3:
+        anotar(5, AVISO, 'y %d más en REVISAR' % (len(revisar) - 3))
+    if d.get('lecturaAgendadaHace') and d['lecturaAgendadaHace'] > 600:
+        anotar(5, FALLA, 'Hay una lectura agendada hace %s que no corrió' % hace(d['lecturaAgendadaHace']))
+    errs = d.get('errores') or []
+    recientes = [e for e in errs if ahora - e['cuando'] / 1000 < 3600]
+    if recientes:
+        e = recientes[0]
+        anotar(5, AVISO, '%d errores en Debug_Errores la última hora. Último: %s %s' % (len(recientes), e['etapa'], e['detalle'][:60]))
+    elif errs:
+        anotar(5, OK, '%d errores en Debug_Errores en 24 h (ninguno en la última hora)' % len(errs))
+
+    # 6: salió la pre-orden
+    if d.get('preorden') is False:
+        anotar(6, FALLA, 'Pre-órdenes APAGADAS (casilla K3 del Dashboard)')
+    sin = [f for f in comp if f['estado'] == 'LEIDO' and f['llevaPreorden'] and not f['orden']
+           and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60 and f['monto'] > 0]
+    for f in sin[:3]:
+        anotar(6, FALLA, 'Leído y sin pre-orden (hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
+    con = [f for f in comp if f['orden']]
+    if con:
+        anotar(6, OK, 'Última pre-orden: %s (%s)' % (desc(con[0]), con[0]['orden']))
+    elif d.get('preorden') is not False and not sin:
+        anotar(6, OK, 'Ninguna pre-orden pendiente')
 
 
 # ---------------- Rastrear un cliente ----------------
@@ -269,14 +344,37 @@ def rastrear(texto):
             tipo = '📷' if m.get('hasMedia') else '💬'
             cuerpo = re.sub(r'\s+', ' ', str(m.get('body') or ''))[:40]
             print('  %s %s %s' % (hora(int(m.get('timestamp') or 0)), tipo, cuerpo))
-    print('Si el 📷 está acá, WAHA lo recibió: el corte fue después (planilla, lectura o pre-orden).')
-    print('Si no está y vos lo ves en el teléfono, WAHA no lo recibió (sorda).')
+    print('Si el 📷 está acá, WAHA lo recibió. Si no está y vos lo ves en el teléfono, WAHA no lo recibió (sorda).')
+
+
+def rastrear_planilla(texto):
+    ses, _ = waha_json('/api/sessions/%s' % SESION)
+    hooks = ((ses or {}).get('config') or {}).get('webhooks') or []
+    url = (hooks[0].get('url') if hooks else '') or leer_env('~/.subir-ordenes.env', 'WEBAPP_URL')
+    d, c, t, seg = consultar_planilla(url, texto) if url else (None, 0, 'sin /exec', 0)
+    print('— En la planilla')
+    if not d or not d.get('ok'):
+        print('  No pude consultarla (%s)' % ('falta instalar 18_Diagnostico.gs' if 'ignorado_saliente' in t else t[:80]))
+        return
+    dirs = d.get('directorio') or []
+    if dirs:
+        print('  ✅ En el Directorio: %s' % ', '.join('%s (%s)' % (x['nombre'], x['telefono'][-8:]) for x in dirs))
+    else:
+        print('  ❌ No está en el Directorio: sus fotos se descartan y no generan comprobante')
+    filas = d.get('cliente') or []
+    if not filas:
+        print('  Sin comprobantes en Movimientos en los últimos 7 días')
+    for f in filas[:6]:
+        print('  %s · %s · %s' % (desc(f), f['estado'] or '¿?', f['orden'] or ('sin pre-orden' if f['llevaPreorden'] else 'no lleva pre-orden')))
 
 
 def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
     if modo == 'rastrear':
-        rastrear(' '.join(sys.argv[2:]))
+        texto = ' '.join(sys.argv[2:])
+        print('— En WAHA')
+        rastrear(texto)
+        rastrear_planilla(texto)
         return 0
     def seguro(etapa, f, *a):
         try:
@@ -286,25 +384,26 @@ def main():
     seguro(1, etapa_vps)
     ses = seguro(2, etapa_waha)
     url = seguro(3, etapa_webhook, ses)
-    seguro(4, etapa_planilla, url)
+    d = seguro(4, etapa_planilla, url)
+    if d:
+        seguro(5, etapas_planilla, d)
 
     peor = FALLA if any(n == FALLA for _, n, _ in resultados) else AVISO if any(n == AVISO for _, n, _ in resultados) else OK
     if modo == 'vigilar' and peor != FALLA:
         return 0
     malas = [(e, t) for e, n, t in resultados if n == peor and n != OK]
     if not malas:
-        print('%s Todo bien en etapas 1-4 (VPS, WAHA, webhook, planilla)' % OK)
+        print('%s Todo bien en las 6 etapas' % OK)
     else:
         e, t = malas[0]
         extra = len([1 for _, n, _ in resultados if n != OK]) - 1
         print('%s Etapa %d: %s%s' % (peor, e, t, ' (y %d más)' % extra if extra else ''))
-    nombres = {1: 'VPS', 2: 'WAHA recibe', 3: 'Webhook', 4: 'Planilla'}
+    nombres = {1: 'VPS', 2: 'WAHA recibe', 3: 'Webhook', 4: 'Planilla', 5: 'Comprobantes', 6: 'Pre-órdenes'}
     for etapa in sorted(nombres):
         print('— %d %s' % (etapa, nombres[etapa]))
         for e, n, t in resultados:
             if e == etapa:
                 print('  %s %s' % (n, t))
-    print('— 5-6 Movimientos y pre-orden: todavía no (parte 2)')
     return 2 if peor == FALLA else 1 if peor == AVISO else 0
 
 
