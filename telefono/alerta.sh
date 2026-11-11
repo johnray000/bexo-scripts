@@ -4,6 +4,8 @@
 sh ~/bexo-scripts/telefono/boton.sh
 sh ~/bexo-scripts/telefono/movs_uy_boton.sh
 sh ~/bexo-scripts/telefono/tunel_vps.sh
+sh ~/bexo-scripts/telefono/diagnostico.sh boton
+sh ~/bexo-scripts/telefono/diagnostico.sh vigilar &
 PID=~/.alerta_compras.pid
 if [ -f "$PID" ] && kill -0 "$(cat "$PID")" 2>/dev/null; then exit 0; fi
 cd ~/bexo-scripts && git pull -q --ff-only >> ~/alerta.log 2>&1
