@@ -276,7 +276,7 @@ def etapa_planilla(url):
         anotar(4, AVISO, 'No sé cuál es el /exec (falta WEBAPP_URL en ~/.subir-ordenes.env)')
         return None
     d, c, t, seg = consultar_planilla(url)
-    lenta = AVISO if seg > 20 else OK
+    lenta = AVISO if seg > 40 else OK   # Apps Script tarda varios segundos en arrancar en frío
     if d and d.get('ok'):
         anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
         return d
@@ -428,23 +428,18 @@ def main():
     peor = FALLA if any(n == FALLA for _, n, _ in resultados) else AVISO if any(n == AVISO for _, n, _ in resultados) else OK
     if modo == 'vigilar' and peor != FALLA:
         return 0
-    malas = [(e, t) for e, n, t in resultados if n == peor and n != OK]
-    if not malas:
-        print('%s Todo bien en las 6 etapas' % OK)
-    else:
-        e, t = malas[0]
-        extra = len([1 for _, n, _ in resultados if n != OK]) - 1
-        print('%s Etapa %d: %s%s' % (peor, e, t, ' (y %d más)' % extra if extra else ''))
     nombres = {1: 'VPS', 2: 'WAHA', 3: 'Webhook', 4: 'Planilla', 5: 'Comprobantes', 6: 'Pre-órdenes'}
-    # La notificación del teléfono corta el texto largo: primero una línea con las 6 etapas,
-    # después solo lo que no está bien, y al final el detalle completo.
+
     def nivel(etapa):
         ns = [n for e, n, _ in resultados if e == etapa]
         return FALLA if FALLA in ns else AVISO if AVISO in ns else OK if ns else '·'
-    print(' · '.join('%d %s %s' % (e, nombres[e], nivel(e)) for e in sorted(nombres)))
-    for e, n, t in resultados:
-        if n != OK:
-            print('%s %d: %s' % (n, e, t))
+    # La notificación corta el texto largo: arriba las 6 etapas en una línea, después solo lo que no está bien
+    # (fallas primero), y al final el detalle completo.
+    print('%s %s' % (peor, ' · '.join('%d %s %s' % (e, nombres[e], nivel(e)) for e in sorted(nombres))))
+    for marca in (FALLA, AVISO):
+        for e, n, t in resultados:
+            if n == marca:
+                print('%s %d: %s' % (n, e, t))
     print('— Detalle')
     for etapa in sorted(nombres):
         print('— %d %s' % (etapa, nombres[etapa]))
