@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/sh
-# Lee las entradas de UNA app uruguaya (prex, itau u ocablue) y las manda a la hoja "Movs UY". Lo corre el botón de esa app
+# Lee las entradas de UNA app uruguaya (prex, itau, ocablue o mercadopago) y las manda a la hoja "Movs UY". Lo corre el botón de esa app
 # (movs_uy_boton.sh). Lee 9 días: la semana más margen; lo repetido no se duplica. Al terminar muestra el botón
 # de la app siguiente que esté pendiente, si hay alguna.
 APP="$1"
