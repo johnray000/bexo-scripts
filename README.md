@@ -17,6 +17,7 @@ Log en el teléfono: `tail -5 ~/subir.log`
 - `facturacion/ocablue.py`: lo mismo para la Cuenta pesos de OCA Blue (Ver movimientos; abre cada entrada para el ordenante).
 - `facturacion/mercadopago.py`: lo mismo para Mercado Pago (Tu dinero → Ver todos; lee nombre y hora de la lista).
   `telefono/movs_uy.sh` corre una de estas apps por botón (los martes, de a una).
+- `telefono/adb_reconectar.sh`: después de reiniciar, alerta.sh pone la notificación "ADB desconectado" con RECONECTAR; abre la Depuración inalámbrica, se conecta y deja fijo el 5555. También como acceso directo (Termux:Widget, `~/.shortcuts`).
 - `facturacion/midinero.py`: MiDinero desde su web, en el VPS (la app no deja leer la pantalla). Playwright + Chromium;
   `--explorar` guarda cada pantalla y los datos de la web. Necesita MIDINERO_EMAIL y MIDINERO_CLAVE en el .env.
   MiDinero bloquea IPs de fuera de Uruguay: el VPS sale por `telefono/tunel_vps.sh` (SSH del teléfono al VPS que deja
