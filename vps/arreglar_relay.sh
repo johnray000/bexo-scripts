@@ -4,7 +4,7 @@
 # 2) pone la versión nueva (atiende varios pedidos a la vez y corta conexiones mudas a los 30 s)
 # 3) agrega un control cada 5 min que lo reinicia solo si deja de responder
 set -e
-BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/relay-binance-no-se-cuelga/vps
+BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/main/vps
 cd /opt/relay-binance
 cp -n relay_binance.py relay_binance.py.antes
 curl -fsSL "$BASE/relay_binance.py" -o relay_binance.py.nuevo
