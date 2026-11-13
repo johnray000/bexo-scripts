@@ -362,7 +362,12 @@ def etapas_planilla(d):
            and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60 and f['monto'] > 0]
     for f in sin[:3]:
         anotar(6, FALLA, 'Leído y sin pre-orden (hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
-    con = [f for f in comp if f['orden']]
+    for f in [f for f in comp if f['orden'].upper().startswith('NO ENVIADA')][:3]:
+        anotar(6, FALLA, 'Pre-orden NO ENVIADA (no te llegó): %s' % desc(f))
+    for f in [f for f in comp if f['orden'].upper().startswith('ENVIANDO')
+              and ahora - f['recibido'] / 1000 > 20 * 60][:3]:
+        anotar(6, FALLA, 'Pre-orden trabada en ENVIANDO (no te llegó): %s' % desc(f))
+    con = [f for f in comp if f['orden'] and not f['orden'].upper().startswith(('NO ENVIADA', 'ENVIANDO'))]
     if con:
         anotar(6, OK, 'Última pre-orden: %s (%s)' % (desc(con[0]), con[0]['orden']))
     elif d.get('preorden') is not False and not sin:
@@ -370,48 +375,108 @@ def etapas_planilla(d):
 
 
 # ---------------- Rastrear un cliente ----------------
-def rastrear(texto):
+def fotos_waha(texto):
+    """Fotos/PDF que WAHA recibió del cliente (nombre o número). Devuelve (nombre, [(ts, cuerpo)], detalle)."""
     q = texto.lower().strip()
     dig = re.sub(r'\D', '', q)
     chats = chats_recientes(400)
     hallados = [c for c in chats
                 if (len(dig) >= 6 and dig[-8:] in re.sub(r'\D', '', c['id']))
                 or (q and not dig and q in str(c.get('name') or '').lower())]
-    if not hallados:
-        print('No encontré "%s" entre los chats de WAHA. Probá con el número.' % texto)
-        return
+    fotos, detalle, nombre = [], [], ''
     for c in hallados[:3]:
-        nombre = c.get('name') or c['id'].split('@')[0]
-        msgs = entrantes(c['id'], 8)
-        print('%s (%s)' % (nombre, c['id'].split('@')[0]))
-        if not msgs:
-            print('  WAHA no tiene mensajes entrantes de este chat.')
-        for m in sorted(msgs, key=lambda m: int(m.get('timestamp') or 0), reverse=True)[:6]:
-            tipo = '📷' if m.get('hasMedia') else '💬'
+        nombre = nombre or c.get('name') or c['id'].split('@')[0]
+        for m in entrantes(c['id'], 15):
+            ts = int(m.get('timestamp') or 0)
             cuerpo = re.sub(r'\s+', ' ', str(m.get('body') or ''))[:40]
-            print('  %s %s %s' % (hora(int(m.get('timestamp') or 0)), tipo, cuerpo))
-    print('Si el 📷 está acá, WAHA lo recibió. Si no está y vos lo ves en el teléfono, WAHA no lo recibió (sorda).')
+            detalle.append((ts, '📷' if m.get('hasMedia') else '💬', cuerpo, c.get('name') or c['id'].split('@')[0]))
+            if m.get('hasMedia'):
+                fotos.append((ts, cuerpo))
+    return nombre, hallados, sorted(fotos, reverse=True), sorted(detalle, reverse=True)
 
 
-def rastrear_planilla(texto):
+def veredicto(f):
+    """Qué pasó con un comprobante de Movimientos, en palabras."""
+    plata = '%s %s' % (f['moneda'] or '', ('{:,.0f}'.format(f['monto']).replace(',', '.')) if f['monto'] else '')
+    est, orden = f['estado'], f['orden']
+    # 11_PreOrden marca "ENVIANDO …" y pasa a ENVIADA solo si WAHA contestó bien; "NO ENVIADA" = falló 3 veces
+    if orden.upper().startswith('NO ENVIADA'):
+        return '❌', '%s · pre-orden NO ENVIADA (falló el envío, mirá Debug_Errores)' % plata.strip()
+    if orden.upper().startswith('ENVIANDO'):
+        if time.time() - f['recibido'] / 1000 > 20 * 60:
+            return '❌', '%s · pre-orden trabada en ENVIANDO, no te llegó' % plata.strip()
+        return '⏳', '%s · pre-orden saliendo (ENVIANDO)' % plata.strip()
+    if orden and orden != 'RECUPERADO':
+        return '✅', '%s · pre-orden %s' % (plata.strip(), orden)
+    if est == 'DESCARTADO':
+        return '➖', 'DESCARTADO: el lector dijo que no era un comprobante'
+    if est == 'DUPLICADO':
+        return '➖', 'DUPLICADO: esa referencia ya estaba cargada'
+    if est == 'REVISAR':
+        return '⚠️', '%s · en REVISAR: revisalo en Movimientos para que salga la pre-orden' % plata.strip()
+    if est == 'PENDIENTE':
+        return '⏳', 'todavía sin leer (PENDIENTE)'
+    if est == 'CONTADO':
+        return '✅', '%s · CONTADO' % plata.strip()
+    if est == 'LEIDO' and not f['llevaPreorden']:
+        return '✅', '%s · leído (esta moneda/cuenta no lleva pre-orden)' % plata.strip()
+    if est == 'LEIDO':
+        return '❌', '%s · leído pero SIN pre-orden' % plata.strip()
+    return '⚠️', '%s · %s' % (plata.strip(), est or 'sin estado')
+
+
+def rastrear(texto):
+    """Primero un veredicto por cada foto (lo que importa), después el detalle de WAHA y de la planilla."""
+    nombre, hallados, fotos, detalle = fotos_waha(texto)
     ses, _ = waha_json('/api/sessions/%s' % SESION)
     hooks = ((ses or {}).get('config') or {}).get('webhooks') or []
     url = (hooks[0].get('url') if hooks else '') or leer_env('~/.subir-ordenes.env', 'WEBAPP_URL')
     d, c, t, seg = consultar_planilla(url, texto) if url else (None, 0, 'sin /exec', 0)
-    print('— En la planilla')
-    if not d or not d.get('ok'):
+    planilla_ok = bool(d and d.get('ok'))
+    filas = (d or {}).get('cliente') or []
+    dirs = (d or {}).get('directorio') or []
+
+    titulo = nombre or (dirs[0]['nombre'] if dirs else texto)
+    print('Rastreo de %s' % titulo)
+    if planilla_ok and not dirs:
+        print('❌ No está en el Directorio: sus fotos se tiran y nunca generan comprobante. Agregalo al Directorio.')
+    if not hallados:
+        print('⚠️ WAHA no tiene un chat con "%s". Probá con el número.' % texto)
+
+    # Cada foto de WAHA se empareja con la fila de Movimientos que llegó entre 2 min antes y 15 min después
+    usadas = set()
+    for ts, cuerpo in fotos[:6]:
+        fila = None
+        for k, f in enumerate(filas):
+            if k not in usadas and -120 <= f['recibido'] / 1000 - ts <= 900:
+                fila = (k, f)
+                break
+        if fila:
+            usadas.add(fila[0])
+            marca, txt = veredicto(fila[1])
+        elif not planilla_ok:
+            marca, txt = '❔', 'no pude consultar la planilla'
+        elif time.time() - ts < 180:
+            marca, txt = '⏳', 'recién llegó, todavía no está en la planilla'
+        else:
+            marca, txt = '❌', 'WAHA la recibió pero NO está en Movimientos. Avisame y la recuperamos (cargarFaltantes)'
+        print('%s %s 📷 → %s' % (marca, hora(ts), txt))
+    # Comprobantes de la planilla sin foto en WAHA (cargados a mano o recuperados)
+    for k, f in enumerate(filas[:6]):
+        if k not in usadas and f['recibido'] / 1000 > (fotos[-1][0] - 3600 if fotos else 0):
+            marca, txt = veredicto(f)
+            print('%s %s (en la planilla) → %s' % (marca, hora(f['recibido'] / 1000), txt))
+    if not fotos and hallados:
+        print('➖ WAHA no tiene fotos recientes de este cliente. Si vos las ves en el teléfono, WAHA no las recibió.')
+
+    print('— Detalle WAHA')
+    for ts, tipo, cuerpo, quien in detalle[:8]:
+        print('  %s %s %s' % (hora(ts), tipo, cuerpo))
+    print('— Detalle planilla')
+    if not planilla_ok:
         print('  No pude consultarla (%s)' % ('falta instalar 18_Diagnostico.gs' if 'ignorado_saliente' in t else t[:80]))
-        return
-    dirs = d.get('directorio') or []
-    if dirs:
-        print('  ✅ En el Directorio: %s' % ', '.join('%s (%s)' % (x['nombre'], x['telefono'][-8:]) for x in dirs))
-    else:
-        print('  ❌ No está en el Directorio: sus fotos se descartan y no generan comprobante')
-    filas = d.get('cliente') or []
-    if not filas:
-        print('  Sin comprobantes en Movimientos en los últimos 7 días')
     for f in filas[:6]:
-        print('  %s · %s · %s' % (desc(f), f['estado'] or '¿?', f['orden'] or ('sin pre-orden' if f['llevaPreorden'] else 'no lleva pre-orden')))
+        print('  %s · %s · %s' % (desc(f), f['estado'] or '¿?', f['orden'] or '-'))
 
 
 def main():
@@ -443,10 +508,7 @@ def main():
             print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt))
         return 0
     if modo == 'rastrear':
-        texto = ' '.join(sys.argv[2:])
-        print('— En WAHA')
-        rastrear(texto)
-        rastrear_planilla(texto)
+        rastrear(' '.join(sys.argv[2:]))
         return 0
     def seguro(etapa, f, *a):
         try:
