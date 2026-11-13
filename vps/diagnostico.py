@@ -362,7 +362,12 @@ def etapas_planilla(d):
            and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60 and f['monto'] > 0]
     for f in sin[:3]:
         anotar(6, FALLA, 'Leído y sin pre-orden (hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
-    con = [f for f in comp if f['orden']]
+    for f in [f for f in comp if f['orden'].upper().startswith('NO ENVIADA')][:3]:
+        anotar(6, FALLA, 'Pre-orden NO ENVIADA (no te llegó): %s' % desc(f))
+    for f in [f for f in comp if f['orden'].upper().startswith('ENVIANDO')
+              and ahora - f['recibido'] / 1000 > 20 * 60][:3]:
+        anotar(6, FALLA, 'Pre-orden trabada en ENVIANDO (no te llegó): %s' % desc(f))
+    con = [f for f in comp if f['orden'] and not f['orden'].upper().startswith(('NO ENVIADA', 'ENVIANDO'))]
     if con:
         anotar(6, OK, 'Última pre-orden: %s (%s)' % (desc(con[0]), con[0]['orden']))
     elif d.get('preorden') is not False and not sin:
@@ -394,6 +399,13 @@ def veredicto(f):
     """Qué pasó con un comprobante de Movimientos, en palabras."""
     plata = '%s %s' % (f['moneda'] or '', ('{:,.0f}'.format(f['monto']).replace(',', '.')) if f['monto'] else '')
     est, orden = f['estado'], f['orden']
+    # 11_PreOrden marca "ENVIANDO …" y pasa a ENVIADA solo si WAHA contestó bien; "NO ENVIADA" = falló 3 veces
+    if orden.upper().startswith('NO ENVIADA'):
+        return '❌', '%s · pre-orden NO ENVIADA (falló el envío, mirá Debug_Errores)' % plata.strip()
+    if orden.upper().startswith('ENVIANDO'):
+        if time.time() - f['recibido'] / 1000 > 20 * 60:
+            return '❌', '%s · pre-orden trabada en ENVIANDO, no te llegó' % plata.strip()
+        return '⏳', '%s · pre-orden saliendo (ENVIANDO)' % plata.strip()
     if orden and orden != 'RECUPERADO':
         return '✅', '%s · pre-orden %s' % (plata.strip(), orden)
     if est == 'DESCARTADO':
