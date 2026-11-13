@@ -170,6 +170,27 @@ def etapa_vps():
         anotar(1, AVISO, 'Túnel del teléfono desconectado (solo hace falta para MiDinero los martes)')
 
 
+ENTRANTES_POR_CHAT = {}   # último mensaje entrante por chat según WAHA (lo llena etapa_waha, lo cruza la etapa 5)
+CORTE_RE = re.compile(r'stream errored|connection (?:closed|lost|failure)|conflict|logged ?out|restart required', re.I)
+
+
+def cortes_waha(desde):
+    """Cortes con WhatsApp según el log de WAHA. Las líneas a menos de 60 s entre sí cuentan como UN corte
+    (un corte deja varias líneas: error, cierre, reconexión). Devuelve [(datetime, primera línea), ...]."""
+    eventos = []
+    for linea in docker('logs', '--since', desde, '--timestamps', 'waha').splitlines():
+        if not CORTE_RE.search(linea):
+            continue
+        try:
+            ts = datetime.strptime(linea[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if eventos and (ts - eventos[-1][0]).total_seconds() < 60:
+            continue
+        eventos.append((ts, linea[31:].strip()[:160]))
+    return eventos
+
+
 # ---------------- Etapa 2: WAHA recibe ----------------
 def etapa_waha():
     ses, c = waha_json('/api/sessions/%s' % SESION)
@@ -183,8 +204,11 @@ def etapa_waha():
     for ch in chats_recientes(12)[:6]:
         for m in entrantes(ch['id'], 2):
             ts = int(m.get('timestamp') or 0)
+            quien = ch.get('name') or ch['id'].split('@')[0]
+            if ts:
+                ENTRANTES_POR_CHAT[quien] = max(ts, ENTRANTES_POR_CHAT.get(quien, 0))
             if ts and (not ultimo or ts > ultimo[0]):
-                ultimo = (ts, ch.get('name') or ch['id'].split('@')[0])
+                ultimo = (ts, quien)
     ahora = time.time()
     if not ultimo:
         anotar(2, AVISO, 'No encontré mensajes entrantes en WAHA')
@@ -198,10 +222,11 @@ def etapa_waha():
             txt += '. Si alguien te escribió después, WAHA está sorda'
         anotar(2, nivel, txt)
 
-    logs = docker('logs', '--since', '1h', 'waha')
-    errs = len(re.findall(r'stream errored|Connection Closed|connection (?:closed|lost)', logs, re.I))
-    if errs:
-        anotar(2, AVISO if errs < 5 else FALLA, '%d cortes de conexión con WhatsApp en la última hora' % errs)
+    ev = cortes_waha('1h')
+    if ev:
+        # Solo aviso: si WAHA sigue WORKING y recibiendo, los cortes no son una falla (todavía). Se investigan aparte.
+        anotar(2, AVISO, '%d cortes con WhatsApp en la última hora (último %s). Detalle: diagnostico.py cortes'
+               % (len(ev), ev[-1][0].astimezone(TZ).strftime('%H:%M')))
     return ses
 
 
@@ -231,21 +256,117 @@ def etapa_webhook(ses):
 
 
 # ---------------- Etapa 4: la planilla responde ----------------
+def consultar_planilla(url, buscar=''):
+    """Pide a la planilla las etapas 5-6 (18_Diagnostico.gs). Devuelve (dict|None, código, texto, segundos).
+    Va marcado fromMe: si la planilla todavía no tiene 18_Diagnostico.gs, doPost lo ignora sin guardar nada."""
+    token = leer_env('~/.subir-ordenes.env', 'ORDENES_TOKEN')
+    cuerpo = json.dumps({'diagnostico': True, 'token': token, 'buscar': buscar, 'event': 'message', 'session': SESION,
+                         'payload': {'fromMe': True, 'from': 'diagnostico@c.us', 'body': 'diagnostico'}}).encode()
+    t0 = time.time()
+    c, t = pedir(url, datos=cuerpo, cabeceras={'Content-Type': 'application/json'}, espera=60)
+    seg = time.time() - t0
+    try:
+        return json.loads(t), c, t, seg
+    except ValueError:
+        return None, c, t, seg
+
+
 def etapa_planilla(url):
     if not url:
         anotar(4, AVISO, 'No sé cuál es el /exec (falta WEBAPP_URL en ~/.subir-ordenes.env)')
-        return
-    falso = json.dumps({'event': 'message', 'session': SESION, 'diagnostico': True,
-                        'payload': {'fromMe': True, 'from': 'diagnostico@c.us', 'body': 'diagnostico'}}).encode()
-    t0 = time.time()
-    c, t = pedir(url, datos=falso, cabeceras={'Content-Type': 'application/json'}, espera=40)
-    seg = time.time() - t0
+        return None
+    d, c, t, seg = consultar_planilla(url)
+    lenta = AVISO if seg > 40 else OK   # Apps Script tarda varios segundos en arrancar en frío
+    if d and d.get('ok'):
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        return d
     if 'ignorado_saliente' in t:
-        anotar(4, OK if seg < 15 else AVISO, 'La planilla responde (%.1f s)' % seg)
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        anotar(5, AVISO, 'Falta instalar 18_Diagnostico.gs en Apps Script (ver diagnostico/LEEME.md)')
+        return None
+    if d and d.get('error') == 'no autorizado':
+        anotar(4, lenta, 'La planilla responde (%.1f s)' % seg)
+        anotar(5, AVISO, 'La planilla no aceptó el token (ORDENES_TOKEN de ~/.subir-ordenes.env)')
+        return None
+    if d and d.get('error'):
+        anotar(4, FALLA, 'La planilla dio error: %s' % d['error'][:100])
     elif c == 0:
         anotar(4, FALLA, 'La planilla no responde: %s' % t[:80])
     else:
         anotar(4, FALLA, 'La planilla respondió raro (código %s): %s' % (c, re.sub(r'<[^>]+>', ' ', t)[:100].strip()))
+    return None
+
+
+def desc(f):
+    return '%s %s %s %s' % (hora(f['recibido'] / 1000), f['nombre'][:18], f['moneda'] or '', ('%g' % f['monto']) if f['monto'] else '')
+
+
+# ---------------- Etapas 5 y 6: Movimientos y pre-orden ----------------
+ESPERA_MIN = 10   # un comprobante sin leer o sin pre-orden después de esto es sospechoso
+
+
+def etapas_planilla(d):
+    ahora = d['ahora'] / 1000
+    comp = d.get('comprobantes') or []
+
+    # 5: llegó a Movimientos y se leyó
+    if comp:
+        anotar(5, OK, '%d comprobantes en 24 h, el último %s (%s)' % (len(comp), hora(comp[0]['recibido'] / 1000), comp[0]['nombre'][:20]))
+    else:
+        anotar(5, OK, 'Sin comprobantes en las últimas 24 h')
+    # Último mensaje que llegó a la planilla (Buffer, Bandeja_Entrada o Historial; el Buffer solo se vacía).
+    # Si la planilla es vieja y no lo manda, no se cruza: mejor no decir nada que dar una falla falsa.
+    ult = (d.get('ultimoMensaje') or 0) / 1000
+    if 'ultimoMensaje' in d:
+        sin_msj = ahora - ult if ult else 999999
+        de_dia = 9 <= datetime.fromtimestamp(ahora, TZ).hour < 23
+        txt = 'Último mensaje que llegó a la planilla: %s' % (('%s, hace %s' % (hora(ult), hace(sin_msj))) if ult else 'ninguno')
+        # De día, 2 h sin ningún mensaje es lo que pasa cuando WAHA queda sorda (10/11 y 11/11). Es falla, no aviso:
+        # si de verdad nadie escribió, el costo es tocar DIAGNÓSTICO una vez.
+        if de_dia and sin_msj > 2 * 3600:
+            waha_mas_nuevo = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > ult + 600]
+            causa = ('WAHA sí recibió (%s): el webhook no entrega' % ', '.join(waha_mas_nuevo[:2])) if waha_mas_nuevo \
+                else 'WAHA tampoco recibió nada: probablemente sorda (re-vincular)'
+            anotar(5, FALLA, '%s. %s' % (txt, causa))
+        else:
+            anotar(5, OK, txt)
+        # Cruce WAHA ↔ planilla: 2+ chats con mensajes en WAHA que la planilla nunca vio (10 min de margen).
+        # Se exigen 2 chats para no confundir con un número bloqueado a propósito (BLACKLIST de doPost).
+        perdidos = [q for q, ts in ENTRANTES_POR_CHAT.items() if ts > ult + 600 and ahora - ts > 600]
+        if len(perdidos) >= 2 and not (de_dia and sin_msj > 2 * 3600):
+            anotar(5, FALLA, 'WAHA recibió mensajes de %s que no llegaron a la planilla (webhook cortado)' % ', '.join(perdidos[:3]))
+    else:
+        anotar(5, AVISO, 'Actualizá 18_Diagnostico.gs (la versión instalada no dice cuándo llegó el último mensaje)')
+    trabados = [f for f in comp if f['estado'] == 'PENDIENTE' and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60]
+    for f in trabados[:3]:
+        anotar(5, FALLA, 'Sin leer (PENDIENTE hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
+    revisar = [f for f in comp if f['estado'] == 'REVISAR']
+    for f in revisar[:3]:
+        anotar(5, AVISO, 'En REVISAR, no sale pre-orden hasta que lo revises: %s' % desc(f))
+    if len(revisar) > 3:
+        anotar(5, AVISO, 'y %d más en REVISAR' % (len(revisar) - 3))
+    if d.get('lecturaAgendadaHace') and d['lecturaAgendadaHace'] > 600:
+        anotar(5, FALLA, 'Hay una lectura agendada hace %s que no corrió' % hace(d['lecturaAgendadaHace']))
+    errs = d.get('errores') or []
+    recientes = [e for e in errs if ahora - e['cuando'] / 1000 < 3600]
+    if recientes:
+        e = recientes[0]
+        anotar(5, AVISO, '%d errores en Debug_Errores la última hora. Último: %s %s' % (len(recientes), e['etapa'], e['detalle'][:60]))
+    elif errs:
+        anotar(5, OK, '%d errores en Debug_Errores en 24 h (ninguno en la última hora)' % len(errs))
+
+    # 6: salió la pre-orden
+    if d.get('preorden') is False:
+        anotar(6, FALLA, 'Pre-órdenes APAGADAS (casilla K3 del Dashboard)')
+    sin = [f for f in comp if f['estado'] == 'LEIDO' and f['llevaPreorden'] and not f['orden']
+           and ahora - f['recibido'] / 1000 > ESPERA_MIN * 60 and f['monto'] > 0]
+    for f in sin[:3]:
+        anotar(6, FALLA, 'Leído y sin pre-orden (hace %s): %s' % (hace(ahora - f['recibido'] / 1000), desc(f)))
+    con = [f for f in comp if f['orden']]
+    if con:
+        anotar(6, OK, 'Última pre-orden: %s (%s)' % (desc(con[0]), con[0]['orden']))
+    elif d.get('preorden') is not False and not sin:
+        anotar(6, OK, 'Ninguna pre-orden pendiente')
 
 
 # ---------------- Rastrear un cliente ----------------
@@ -269,14 +390,63 @@ def rastrear(texto):
             tipo = '📷' if m.get('hasMedia') else '💬'
             cuerpo = re.sub(r'\s+', ' ', str(m.get('body') or ''))[:40]
             print('  %s %s %s' % (hora(int(m.get('timestamp') or 0)), tipo, cuerpo))
-    print('Si el 📷 está acá, WAHA lo recibió: el corte fue después (planilla, lectura o pre-orden).')
-    print('Si no está y vos lo ves en el teléfono, WAHA no lo recibió (sorda).')
+    print('Si el 📷 está acá, WAHA lo recibió. Si no está y vos lo ves en el teléfono, WAHA no lo recibió (sorda).')
+
+
+def rastrear_planilla(texto):
+    ses, _ = waha_json('/api/sessions/%s' % SESION)
+    hooks = ((ses or {}).get('config') or {}).get('webhooks') or []
+    url = (hooks[0].get('url') if hooks else '') or leer_env('~/.subir-ordenes.env', 'WEBAPP_URL')
+    d, c, t, seg = consultar_planilla(url, texto) if url else (None, 0, 'sin /exec', 0)
+    print('— En la planilla')
+    if not d or not d.get('ok'):
+        print('  No pude consultarla (%s)' % ('falta instalar 18_Diagnostico.gs' if 'ignorado_saliente' in t else t[:80]))
+        return
+    dirs = d.get('directorio') or []
+    if dirs:
+        print('  ✅ En el Directorio: %s' % ', '.join('%s (%s)' % (x['nombre'], x['telefono'][-8:]) for x in dirs))
+    else:
+        print('  ❌ No está en el Directorio: sus fotos se descartan y no generan comprobante')
+    filas = d.get('cliente') or []
+    if not filas:
+        print('  Sin comprobantes en Movimientos en los últimos 7 días')
+    for f in filas[:6]:
+        print('  %s · %s · %s' % (desc(f), f['estado'] or '¿?', f['orden'] or ('sin pre-orden' if f['llevaPreorden'] else 'no lleva pre-orden')))
 
 
 def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
+    if modo == 'evidencia':   # para buscar la causa de fondo de la sordera: todo junto, para pegar en el chat
+        print('== Ahora: %s' % datetime.now(TZ).strftime('%d/%m %H:%M'))
+        # Dos contenedores con la misma sesión vinculada se pisan ("conflict"/"replaced") y uno queda sordo
+        print('== Contenedores:\n%s' % docker('ps', '-a', '--format', '{{.Names}} | {{.Image}} | {{.Status}} | {{.Ports}}').strip())
+        print('== Contenedor: %s' % docker('inspect', '-f', '{{.Config.Image}} reinicios={{.RestartCount}} desde={{.State.StartedAt}} oom={{.State.OOMKilled}}', 'waha').strip())
+        print('== Motor: %s' % re.findall(r'WHATSAPP_DEFAULT_ENGINE=\w+', docker('inspect', '-f', '{{.Config.Env}}', 'waha')))
+        print('== Memoria MB (total usada libre compartida cache disponible): %s' % ' '.join(cmd('free', '-m').split()[7:13]))
+        print('== OOM del kernel (24 h): %s' % (cmd('sudo', '-n', 'journalctl', '-k', '--since', '24 hours ago', '--no-pager').lower().count('out of memory')))
+        ev = cortes_waha('24h')
+        print('== %d cortes en 24 h' % len(ev))
+        for ts, txt in ev:
+            print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt[:110]))
+        ses, _ = waha_json('/api/sessions/%s' % SESION)
+        print('== Sesión: %s' % json.dumps({k: (ses or {}).get(k) for k in ('status', 'engine', 'me')}, ensure_ascii=False)[:300])
+        print('== Últimas 40 líneas raras del log (12 h)')
+        raras = [l for l in docker('logs', '--since', '12h', '--timestamps', 'waha').splitlines()
+                 if re.search(r'error|warn|fail|close|stream|decrypt|conflict|timeout|logout|restart', l, re.I)]
+        for l in raras[-40:]:
+            print(l[11:19], l[31:][:150])
+        return 0
+    if modo == 'cortes':   # para investigar el motivo: cada corte de las últimas 24 h con su línea de log
+        ev = cortes_waha('24h')
+        print('%d cortes con WhatsApp en 24 h' % len(ev))
+        for ts, txt in ev:
+            print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt))
+        return 0
     if modo == 'rastrear':
-        rastrear(' '.join(sys.argv[2:]))
+        texto = ' '.join(sys.argv[2:])
+        print('— En WAHA')
+        rastrear(texto)
+        rastrear_planilla(texto)
         return 0
     def seguro(etapa, f, *a):
         try:
@@ -286,25 +456,31 @@ def main():
     seguro(1, etapa_vps)
     ses = seguro(2, etapa_waha)
     url = seguro(3, etapa_webhook, ses)
-    seguro(4, etapa_planilla, url)
+    d = seguro(4, etapa_planilla, url)
+    if d:
+        seguro(5, etapas_planilla, d)
 
     peor = FALLA if any(n == FALLA for _, n, _ in resultados) else AVISO if any(n == AVISO for _, n, _ in resultados) else OK
     if modo == 'vigilar' and peor != FALLA:
         return 0
-    malas = [(e, t) for e, n, t in resultados if n == peor and n != OK]
-    if not malas:
-        print('%s Todo bien en etapas 1-4 (VPS, WAHA, webhook, planilla)' % OK)
-    else:
-        e, t = malas[0]
-        extra = len([1 for _, n, _ in resultados if n != OK]) - 1
-        print('%s Etapa %d: %s%s' % (peor, e, t, ' (y %d más)' % extra if extra else ''))
-    nombres = {1: 'VPS', 2: 'WAHA recibe', 3: 'Webhook', 4: 'Planilla'}
+    nombres = {1: 'VPS', 2: 'WAHA', 3: 'Webhook', 4: 'Planilla', 5: 'Comprobantes', 6: 'Pre-órdenes'}
+
+    def nivel(etapa):
+        ns = [n for e, n, _ in resultados if e == etapa]
+        return FALLA if FALLA in ns else AVISO if AVISO in ns else OK if ns else '·'
+    # La notificación corta el texto largo: arriba las 6 etapas en una línea, después solo lo que no está bien
+    # (fallas primero), y al final el detalle completo.
+    print('%s %s' % (peor, ' · '.join('%d %s %s' % (e, nombres[e], nivel(e)) for e in sorted(nombres))))
+    for marca in (FALLA, AVISO):
+        for e, n, t in resultados:
+            if n == marca:
+                print('%s %d: %s' % (n, e, t))
+    print('— Detalle')
     for etapa in sorted(nombres):
         print('— %d %s' % (etapa, nombres[etapa]))
         for e, n, t in resultados:
             if e == etapa:
                 print('  %s %s' % (n, t))
-    print('— 5-6 Movimientos y pre-orden: todavía no (parte 2)')
     return 2 if peor == FALLA else 1 if peor == AVISO else 0
 
 
