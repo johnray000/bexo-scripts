@@ -1,0 +1,5 @@
+# Solo se suben a Google los .gs y appsscript.json; todo lo demás queda solo en GitHub.
+**/**
+!*.gs
+!*.html
+!appsscript.json
