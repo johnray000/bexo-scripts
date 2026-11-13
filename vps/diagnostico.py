@@ -479,30 +479,6 @@ def rastrear(texto):
         print('  %s · %s · %s' % (desc(f), f['estado'] or '¿?', f['orden'] or '-'))
 
 
-# ---------------- Probar el envío de la pre-orden ----------------
-def probar_envio():
-    """La pre-orden se manda a tu propio número (MI_TELEFONO = el mismo de WAHA). Prueba las formas de mandarte
-    un mensaje a vos mismo y muestra qué contesta WAHA, para ver cuál te llega con GOWS."""
-    ses, _ = waha_json('/api/sessions/%s' % SESION)
-    me = (ses or {}).get('me') or {}
-    print('Sesión: %s · motor %s · yo = %s' % ((ses or {}).get('status'), ((ses or {}).get('engine') or {}).get('engine'),
-                                           json.dumps(me, ensure_ascii=False)[:160]))
-    num = re.sub(r'\D', '', str(me.get('id') or '').split('@')[0].split(':')[0]) or '5491123913064'
-    destinos = [('A', num + '@c.us'), ('B', num + '@s.whatsapp.net')]
-    if me.get('lid'):
-        destinos.append(('C', str(me['lid'])))
-    for letra, chat in destinos:
-        cuerpo = json.dumps({'session': SESION, 'chatId': chat,
-                             'text': 'Prueba %s de pre-orden (%s)' % (letra, datetime.now(TZ).strftime('%H:%M'))}).encode()
-        c, t = pedir(WAHA + '/api/sendText', cuerpo, dict(CAB, **{'Content-Type': 'application/json'}))
-        print('Prueba %s → %s: código %s %s' % (letra, chat, c, re.sub(r'\s+', ' ', t)[:160]))
-    print('— Errores de envío en el log (2 h)')
-    raras = [l for l in docker('logs', '--since', '2h', 'waha').splitlines()
-             if re.search(r'send|fail|error', l, re.I) and not re.search(r'webhook', l, re.I)]
-    for l in raras[-15:]:
-        print('  ' + l[:170])
-
-
 def main():
     modo = sys.argv[1] if len(sys.argv) > 1 else 'todo'
     if modo == 'evidencia':   # para buscar la causa de fondo de la sordera: todo junto, para pegar en el chat
@@ -530,9 +506,6 @@ def main():
         print('%d cortes con WhatsApp en 24 h' % len(ev))
         for ts, txt in ev:
             print('%s  %s' % (ts.astimezone(TZ).strftime('%d/%m %H:%M:%S'), txt))
-        return 0
-    if modo == 'envio':
-        probar_envio()
         return 0
     if modo == 'rastrear':
         rastrear(' '.join(sys.argv[2:]))
