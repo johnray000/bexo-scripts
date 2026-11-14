@@ -39,7 +39,7 @@ informe() {
 
     echo
     echo "--- ALMACENAMIENTO"
-    A df /data | awk 'NR==2{u=$5+0; printf "Usado: %s de %s%s\n", $5, $2, (u>=90?"  ⚠️ casi lleno: eso frena el teléfono":"")}'
+    A df /data | awk 'NR==2{u=$5+0; g=$2; if(g ~ /^[0-9]+$/) g=sprintf("%.0f GB", g/1048576); printf "Usado: %s de %s%s\n", $5, g, (u>=90?"  ⚠️ casi lleno: eso frena el teléfono":"")}'
 
     echo
     echo "--- QUIÉN NO DEJA DORMIR AL TELÉFONO (wake locks activos)"
