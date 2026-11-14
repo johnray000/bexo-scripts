@@ -53,7 +53,7 @@ if __name__ == '__main__':
     except ValueError:
         print(texto[:1000])
         sys.exit(1)
-    print('retCode:', r.get('retCode'), r.get('retMsg'))
+    print('ret_code:', r.get('ret_code', r.get('retCode')), r.get('ret_msg', r.get('retMsg')))
     items = (r.get('result') or {}).get('items') or []
     print('Órdenes en la respuesta:', len(items), '| total:', (r.get('result') or {}).get('count'))
     for o in items[:2]:
