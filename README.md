@@ -28,5 +28,5 @@ Log en el teléfono: `tail -5 ~/subir.log`
   wake locks y cada script de Termux con hace cuánto corre). Mira una vez y termina: no deja nada corriendo.
   Con ADB ve todo el teléfono; sin ADB solo Termux. `consumo.sh notif` además deja el resumen en una notificación
   (para el acceso directo de Termux:Widget). Último informe: `cat ~/consumo_ultimo.txt`.
-- `telefono/liberar.sh`: acceso directo "Liberar": cierra OKX, Instagram y Telegram (más las de `~/.liberar_extra`)
-  y deja dormida a Abitab ID (desactivada, sin borrarla). `liberar.sh abitab` la despierta y la abre. Usa ADB.
+- `telefono/liberar.sh`: acceso directo "Liberar": cierra OKX, Instagram, Telegram y Abitab ID (más las de
+  `~/.liberar_extra`) y avisa cuánta RAM liberó. A Abitab además le saca el permiso de correr en segundo plano. Usa ADB.

@@ -1,12 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/sh
-# Libera memoria con un toque: cierra las apps pesadas que no estás usando y deja dormida a Abitab ID.
-#   liberar.sh          cierra las apps de APPS (y las de ~/.liberar_extra, una por línea) y avisa cuánta RAM liberó
-#   liberar.sh abitab   despierta Abitab ID y la abre. La próxima vez que toques "Liberar" vuelve a quedar dormida.
-# "Dormida" = desactivada (pm disable-user): no aparece, no corre en segundo plano y no gasta nada, pero no se borra
-# ni pierde tu sesión. Si alguna vez querés despertarla a mano:  adb -s 127.0.0.1:5555 shell pm enable uy.com.abitab.iddigital.prod
+# Libera memoria con un toque: cierra las apps pesadas que no estás usando y avisa cuánta RAM liberó.
+# Cierra las de APPS y las de ~/.liberar_extra (un nombre de paquete por línea).
+# Abitab ID queda además sin permiso para correr en segundo plano: su ícono sigue, la abrís a mano cuando
+# la necesites, y al cerrarla no vuelve a arrancar sola.
 # Ojo: una app cerrada no manda notificaciones hasta que la volvés a abrir.
 # Necesita ADB (puerto 5555, ver adb_reconectar.sh).
-APPS="com.okinc.okex.gp com.instagram.android org.telegram.messenger"
+APPS="com.okinc.okex.gp com.instagram.android org.telegram.messenger uy.com.abitab.iddigital.prod"
 ABITAB=uy.com.abitab.iddigital.prod
 
 S=127.0.0.1:5555
@@ -18,13 +17,6 @@ fi
 A() { adb -s "$S" shell "$@" 2>/dev/null; }
 libre() { A cat /proc/meminfo | awk '/^MemAvailable:/{printf "%d", $2/1024}'; }
 
-if [ "$1" = abitab ]; then
-  A pm enable "$ABITAB" >/dev/null
-  A monkey -p "$ABITAB" -c android.intent.category.LAUNCHER 1 >/dev/null
-  termux-notification --id liberar --title 'Abitab ID despierta' --content 'Cuando termines, tocá "Liberar" y vuelve a dormirse.'
-  exit 0
-fi
-
 ANTES=$(libre)
 termux-notification --id liberar --title 'Liberando memoria…' --content 'Cerrando apps'
 CERRADAS=""
@@ -35,11 +27,9 @@ for P in $APPS $(cat ~/.liberar_extra 2>/dev/null); do
     CERRADAS="$CERRADAS $(echo "$P" | awk -F. '{print $(NF>2?NF-1:NF)}')"
   fi
 done
-# Abitab: si está instalada y despierta, se duerme
-if A pm list packages -e "$ABITAB" | grep -q "$ABITAB"; then
-  A am force-stop "$ABITAB"
-  A pm disable-user --user 0 "$ABITAB" >/dev/null && CERRADAS="$CERRADAS abitab(dormida)"
-fi
+# Abitab: nunca en segundo plano. Si quedó desactivada por la versión anterior, la vuelve a activar (vuelve el ícono).
+A pm enable "$ABITAB" >/dev/null
+A cmd appops set "$ABITAB" RUN_ANY_IN_BACKGROUND ignore
 sleep 3
 DESPUES=$(libre)
 [ -n "$CERRADAS" ] || CERRADAS=" nada (ya estaban cerradas)"
