@@ -4,7 +4,10 @@ Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive 
 `~/.subir-ordenes.env` del teléfono.
 
 - `subir_ordenes.py`: lee las órdenes P2P de Binance (solo lectura) y las manda al Apps Script.
-- `telefono/subir.sh`: lo corre Termux cada 4 horas; antes baja la última versión de este repo.
+- `bybit_ordenes.py`: lo mismo para Bybit (API P2P, key de solo lectura en `BYBIT_KEY`/`BYBIT_SECRET`); las manda a la
+  hoja Ordenes_P2P con Exchange = Bybit y se unen por número de orden con las del export. `--probar` no sube nada.
+- `telefono/subir.sh`: lo corre Termux cada 4 horas; antes baja la última versión de este repo. Corre los dos
+  (Bybit solo si está `BYBIT_KEY` en el .env).
 
 Log en el teléfono: `tail -5 ~/subir.log`
 - `alerta_compras.py`: alarma (notificación + voz) cuando alguien abre una orden en tu anuncio de compra;

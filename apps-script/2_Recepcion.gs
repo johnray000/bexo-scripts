@@ -24,6 +24,7 @@ function doPost(e) {
     if (data.movimientosUY) return recibirMovimientosUY_(data);
     if (data.ordenesP2P) return recibirOrdenesP2P_(data);
     if (data.ordenesOKX) return recibirOrdenesOKX_(data);
+    if (data.ordenesBybit) return recibirOrdenesBybit_(data);
     const payload = data.payload || {};
     const _data = payload._data || {};
     const key = _data.key || {};
