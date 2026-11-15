@@ -4,14 +4,21 @@
   python3 pruebas/simular_binance.py CARPETA
 
 CARPETA (en los archivos del proyecto, p2p/binance_app/grabacion/; no va al repo porque muestra saldos) tiene:
-  01.xml  Seleccionar divisa   02.xml / 03.xml  panel Filtrar (embudo), arriba / desplazado   04.xml  lista P2P
-  05.xml  Vender USDT (la orden)        quiero_vender.xml  hoja del chip Monto (15/11 02:13)
-  seleccionar_activo.xml  hoja de activo (15/11 02:08)
+  01.xml                 Seleccionar divisa                       (grabación 15/11 madrugada)
+  03.xml                 panel Filtrar desplazado (con teclado)   (madrugada)
+  04.xml                 lista P2P VES con PrincessYor             (madrugada)
+  05.xml                 Vender USDT de PrincessYor                (madrugada)
+  quiero_vender.xml      hoja del chip Monto                       (15/11 02:13)
+  seleccionar_activo.xml hoja de activo                            (15/11 02:08)
+  lista_ars_comprar.xml  lista en ARS, pestaña Comprar, con casillas Pro / Nuevo usuario (15/11 15:27, 01)
+  filtrar.xml            panel Filtrar recién abierto              (15:27, 05)
+  lista_ves.xml          lista VES con wen2, sin barra de abajo en el xml (15:27, 08)
+  orden_wen2.xml         Vender USDT de wen2, casilla sin tildar   (15:27, 09)
 
-Cada toque se resuelve buscando qué nodo del xml actual está en ese punto (como el teléfono). Lo único armado a mano:
-la lista P2P "sin filtros" es 04.xml con los chips en "Monto" y "Pago" (así se ven en la captura del 15/11 02:13),
-y la lista de métodos de pago NO está grabada: el simulador la devuelve como pantalla desconocida y el
-recorrido tiene que frenarse ahí, nunca tocar a ciegas.
+Cada toque se resuelve buscando qué nodo del xml actual está en ese punto (como el teléfono). Se imita lo que pasa
+en el teléfono: el embudo a veces no abre al primer toque y la PRIMERA vez que se confirma el filtro, la app lo
+descarta. Lo armado a mano: la lista "sin filtros" es la grabada con los chips en "Monto" y "Pago" (así se ven en
+las capturas). La lista de métodos de pago NO está grabada: si el recorrido la abriera, sería pantalla desconocida.
 """
 import os
 import re
@@ -24,19 +31,16 @@ sys.argv = sys.argv[:1]
 import binance_orden as b  # noqa: E402
 
 X = {k: open(os.path.join(CARPETA, k + '.xml')).read()
-     for k in ('01', '02', '03', '04', '05', 'quiero_vender', 'seleccionar_activo')}
+     for k in ('01', '03', '04', '05', 'quiero_vender', 'seleccionar_activo', 'lista_ars_comprar', 'filtrar',
+               'lista_ves', 'orden_wen2')}
 NO_GRABADA = ('<?xml version="1.0"?><hierarchy><node text="PANTALLA NO GRABADA" class="android.widget.TextView" '
               'package="com.binance.dev" bounds="[0,500][1080,600]"/></hierarchy>')
-APODO = 'PrincessYor'
 METODO = {'id': 'PagoMovil', 'nombre': 'Pago Movil'}
-
-
-def llave(xml, rid, prendida):
-    """Pone un interruptor (Switch) prendido o apagado en el xml grabado."""
-    x, k = re.subn(r'(resource-id="com\.binance\.dev:id/%s"[^>]*?checked=")(true|false)' % rid,
-                   r'\g<1>' + ('true' if prendida else 'false'), xml)
-    assert k == 1, 'no está el interruptor %s' % rid
-    return x
+# Interruptores del panel Filtrar: rid → (fila y1, y2), y cómo vienen (grabación 15:27, 05)
+LLAVES = {'2131444437': (726, 776), '2131444418': (856, 906), '2131444409': (986, 1036)}
+DE_FABRICA = {'2131444437': True, '2131444418': False, '2131444409': True}
+# Las dos listas grabadas: el apodo de la primera tarjeta y el xml de su orden
+LISTAS = {'04': ('PrincessYor', '05', '5000'), 'lista_ves': ('wen2', 'orden_wen2', '5000')}
 
 
 def cambiar(xml, viejo_texto, rid, nuevo):
@@ -45,41 +49,58 @@ def cambiar(xml, viejo_texto, rid, nuevo):
     return xml.replace(a, 'text="%s" resource-id="com.binance.dev:id/%s"' % (nuevo, rid))
 
 
+def llave(xml, rid, prendida):
+    x, k = re.subn(r'(resource-id="com\.binance\.dev:id/%s"[^>]*?checked=")(true|false)' % rid,
+                   r'\g<1>' + ('true' if prendida else 'false'), xml)
+    assert k == 1, 'no está el interruptor %s' % rid
+    return x
+
+
 class Telefono:
-    def __init__(self, pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender', frente='binance',
-                 pro=True, embudo_falla=1, orden_monto='5000'):
+    def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
+                 frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000'):
+        self.lista = lista
+        self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
-                      pro=pro, embudo_falla=embudo_falla, campo='', foco=False, orden_monto=orden_monto,
-                      tocado_apodo=None)
-        self.malos = []        # toques que nunca deberían pasar
-        self.toques = []
+                      embudo_falla=embudo_falla, descarta=descarta_primera, campo='', foco=False,
+                      orden_monto=orden_monto, tocado_apodo=None,
+                      aplicadas=dict(llaves or DE_FABRICA), panel={})
+        self.malos = []
 
     def xml(self):
         s = self.s
         p = s['pantalla']
         if p == 'p2p':
-            x = cambiar(X['04'], 'VES', '2131446692', s['moneda'])
+            x = cambiar(X[self.lista], 'VES', '2131446692', s['moneda'])
             x = cambiar(x, '5,000', 'tv_amount', '{:,.0f}'.format(s['monto']) if s['monto'] else 'Monto')
             x = cambiar(x, 'Pago Movil', '2131452724', s['pago'] or 'Pago')
             if s['tab'] == 'comprar':
                 x = x.replace('text="Vender" resource-id="com.binance.dev:id/2131452588"',
                               'text="Comprar" resource-id="com.binance.dev:id/2131452588"')
             return x
+        if p == 'ars_comprar':
+            return X['lista_ars_comprar']
         if p == 'monto':
             return cambiar(X['quiero_vender'], 'Ingresa el monto total', '2131432439',
                            s['campo'] or 'Ingresa el monto total')
         if p == 'filtrar':
             if s['foco']:                 # con el teclado el panel se desplaza (grabación 03)
                 return cambiar(X['03'], '5000', '2131432527', s['campo'] or 'Ingresa el monto total')
-            return llave(X['02'], '2131444418', s['pro'])
+            x = X['filtrar']
+            for rid, on in s['panel'].items():
+                x = llave(x, rid, on)
+            if s['campo']:
+                x = cambiar(x, 'Ingresa el monto total', '2131432527', s['campo'])
+            return x
         if p == 'orden':
-            return cambiar(X['05'], '5000', '2131432247', s['campo'] if s['foco'] else s['orden_monto'])
+            return cambiar(X[self.orden_xml], self.orden_rid_txt, '2131432247',
+                           s['campo'] if s['foco'] else s['orden_monto'])
         if p == 'divisa':
             return X['01']
         if p == 'activo':
             return X['seleccionar_activo']
         if p == 'inicio':
-            return ''                     # animado: uiautomator no devuelve nada
+            return ''
         return NO_GRABADA
 
     def nodo_en(self, x, y):
@@ -90,8 +111,8 @@ class Telefono:
                     ((n.get('text') or '').strip() or (n.get('class') or '').split('.')[-1] in ('EditText', 'Switch')
                      or n.get('clickable') == 'true'):
                 area = ((bb[2] - bb[0]) * (bb[3] - bb[1]), 0 if (n.get('text') or '').strip() else 1)
-                if mejor is None or area < mejor[0]:     # el más chico; si empatan, el que tiene texto
-                    mejor = (area, n.get('text') or '', bb, n.get('class') or '')
+                if mejor is None or area < mejor[0]:   # el más chico; si empatan, el que tiene texto
+                    mejor = (area, n.get('text') or '', bb, (n.get('class') or '').split('.')[-1])
         return mejor
 
     def tap(self, x, y):
@@ -102,10 +123,9 @@ class Telefono:
                 s['pantalla'] = 'p2p'
             return
         n = self.nodo_en(x, y)
-        t = n[1] if n else ''
-        self.toques.append((p, t))
-        if p == 'orden' and (b.PROHIBIDO.search(b.norm(t)) or y > 1950):   # términos, casilla, Realizar Orden
-            self.malos.append('tocó "%s" en la orden' % t)
+        t, clase = (n[1], n[3]) if n else ('', '')
+        if p == 'orden' and (b.PROHIBIDO.search(b.norm(t)) or y > 1950 or clase == 'CheckBox'):
+            self.malos.append('tocó "%s" en la orden' % (t or clase))
         if p == 'p2p':
             if t == 'Vender' and y < 480:
                 s['tab'] = 'vender'
@@ -118,41 +138,50 @@ class Telefono:
                     s['embudo_falla'] -= 1                       # no abre a la primera (pasa en el teléfono)
                 else:
                     s['pantalla'], s['campo'], s['foco'] = 'filtrar', '', False
+                    s['panel'] = dict(s['aplicadas'])
+                    if s['monto']:
+                        s['campo'] = fmt(s['monto'])
             elif n and 330 < y < 480 and 267 <= x <= 357:
                 s['pantalla'], s['campo'], s['foco'] = 'monto', '', False
             elif n and 330 < y < 480 and 427 <= x <= 616:
-                s['pantalla'] = 'metodos'         # NO grabada
+                s['pantalla'] = 'metodos'                        # NO grabada
+                self.malos.append('tocó el chip de método')
             elif t in ('Vender', 'Comprar') and y > 480:
                 if s['tab'] != 'vender':
                     self.malos.append('tocó la tarjeta estando en Comprar')
-                if s['pro']:
-                    self.malos.append('entró al anuncio con "Solo comerciantes Pro" prendido')
-                if not (s['monto'] and s['pago'] and s['moneda'] == 'VES'):
-                    self.malos.append('entró al anuncio sin filtros completos: %s' % s)
-                s['tocado_apodo'] = 'PrincessYor' if y < 900 else 'otro'
+                if any(s['aplicadas'].values()):
+                    self.malos.append('entró al anuncio con interruptores prendidos: %s' % s['aplicadas'])
+                if not (s['monto'] and s['moneda'] == 'VES'):
+                    self.malos.append('entró al anuncio sin monto o sin VES')
+                s['tocado_apodo'] = self.apodo if y < 900 else 'otro'
                 s['pantalla'], s['foco'] = 'orden', False
         elif p == 'divisa':
             if t in ('VES', 'UYU', 'COP', 'AZN', 'USD', 'ARS'):
                 s['moneda'], s['pantalla'] = t, 'p2p'
         elif p == 'filtrar':
-            if n and n[3].endswith('Switch'):
-                if 856 <= y <= 906:
-                    s['pro'] = not s['pro']
+            if clase == 'Switch':
+                rid = [r for r, (y1, y2) in LLAVES.items() if y1 <= y <= y2]
+                if rid:
+                    s['panel'][rid[0]] = not s['panel'][rid[0]]
                 else:
                     self.malos.append('tocó otro interruptor del panel (y=%d)' % y)
-            elif n and n[3].endswith('EditText'):
+            elif clase == 'EditText':
                 s['foco'] = True
             elif t == 'Confirmar':
-                s['monto'] = b.numero(s['campo']) or s['monto']
+                if s['descarta']:
+                    s['descarta'] = False                        # la primera vez la app descarta el filtro
+                else:
+                    s['monto'] = b.numero(s['campo']) or s['monto']
+                    s['aplicadas'] = dict(s['panel'])
                 s['pantalla'], s['foco'] = 'p2p', False
         elif p == 'monto':
-            if n and n[3].endswith('EditText'):
+            if clase == 'EditText':
                 s['foco'] = True
             elif t == 'Confirmar':
                 s['monto'] = b.numero(s['campo'])
                 s['pantalla'], s['foco'] = 'p2p', False
         elif p == 'orden':
-            if n and n[3].endswith('EditText'):
+            if clase == 'EditText':
                 s['foco'], s['campo'] = True, s['orden_monto']
 
     def key(self, k):
@@ -183,14 +212,17 @@ class Telefono:
                 s['frente'] = 'termux'
         elif a[:3] == ('shell', 'am', 'start') or a[:2] == ('shell', 'monkey'):
             if s['frente'] == 'termux':
-                s['frente'], s['pantalla'] = 'binance', s['pantalla']
+                s['frente'] = 'binance'
         elif a[:3] == ('shell', 'pm', 'list'):
             return 'package:com.binance.dev'
         return ''
 
 
-def correr(nombre, espera, **kw):
-    t = Telefono(**kw)
+def fmt(m):
+    return b.fmt_monto(m)
+
+
+def preparar(t):
     b.adb = t.adb
     b.time.sleep = lambda s: None
     b.tamano_pantalla = lambda: (1080, 2400)
@@ -198,15 +230,17 @@ def correr(nombre, espera, **kw):
     b.EN_ORDEN = False
     b.PAQ = ''
     b.paquete_binance()
+
+
+def correr(nombre, espera, **kw):
+    t = Telefono(**kw)
+    preparar(t)
     print('==== %s' % nombre)
     try:
-        ns = b.llegar_a_la_orden(APODO, METODO, 5000.0)
-        r = b.completar_orden(ns, APODO, METODO, 5000.0)
-        res = 'orden %s %s' % r
-        if t.s['tocado_apodo'] != APODO:
+        ns = b.llegar_a_la_orden(t.apodo, METODO, 5000.0)
+        res = 'orden %s %s' % b.completar_orden(ns, t.apodo, METODO, 5000.0)
+        if t.s['tocado_apodo'] != t.apodo:
             t.malos.append('abrió la orden de otro')
-        if t.s['foco'] and t.s['campo'] != '5000':
-            t.malos.append('el monto quedó en %r' % t.s['campo'])
     except b.Frenado as e:
         res = 'frenado: %s' % e
     try:                                     # la barrera final: con EN_ORDEN nada prohibido se toca
@@ -222,32 +256,42 @@ def correr(nombre, espera, **kw):
 
 
 casos = [
-    ('lista con filtros ya puestos (04): igual pasa por el embudo por lo de Pro', 'orden True True',
-     dict(monto=5000, pago='Pago Movil')),
-    ('sin monto, Pro prendido, el embudo no abre a la primera', 'orden True True', dict(pago='Pago Movil')),
-    ('sin monto, Pro ya apagado, el embudo abre a la primera', 'orden True True',
-     dict(pago='Pago Movil', pro=False, embudo_falla=0)),
-    ('el embudo no abre nunca', 'no avanza', dict(pago='Pago Movil', embudo_falla=99)),
-    ('moneda ARS y pestaña Comprar', 'orden True True', dict(moneda='ARS', tab='comprar', pago='Pago Movil')),
-    ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True',
-     dict(pantalla='activo', pago='Pago Movil')),
-    ('quedó abierta la hoja "Quiero vender" (como 02:13)', 'orden True True',
-     dict(pantalla='monto', pago='Pago Movil')),
+    ('15:27: lista VES sin monto, filtro de fábrica, el embudo falla y descarta la 1ª vez', 'orden True True', {}),
+    ('lo mismo con la lista de la madrugada (PrincessYor)', 'orden True True', dict(lista='04')),
+    ('el embudo abre siempre y no descarta', 'orden True True', dict(embudo_falla=0, descarta_primera=False)),
+    ('interruptores ya apagados y monto puesto: igual verifica', 'orden True True',
+     dict(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES})),
+    ('"Pro" prendido además de los otros', 'orden True True',
+     dict(llaves={'2131444437': True, '2131444418': True, '2131444409': True})),
+    ('el embudo no abre nunca', 'no avanza', dict(embudo_falla=99)),
+    ('moneda ARS y pestaña Comprar', 'orden True True', dict(moneda='ARS', tab='comprar')),
+    ('chip de método con otro método (Banesco)', 'ponelo en Pago Movil', dict(pago='Banesco')),
+    ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True', dict(pantalla='activo')),
+    ('quedó abierta la hoja "Quiero vender" (como 02:13)', 'orden True True', dict(pantalla='monto')),
     ('Binance cerrado y cortina abierta (como 02:03), inicio animado', 'orden True True',
-     dict(frente='cortina', pantalla='inicio', pago='Pago Movil')),
-    ('la orden trae otro monto: lo corrige', 'orden True True', dict(monto=5000, pago='Pago Movil',
-                                                                     orden_monto='1234')),
-    ('método sin elegir (como hoy 02:13): lista NO grabada', 'Pantalla que no conozco', dict(monto=5000)),
-    ('quedó abierta una orden vieja', 'orden True True', dict(pantalla='orden', pago='Pago Movil')),
+     dict(frente='cortina', pantalla='inicio')),
+    ('la orden trae otro monto: lo corrige', 'orden True True', dict(orden_monto='1234')),
+    ('quedó abierta una orden vieja', 'orden True True', dict(pantalla='orden')),
 ]
 bien = sum(correr(*c[:2], **c[2]) for c in casos)
-print('\n%d de %d casos bien' % (bien, len(casos)))
+
+print('==== que_es() con todas las pantallas grabadas')
+esperado = {'01': 'divisa', '03': 'filtrar', '04': 'p2p', '05': 'orden', 'quiero_vender': 'monto',
+            'seleccionar_activo': 'activo', 'lista_ars_comprar': 'p2p', 'filtrar': 'filtrar', 'lista_ves': 'p2p',
+            'orden_wen2': 'orden'}
+b.PAQ = 'com.binance.dev'
+mal_que_es = [(k, b.que_es(b.leer_nodos(X[k][X[k].find('<?xml'):]))) for k in esperado]
+mal_que_es = [(k, q) for k, q in mal_que_es if q != esperado[k]]
+print('  ' + ('BIEN' if not mal_que_es else 'MAL: %s' % mal_que_es))
+
 print('==== el apodo no está en la lista')
-t = Telefono(monto=5000, pago='Pago Movil')
-b.adb, b.EN_ORDEN = t.adb, False
+t = Telefono()
+preparar(t)
 try:
     b.llegar_a_la_orden('NoExiste', METODO, 5000.0)
     print('  MAL: no se frenó')
+    bien -= 1
 except b.Frenado as e:
     print('  BIEN: %s' % e)
-sys.exit(0 if bien == len(casos) else 1)
+print('\n%d de %d casos bien%s' % (bien, len(casos), '' if not mal_que_es else ' · que_es MAL'))
+sys.exit(0 if bien == len(casos) and not mal_que_es else 1)

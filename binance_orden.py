@@ -40,7 +40,14 @@ CERRAR = ('cerrar', 'omitir', 'ahora no', 'mas tarde', 'entendido', 'saltar', 'n
 # Segunda barrera: dentro de la orden, aunque el toque esté permitido, nada que diga esto.
 PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar|continuar|siguiente|aceptar|'
                        r'haz clic|place|todo')
-MAX_VUELTAS = 30
+MAX_VUELTAS = 40
+# Panel "Filtrar" (embudo): cómo tienen que quedar los interruptores (john, 15/11: los tres apagados, para que la
+# lista muestre los mismos anuncios que la API de la pre-orden).
+INTERRUPTORES = {'Solo anuncios comerciables': False, 'Solo comerciantes Pro': False,
+                 'Solo comerciantes Verificados': False}
+# Cuántas veces se puede repetir una acción sin avanzar. El embudo: a veces no abre a la primera, y la primera vez
+# que se confirma el filtro la app lo descarta (hay que volver a entrar), más una apertura para verificar.
+LIMITE = {'embudo': 6}
 
 
 class Frenado(Exception):
@@ -254,7 +261,8 @@ def que_es(ns):
         return 'divisa'
     if con(ns, 'Seleccionar activo'):
         return 'activo'
-    if con(ns, 'Comprar') and con(ns, 'Vender') and con(ns, 'Anuncios'):
+    # la barra de abajo (Anuncios) no siempre sale en el xml (grabación 15/11 15:27, pantalla 08): se usan las de arriba
+    if con(ns, 'Comprar') and con(ns, 'Vender') and con(ns, 'Rápido', 'Comercio por bloques', 'Anuncios'):
         return 'p2p'
     if not ns or con(ns, 'P2P', 'Depositar', 'Exchange'):
         return 'inicio'
@@ -350,40 +358,55 @@ def en_p2p(ns, metodo, monto, estado):
         frenar('El activo dice %s: ponelo en USDT a mano y probá de nuevo' % activo.t, 'activo', ns)
     if moneda.t != 'VES':
         tocar('la moneda (%s)' % moneda.t, moneda.x, moneda.y)
+        time.sleep(1.5)                    # el menú sube animado: antes de eso el xml todavía muestra la lista
         return 'moneda'
-    if not estado.get('filtro general') or numero(chip_monto.t) != monto:
-        # Siempre por el embudo: ahí está "Solo comerciantes Pro" (viene prendido) y el monto. A veces no abre a la
-        # primera: si en la vuelta siguiente seguimos en la lista, se toca de nuevo (hasta 3 veces).
+    # Método: el chip "Pago" no se toca (su lista no está grabada y no hace falta: en la orden el método viene solo).
+    # Pero si quedó otro método elegido, la lista no mostraría el anuncio.
+    if compacto(chip_pago.t) != 'pago' and not es_metodo(chip_pago.t, metodo):
+        frenar('El filtro de método dice "%s": ponelo en %s o sacalo a mano' % (chip_pago.t, metodo['nombre']),
+               'filtro_pago', ns)
+    if numero(chip_monto.t) != monto or not estado.get('verificado'):
+        # Siempre por el embudo. Se abre hasta que en una apertura NO haya nada que cambiar (interruptores y monto
+        # ya bien): esa es la verificación. Si no abre al tocarlo, en la vuelta siguiente se toca de nuevo.
         embudo = [n for n in ns if n.clase == 'ImageView' and n.clic and not n.t and abs(n.y - activo.y) < 45
                   and n.x > 900]
         if not embudo:
             frenar('No encontré el embudo (filtro general) a la derecha de los filtros', 'filtros', ns)
-        estado['filtro general'] = False
+        estado['verificado'] = False
         tocar('el embudo (filtro general)', embudo[0].x, embudo[0].y)
         return 'embudo'
-    if not es_metodo(chip_pago.t, metodo):
-        tocar('el filtro de método (%s)' % chip_pago.t, chip_pago.x, chip_pago.y)
-        return 'filtro de método'
-    paso('filtros: Vender · USDT · VES · %s · %s' % (chip_monto.t, chip_pago.t))
+    paso('filtros: Vender · USDT · VES · %s · %s · interruptores verificados' % (chip_monto.t, chip_pago.t))
     return 'listo'
 
 
+def interruptor(ns, texto):
+    fila = con(ns, texto)
+    llave = [n for n in ns if n.clase == 'Switch' and fila and abs(n.y - fila[0].y) < 40]
+    return llave[0] if llave else None
+
+
 def en_filtrar(ns, monto, estado):
-    """Panel "Filtrar" (embudo): primero apaga "Solo comerciantes Pro" si está prendido, después el monto y Confirmar.
-    Un cambio por vuelta: así cada toque se comprueba leyendo la pantalla de nuevo."""
-    if not estado.get('pro apagado'):
-        pro = con(ns, 'Solo comerciantes Pro')
-        llave = [n for n in ns if n.clase == 'Switch' and pro and abs(n.y - pro[0].y) < 40]
-        if not llave:
-            frenar('En el panel Filtrar no veo el interruptor "Solo comerciantes Pro"', 'filtrar', ns)
-        if llave[0].prendido:
-            tocar('apagar "Solo comerciantes Pro"', llave[0].x, llave[0].y)
-            return 'apagar Solo comerciantes Pro'
-        paso('"Solo comerciantes Pro" está apagado')
-        estado['pro apagado'] = True
+    """Panel "Filtrar" (embudo): deja los INTERRUPTORES como tienen que estar (comprobando cada toque), escribe el
+    monto y toca Confirmar. Si no hubo nada que cambiar, el filtro queda verificado."""
+    cambie = False
+    for texto, quiero in INTERRUPTORES.items():
+        llave = interruptor(ns, texto)
+        if llave is None:
+            frenar('En el panel Filtrar no veo el interruptor "%s"' % texto, 'filtrar', ns)
+        if llave.prendido != quiero:
+            tocar('%s "%s"' % ('prender' if quiero else 'apagar', texto), llave.x, llave.y)
+            ns = nodos()
+            llave = interruptor(ns, texto)
+            if llave is None or llave.prendido != quiero:
+                frenar('Toqué "%s" y no cambió' % texto, 'filtrar', ns)
+            cambie = True
+    campo = [n for n in ns if n.clase == 'EditText'][0]
+    cambie = cambie or numero(campo.t) != monto
     en_monto(ns, monto, 'filtrar')
-    estado['filtro general'] = True
-    return 'monto y Confirmar'
+    if not cambie:
+        estado['verificado'] = True
+        paso('filtro verificado: no hubo nada que cambiar')
+    return 'filtro (%s)' % ('cambié' if cambie else 'verificado')
 
 
 def en_monto(ns, monto, tipo='monto'):
@@ -456,7 +479,7 @@ def llegar_a_la_orden(apodo, metodo, monto):
             hecho = en_filtrar(ns, monto, estado)
         elif p == 'monto':               # la hoja del chip Monto: no debería abrirse (se va por el embudo)
             en_monto(ns, monto)
-            estado['filtro general'] = False
+            estado['verificado'] = False
             hecho = 'monto (hoja Quiero vender)'
         elif p == 'divisa':
             ves = sorted(con(ns, 'VES'), key=lambda n: n.y)
@@ -488,7 +511,7 @@ def llegar_a_la_orden(apodo, metodo, monto):
             continue
         paso('[%s] %s' % (p, hecho))
         veces[hecho] += 1
-        if veces[hecho] > 3:
+        if veces[hecho] > LIMITE.get(hecho, 3):
             frenar('Hice "%s" %d veces y la pantalla no avanza' % (hecho, veces[hecho] - 1), 'trabado', ns)
     frenar('Demasiadas vueltas sin llegar a la orden', 'trabado')
 
