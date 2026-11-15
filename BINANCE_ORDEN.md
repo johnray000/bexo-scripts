@@ -19,6 +19,9 @@ bien; john lo pidió el 15/11 17:14) y john toca "Realizar Orden" él mismo.
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link → Termux → corre el recorrido (`telefono/binance_orden.sh`, log en `~/binance_orden.log`). **Falta instalarlo** en `~/bin/`. El Apps Script manda, después de la pre-orden, **un WhatsApp con solo el link** (`enviarLinkSolo_` en 11_PreOrden.gs): ese es el que se comparte (Termux solo lo toma directo si es un link y nada más). |
 | `telefono/limpiar_descargas.py` | Muestra qué hay en Descargas (de los scripts / datos protegidos / tuyos). `--borrar-scripts`, `--borrar-viejos DÍAS`; pide escribir BORRAR. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. |
+| `apps-script/21_Ntfy.gs` | Avisos a la app **ntfy** (propiedad `NTFY_TOPIC` = contenido de `~/.bexo-ntfy`). Cada pre-orden va a ntfy como "💸 apodo · monto Bs · método", precio, reservas y botón **"Armar en Binance"** (POST del link al tema `NTFY_TOPIC-cmd`). Sin datos del cliente. Sin `NTFY_TOPIC`, manda el link solo por WhatsApp como antes. `probarNtfy()` para probar. |
+| `bexo_ntfy.py` | Avisos a ntfy desde el teléfono (`publicar`), tema en `~/.bexo-ntfy`. `binance_orden.py` avisa ahí arranque, resultado (✅ / ⚠️ con prioridad alta) y frenos. |
+| `telefono/escuchar_ntfy.py` | Escucha `NTFY_TOPIC-cmd` y, si llega un link de Binance de hace menos de 2 min, corre `binance_orden.py` (log en `~/binance_orden.log`). Dejarlo corriendo en una sesión de Termux con `termux-wake-lock`. |
 | `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (16 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "16 de 16 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
@@ -131,5 +134,8 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 3. Subir el Apps Script (`subir.sh`) para que el link traiga monto y método.
 4. Instalar el botón Compartir: `mkdir -p ~/bin`, `cp ~/bexo-scripts/telefono/termux-url-opener ~/bin/`,
    `chmod +x ~/bin/termux-url-opener` (revisar antes que no exista otro `termux-url-opener`).
-5. Probar desde WhatsApp: mantener apretado el mensaje que tiene solo el link → Compartir → Termux.
+5. ~~Compartir desde WhatsApp~~: WhatsApp no tiene "Compartir" para mensajes (solo reenviar). Reemplazado por **ntfy**
+   (botón "Armar en Binance" en la notificación de la pre-orden → `escuchar_ntfy.py`). Probado el 15/11 18:51 que el
+   botón http de ntfy llega a Termux. Pruebas sin red: `node pruebas/probar_ntfy_appscript.js`,
+   `python3 pruebas/probar_ntfy_telefono.py`.
 6. Merge de `recorrido-binance` a `main` y en el teléfono `git -C ~/bexo-scripts checkout main`.

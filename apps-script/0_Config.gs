@@ -27,7 +27,8 @@ var CONFIG_CLAVES = {
   BLACKLIST_TELEFONOS: 'números bloqueados en la recepción, separados por coma',
   ESC_IGNORAR_NUMEROS: 'números que el escáner no revisa (familia, amigos), separados por coma',
   REGISTRO_BEXO_ID: 'id de la planilla Registro Bexo (Movs UY)',
-  DASH_TOKEN: 'clave del tablero P2P del VPS (la crea configurarTableroP2P en 20_DashboardP2P.gs)'
+  DASH_TOKEN: 'clave del tablero P2P del VPS (la crea configurarTableroP2P en 20_DashboardP2P.gs)',
+  NTFY_TOPIC: 'tema de ntfy (el contenido de ~/.bexo-ntfy en el teléfono; ver 21_Ntfy.gs)'
 };
 
 /** Ejecutala desde el editor: dice qué propiedades faltan. No cambia nada. */

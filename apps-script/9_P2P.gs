@@ -714,7 +714,9 @@ function preOrdenDePrueba() {
   Logger.log(texto);
   var ok = whatsAppConfirmado_(texto);
   Logger.log(ok ? 'Enviado por WhatsApp.' : 'WhatsApp NO lo aceptó: mirá Errores.');
-  if (ok) enviarLinkSolo_(texto);   // el link solo, para Compartir → Termux
+  if (ok && a && !(ntfyActivo_() && avisarPreOrdenNtfy_(linkAnuncioDe_(texto), a, lineaAlternativas_(r), true))) {
+    enviarLinkSolo_(texto);   // sin ntfy: el link solo por WhatsApp
+  }
 }
 
 /** Guarda una frase en la hoja. tipo: 'BLOQUEAR' o 'PERMITIR'. */

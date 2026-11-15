@@ -32,6 +32,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla  # noqa: E402
+import bexo_ntfy  # noqa: E402
 
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
@@ -93,9 +94,12 @@ def paso(texto):
     print(time.strftime('%H:%M:%S ') + texto, flush=True)
 
 
-def avisar(titulo, texto):
+def avisar(titulo, texto, prioridad=3, ntfy=True):
+    """Notificación de Termux y, si ~/.bexo-ntfy está, también a la app ntfy (ver bexo_ntfy.py)."""
     subprocess.run(['termux-notification', '--id', 'binance-orden', '--title', titulo, '--content', texto],
                    check=False)
+    if ntfy:
+        bexo_ntfy.publicar(titulo, texto, prioridad)
 
 
 # ---------- 1. El anuncio ----------
@@ -831,7 +835,7 @@ def recorrido(link):
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
-    avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto)
+    avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto, 4 if alerta else 3)
     subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
     return texto
 
@@ -923,13 +927,14 @@ def grabar(segundos=60):
             adb('shell', 'screencap', '-p', '/sdcard/Download/%s/%02d.png' % (nombre, n))
             vibrar(60)
             resto = int(fin - time.time())
-            avisar('Grabando Binance: %d pantallas' % n, 'Quedan %d s. Última: %s' % (max(resto, 0), que_es(ns)))
+            avisar('Grabando Binance: %d pantallas' % n, 'Quedan %d s. Última: %s' % (max(resto, 0), que_es(ns)),
+                   ntfy=False)
             print('  pantalla %d (%s): %s' % (n, que_es(ns), que_veo(ns)[:80]), flush=True)
         time.sleep(0.5)
     vibrar(300)
     time.sleep(0.6)
     vibrar(300)
-    avisar('Grabación terminada', '%d pantallas en Descargas/%s' % (n, nombre))
+    avisar('Grabación terminada', '%d pantallas en Descargas/%s' % (n, nombre), ntfy=False)
     print('Listo: %d pantallas en Descargas/%s' % (n, nombre))
 
 
@@ -960,5 +965,5 @@ if __name__ == '__main__':
             sys.exit(2)
     except Frenado as e:
         print('FRENADO: %s' % e, flush=True)
-        avisar('Binance: me frené ⚠️', str(e))
+        avisar('Binance: me frené ⚠️', str(e), 4)
         sys.exit(1)
