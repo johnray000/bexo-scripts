@@ -4,6 +4,7 @@
   python binance_orden.py "LINK"            # el recorrido completo (lo corre telefono/binance_orden.sh)
   python binance_orden.py --buscar [MONTO] [MÉTODO]          # lista los anuncios como la pre-orden (5000 PagoMovil)
   python binance_orden.py --prueba [MONTO] [MÉTODO] [PUESTO] # elige uno (1 = el primero) y corre el recorrido
+  python binance_orden.py --probar MONTO     # busca un anuncio como la pre-orden (Pago Movil) y hace el recorrido
   python binance_orden.py --grabar [SEG]    # (60 s) guarda cada pantalla mientras hacés el camino a mano
   python binance_orden.py --pantalla NOMBRE # en 8 s guarda la pantalla en Descargas
 
@@ -36,6 +37,8 @@ DESCARGAS = os.path.expanduser('~/storage/downloads')
 LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
 DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
 BUSCAR = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'   # la misma que usa el relay del VPS
+LINK_ANUNCIO = 'https://c2c.binance.com/es-LA/adv?code='
+BUSCAR = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'   # la misma que usa el relay del VPS
 LINK = 'https://c2c.binance.com/es-LA/adv?code=%s&monto=%s&pago=%s'      # el mismo formato que 9_P2P.gs
 PAQUETES = ('com.binance.dev', 'com.binance.android', 'com.binance.app')
 INICIO_ACT = 'com.eaas.launcher.activities.main.MainActivity'
@@ -50,8 +53,10 @@ MAX_VUELTAS = 40
 PRIMERA_APERTURA = ('Solo anuncios comerciables',)   # la 1ª vez la app descarta el filtro: solo esto y Confirmar
 INTERRUPTORES = {'Solo anuncios comerciables': False, 'Solo comerciantes Pro': False,
                  'Solo comerciantes Verificados': False}
-# Cuántas veces se puede repetir una acción sin avanzar. El embudo: a veces no abre a la primera, y la primera vez
-# que se confirma el filtro la app lo descarta (hay que volver a entrar), más una apertura para verificar.
+# La primera vez que se confirma el filtro la app lo descarta: en esa primera apertura solo se apaga este y se
+# confirma (así lo hace john); en la segunda se pone todo.
+PRIMERA_VUELTA = 'Solo anuncios comerciables'
+# Cuántas veces se puede repetir una acción sin avanzar. El embudo a veces no abre al primer toque.
 LIMITE = {'embudo': 6}
 
 
@@ -370,17 +375,17 @@ def en_p2p(ns, metodo, monto, estado):
     if compacto(chip_pago.t) != 'pago' and not es_metodo(chip_pago.t, metodo):
         frenar('El filtro de método dice "%s": ponelo en %s o sacalo a mano' % (chip_pago.t, metodo['nombre']),
                'filtro_pago', ns)
-    if numero(chip_monto.t) != monto or not estado.get('verificado'):
-        # Siempre por el embudo. Se abre hasta que en una apertura NO haya nada que cambiar (interruptores y monto
-        # ya bien): esa es la verificación. Si no abre al tocarlo, en la vuelta siguiente se toca de nuevo.
+    if numero(chip_monto.t) != monto or not estado.get('filtro completo'):
+        # Siempre por el embudo: 1ª apertura "de cebo" (la app descarta ese Confirmar), 2ª con todo. Si después el
+        # chip Monto no muestra el monto, se vuelve a abrir. Si no abre al tocarlo, se toca de nuevo.
         embudo = [n for n in ns if n.clase == 'ImageView' and n.clic and not n.t and abs(n.y - activo.y) < 45
                   and n.x > 900]
         if not embudo:
             frenar('No encontré el embudo (filtro general) a la derecha de los filtros', 'filtros', ns)
-        estado['verificado'] = False
+        estado['filtro completo'] = False
         tocar('el embudo (filtro general)', embudo[0].x, embudo[0].y)
         return 'embudo'
-    paso('filtros: Vender · USDT · VES · %s · %s · interruptores verificados' % (chip_monto.t, chip_pago.t))
+    paso('filtros: Vender · USDT · VES · %s · %s' % (chip_monto.t, chip_pago.t))
     return 'listo'
 
 
@@ -390,39 +395,35 @@ def interruptor(ns, texto):
     return llave[0] if llave else None
 
 
+def poner_interruptor(ns, texto, quiero):
+    """Deja el interruptor como se quiere, comprobando el toque. Devuelve la pantalla leída de nuevo."""
+    llave = interruptor(ns, texto)
+    if llave is None:
+        frenar('En el panel Filtrar no veo el interruptor "%s"' % texto, 'filtrar', ns)
+    if llave.prendido == quiero:
+        return ns
+    tocar('%s "%s"' % ('prender' if quiero else 'apagar', texto), llave.x, llave.y)
+    ns = nodos()
+    llave = interruptor(ns, texto)
+    if llave is None or llave.prendido != quiero:
+        frenar('Toqué "%s" y no cambió' % texto, 'filtrar', ns)
+    return ns
+
+
 def en_filtrar(ns, monto, estado):
-    """Panel "Filtrar" (embudo): deja los INTERRUPTORES como tienen que estar (comprobando cada toque), escribe el
-    monto y toca Confirmar. Si no hubo nada que cambiar, el filtro queda verificado."""
-    estado['aperturas'] = estado.get('aperturas', 0) + 1
-    if estado['aperturas'] == 1:
-        # La primera vez que se confirma, la app descarta el filtro (john, 15/11): no vale la pena cargar todo.
-        llave = interruptor(ns, PRIMERA_APERTURA[0])
-        if llave is not None and llave.prendido:
-            tocar('apagar "%s" (primera apertura)' % PRIMERA_APERTURA[0], llave.x, llave.y)
-        ok = con(nodos(), 'Confirmar')
-        if not ok:
-            frenar('No encontré Confirmar en el panel Filtrar', 'filtrar')
-        tocar('Confirmar (primera apertura: la app la descarta)', ok[0].x, ok[0].y)
-        return 'filtro (primera apertura)'
-    cambie = False
+    """Panel "Filtrar" (embudo). 1ª apertura: solo apaga PRIMERA_VUELTA y confirma (la app descarta ese Confirmar).
+    Después: deja INTERRUPTORES como deben, escribe el monto y confirma."""
+    if not estado.get('cebado'):
+        ns = poner_interruptor(ns, PRIMERA_VUELTA, INTERRUPTORES[PRIMERA_VUELTA])
+        ok = con(ns, 'Confirmar')[0]
+        tocar('Confirmar (primera vuelta: la app la descarta)', ok.x, ok.y)
+        estado['cebado'] = True
+        return 'filtro (primera vuelta)'
     for texto, quiero in INTERRUPTORES.items():
-        llave = interruptor(ns, texto)
-        if llave is None:
-            frenar('En el panel Filtrar no veo el interruptor "%s"' % texto, 'filtrar', ns)
-        if llave.prendido != quiero:
-            tocar('%s "%s"' % ('prender' if quiero else 'apagar', texto), llave.x, llave.y)
-            ns = nodos()
-            llave = interruptor(ns, texto)
-            if llave is None or llave.prendido != quiero:
-                frenar('Toqué "%s" y no cambió' % texto, 'filtrar', ns)
-            cambie = True
-    campo = [n for n in ns if n.clase == 'EditText'][0]
-    cambie = cambie or numero(campo.t) != monto
+        ns = poner_interruptor(ns, texto, quiero)
     en_monto(ns, monto, 'filtrar')
-    if not cambie:
-        estado['verificado'] = True
-        paso('filtro verificado: no hubo nada que cambiar')
-    return 'filtro (%s)' % ('cambié' if cambie else 'verificado')
+    estado['filtro completo'] = True
+    return 'filtro (completo)'
 
 
 def en_monto(ns, monto, tipo='monto'):
@@ -495,7 +496,7 @@ def llegar_a_la_orden(apodo, metodo, monto):
             hecho = en_filtrar(ns, monto, estado)
         elif p == 'monto':               # la hoja del chip Monto: no debería abrirse (se va por el embudo)
             en_monto(ns, monto)
-            estado['verificado'] = False
+            estado['filtro completo'] = False
             hecho = 'monto (hoja Quiero vender)'
         elif p == 'divisa':
             ves = sorted(con(ns, 'VES'), key=lambda n: n.y)
@@ -599,6 +600,44 @@ def recorrido(link):
 
 # ---------- Herramientas ----------
 
+def buscar_prueba(monto, pago='PagoMovil'):
+    """Anuncios para VENDER USDT por VES con ese método donde entra el monto, en el orden de Binance (mejor precio
+    primero). La misma consulta que hace la pre-orden por el relay; desde el teléfono Binance responde directo."""
+    cuerpo = {'asset': 'USDT', 'fiat': 'VES', 'tradeType': 'SELL', 'page': 1, 'rows': 20,
+              'payTypes': [pago], 'transAmount': monto}
+    req = urllib.request.Request(BUSCAR, data=json.dumps(cuerpo).encode(),
+                                 headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        datos = json.load(r).get('data') or []
+    salida = []
+    for a in datos:
+        adv, quien = a.get('adv') or {}, a.get('advertiser') or {}
+        mn = float(adv.get('minSingleTransAmount') or 0)
+        mx = float(adv.get('dynamicMaxSingleTransAmount') or adv.get('maxSingleTransAmount') or 0)
+        metodos = [m.get('identifier') for m in adv.get('tradeMethods') or []]
+        if mn <= monto <= mx and pago in metodos:
+            salida.append({'adNo': adv.get('advNo'), 'apodo': quien.get('nickName') or '', 'precio': adv.get('price'),
+                           'min': mn, 'max': mx, 'metodos': metodos})
+    return salida
+
+
+def probar(monto, pago='PagoMovil'):
+    """Busca un anuncio de prueba, muestra cuál es (para que sepas qué tiene que armar) y hace el recorrido."""
+    ads = buscar_prueba(monto, pago)
+    if not ads:
+        raise Frenado('Binance no devolvió anuncios de %s para %s Bs' % (pago, fmt_monto(monto)))
+    for i, a in enumerate(ads[:3], 1):
+        print('  %d. %s · precio %s · %s-%s Bs · %s' % (i, a['apodo'], a['precio'], fmt_monto(a['min']),
+                                                       fmt_monto(a['max']), ', '.join(a['metodos'])), flush=True)
+    a = ads[0]
+    link = '%s%s&monto=%s&pago=%s' % (LINK_ANUNCIO, a['adNo'], fmt_monto(monto), pago)
+    print('\nTIENE QUE ARMAR: %s · %s Bs · %s\n%s\nEmpiezo en 8 s…' % (a['apodo'], fmt_monto(monto), pago, link),
+          flush=True)
+    avisar('Binance: prueba con %s' % a['apodo'], '%s Bs · %s · precio %s' % (fmt_monto(monto), pago, a['precio']))
+    time.sleep(8)
+    return recorrido(link)
+
+
 def buscar_anuncios(monto, pago, filas=20):
     """Los anuncios donde vendés USDT por VES con ese método y monto, en el orden de Binance (como la pre-orden)."""
     cuerpo = {'asset': 'USDT', 'fiat': 'VES', 'tradeType': 'SELL', 'page': 1, 'rows': filas,
@@ -701,6 +740,13 @@ if __name__ == '__main__':
                 print(r)
                 avisar('Binance: orden armada ✅', r)
                 subprocess.run(['termux-vibrate', '-d', '600'], check=False)
+        elif args[:1] == ['--probar']:
+            if len(args) < 2 or numero(args[1]) is None:
+                raise Frenado('Uso: --probar MONTO (en Bs, ej. --probar 5000)')
+            r = probar(numero(args[1]), args[2] if len(args) > 2 else 'PagoMovil')
+            print(r)
+            avisar('Binance: orden armada ✅', r)
+            subprocess.run(['termux-vibrate', '-d', '600'], check=False)
         elif args[:1] == ['--grabar']:
             grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):

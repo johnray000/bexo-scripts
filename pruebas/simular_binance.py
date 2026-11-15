@@ -259,7 +259,7 @@ casos = [
     ('15:27: lista VES sin monto, filtro de fábrica, el embudo falla y descarta la 1ª vez', 'orden True True', {}),
     ('lo mismo con la lista de la madrugada (PrincessYor)', 'orden True True', dict(lista='04')),
     ('el embudo abre siempre y no descarta', 'orden True True', dict(embudo_falla=0, descarta_primera=False)),
-    ('interruptores ya apagados y monto puesto: igual verifica', 'orden True True',
+    ('interruptores ya apagados y monto puesto: igual pasa dos veces por el embudo', 'orden True True',
      dict(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES})),
     ('"Pro" prendido además de los otros', 'orden True True',
      dict(llaves={'2131444437': True, '2131444418': True, '2131444409': True})),
@@ -283,6 +283,30 @@ b.PAQ = 'com.binance.dev'
 mal_que_es = [(k, b.que_es(b.leer_nodos(X[k][X[k].find('<?xml'):]))) for k in esperado]
 mal_que_es = [(k, q) for k, q in mal_que_es if q != esperado[k]]
 print('  ' + ('BIEN' if not mal_que_es else 'MAL: %s' % mal_que_es))
+
+print('==== --probar: búsqueda con una respuesta con la forma de Binance (campos de vps/relay_binance.py)')
+import io  # noqa: E402
+import json  # noqa: E402
+
+
+def falso_urlopen(req, timeout=15):
+    cuerpo = json.loads(req.data)
+    assert cuerpo['tradeType'] == 'SELL' and cuerpo['payTypes'] == ['PagoMovil'] and cuerpo['transAmount'] == 5000
+    ads = [('1', 'Caro', '10000', '50000', ['PagoMovil']),        # el monto no entra
+           ('2', 'wen2', '300', '81600', ['Banesco', 'PagoMovil']),
+           ('3', 'Otro', '1000', '9000', ['PagoMovil'])]
+    return io.BytesIO(json.dumps({'data': [{'adv': {'advNo': n, 'price': '1068', 'minSingleTransAmount': mn,
+                                                    'dynamicMaxSingleTransAmount': mx,
+                                                    'tradeMethods': [{'identifier': m} for m in ms]},
+                                            'advertiser': {'nickName': ap}} for n, ap, mn, mx, ms in ads]}).encode())
+
+
+b.urllib.request.urlopen = falso_urlopen
+r = b.buscar_prueba(5000)
+ok_busca = [a['apodo'] for a in r] == ['wen2', 'Otro']
+print('  %s: %s' % ('BIEN' if ok_busca else 'MAL', [a['apodo'] for a in r]))
+if not ok_busca:
+    bien -= 1
 
 print('==== el apodo no está en la lista')
 t = Telefono()
