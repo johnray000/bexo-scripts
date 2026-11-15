@@ -14,6 +14,9 @@ CARPETA (en los archivos del proyecto, p2p/binance_app/grabacion/; no va al repo
   filtrar.xml            panel Filtrar recién abierto              (15:27, 05)
   lista_ves.xml          lista VES con wen2, sin barra de abajo en el xml (15:27, 08)
   orden_wen2.xml         Vender USDT de wen2, casilla sin tildar   (15:27, 09)
+  filtrar_metodos.xml    panel Filtrar bajado hasta "Método de Pago", ninguno elegido (16:34, 02)
+  filtrar_metodos_elegido.xml  lo mismo con "(1 seleccionado/s)" (16:34, 03)
+  filtrar_reabierto.xml  panel reabierto: el método volvió a "Todo" aunque la lista diga Pago Movil (16:34, 05)
 
 Cada toque se resuelve buscando qué nodo del xml actual está en ese punto (como el teléfono). Se imita lo que pasa
 en el teléfono: el embudo a veces no abre al primer toque y la PRIMERA vez que se confirma el filtro, la app lo
@@ -32,7 +35,8 @@ import binance_orden as b  # noqa: E402
 
 X = {k: open(os.path.join(CARPETA, k + '.xml')).read()
      for k in ('01', '03', '04', '05', 'quiero_vender', 'seleccionar_activo', 'lista_ars_comprar', 'filtrar',
-               'lista_ves', 'orden_wen2')}
+               'lista_ves', 'orden_wen2', 'filtrar_metodos', 'filtrar_metodos_elegido', 'filtrar_reabierto')}
+METODOS_PANEL = ('Pago Movil', 'Banco de Venezuela', 'Banesco', 'Mercantil', 'Provincial')
 NO_GRABADA = ('<?xml version="1.0"?><hierarchy><node text="PANTALLA NO GRABADA" class="android.widget.TextView" '
               'package="com.binance.dev" bounds="[0,500][1080,600]"/></hierarchy>')
 METODO = {'id': 'PagoMovil', 'nombre': 'Pago Movil'}
@@ -58,13 +62,15 @@ def llave(xml, rid, prendida):
 
 class Telefono:
     def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
-                 frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000'):
+                 frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000',
+                 recuerda_metodo=False):
         self.lista = lista
         self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
                       embudo_falla=embudo_falla, descarta=descarta_primera, campo='', foco=False,
                       orden_monto=orden_monto, tocado_apodo=None,
-                      aplicadas=dict(llaves or DE_FABRICA), panel={})
+                      aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
+                      recuerda=recuerda_metodo, panel_metodo=None)
         self.malos = []
 
     def xml(self):
@@ -73,7 +79,7 @@ class Telefono:
         if p == 'p2p':
             x = cambiar(X[self.lista], 'VES', '2131446692', s['moneda'])
             x = cambiar(x, '5,000', 'tv_amount', '{:,.0f}'.format(s['monto']) if s['monto'] else 'Monto')
-            x = cambiar(x, 'Pago Movil', '2131452724', s['pago'] or 'Pago')
+            x = cambiar(x, 'Pago Movil', '2131452724', s['pago'] or 'Pago')   # el método aplicado
             if s['tab'] == 'comprar':
                 x = x.replace('text="Vender" resource-id="com.binance.dev:id/2131452588"',
                               'text="Comprar" resource-id="com.binance.dev:id/2131452588"')
@@ -84,6 +90,8 @@ class Telefono:
             return cambiar(X['quiero_vender'], 'Ingresa el monto total', '2131432439',
                            s['campo'] or 'Ingresa el monto total')
         if p == 'filtrar':
+            if s['vista'] == 'metodos':   # bajado hasta "Método de Pago" (16:34): el xml no dice cuál, solo cuántos
+                return X['filtrar_metodos_elegido' if s['panel_metodo'] else 'filtrar_metodos']
             if s['foco']:                 # con el teclado el panel se desplaza (grabación 03)
                 return cambiar(X['03'], '5000', '2131432527', s['campo'] or 'Ingresa el monto total')
             x = X['filtrar']
@@ -137,8 +145,9 @@ class Telefono:
                 if s['embudo_falla'] > 0:
                     s['embudo_falla'] -= 1                       # no abre a la primera (pasa en el teléfono)
                 else:
-                    s['pantalla'], s['campo'], s['foco'] = 'filtrar', '', False
+                    s['pantalla'], s['campo'], s['foco'], s['vista'] = 'filtrar', '', False, 'arriba'
                     s['panel'] = dict(s['aplicadas'])
+                    s['panel_metodo'] = s['pago'] if s['recuerda'] else None   # 16:34: reabre en "Todo"
                     if s['monto']:
                         s['campo'] = fmt(s['monto'])
             elif n and 330 < y < 480 and 267 <= x <= 357:
@@ -149,6 +158,8 @@ class Telefono:
             elif t in ('Vender', 'Comprar') and y > 480:
                 if s['tab'] != 'vender':
                     self.malos.append('tocó la tarjeta estando en Comprar')
+                if s['pago'] != 'Pago Movil':
+                    self.malos.append('entró al anuncio con el método en %r' % s['pago'])
                 if any(s['aplicadas'].values()):
                     self.malos.append('entró al anuncio con interruptores prendidos: %s' % s['aplicadas'])
                 if not (s['monto'] and s['moneda'] == 'VES'):
@@ -159,7 +170,11 @@ class Telefono:
             if t in ('VES', 'UYU', 'COP', 'AZN', 'USD', 'ARS'):
                 s['moneda'], s['pantalla'] = t, 'p2p'
         elif p == 'filtrar':
-            if clase == 'Switch':
+            if s['vista'] == 'metodos' and t in METODOS_PANEL:
+                s['panel_metodo'] = None if s['panel_metodo'] == t else t
+            elif s['vista'] == 'metodos' and t == 'Todo' and 900 < y < 1400:
+                s['panel_metodo'] = None
+            elif clase == 'Switch':
                 rid = [r for r, (y1, y2) in LLAVES.items() if y1 <= y <= y2]
                 if rid:
                     s['panel'][rid[0]] = not s['panel'][rid[0]]
@@ -173,6 +188,7 @@ class Telefono:
                 else:
                     s['monto'] = b.numero(s['campo']) or s['monto']
                     s['aplicadas'] = dict(s['panel'])
+                    s['pago'] = s['panel_metodo']
                 s['pantalla'], s['foco'] = 'p2p', False
         elif p == 'monto':
             if clase == 'EditText':
@@ -203,6 +219,8 @@ class Telefono:
                 s['campo'] += a[3]
         elif a[:3] == ('shell', 'input', 'keyevent'):
             self.key(a[3])
+        elif a[:3] == ('shell', 'input', 'swipe') and s['pantalla'] == 'filtrar':
+            s['vista'], s['foco'] = 'metodos', False
         elif a[:3] == ('shell', 'dumpsys', 'window'):
             return {'binance': 'mCurrentFocus=Window{1 u0 com.binance.dev/x}',
                     'cortina': 'mCurrentFocus=Window{88b51fd u0 NotificationShade}',
@@ -265,7 +283,11 @@ casos = [
      dict(llaves={'2131444437': True, '2131444418': True, '2131444409': True})),
     ('el embudo no abre nunca', 'no avanza', dict(embudo_falla=99)),
     ('moneda ARS y pestaña Comprar', 'orden True True', dict(moneda='ARS', tab='comprar')),
-    ('chip de método con otro método (Banesco)', 'ponelo en Pago Movil', dict(pago='Banesco')),
+    ('la lista venía con Banesco (el panel lo olvida): elige Pago Movil', 'orden True True', dict(pago='Banesco')),
+    ('el panel recuerda Pago Movil: no lo toca (si lo tocara, lo desmarcaría)', 'orden True True',
+     dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False)),
+    ('el panel recuerda Banesco: se frena y pide dejarlo en Todo', 'dejalo en Todo',
+     dict(pago='Banesco', recuerda_metodo=True)),
     ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True', dict(pantalla='activo')),
     ('quedó abierta la hoja "Quiero vender" (como 02:13)', 'orden True True', dict(pantalla='monto')),
     ('Binance cerrado y cortina abierta (como 02:03), inicio animado', 'orden True True',
@@ -278,7 +300,8 @@ bien = sum(correr(*c[:2], **c[2]) for c in casos)
 print('==== que_es() con todas las pantallas grabadas')
 esperado = {'01': 'divisa', '03': 'filtrar', '04': 'p2p', '05': 'orden', 'quiero_vender': 'monto',
             'seleccionar_activo': 'activo', 'lista_ars_comprar': 'p2p', 'filtrar': 'filtrar', 'lista_ves': 'p2p',
-            'orden_wen2': 'orden'}
+            'orden_wen2': 'orden', 'filtrar_metodos': 'filtrar', 'filtrar_metodos_elegido': 'filtrar',
+            'filtrar_reabierto': 'filtrar'}
 b.PAQ = 'com.binance.dev'
 mal_que_es = [(k, b.que_es(b.leer_nodos(X[k][X[k].find('<?xml'):]))) for k in esperado]
 mal_que_es = [(k, q) for k, q in mal_que_es if q != esperado[k]]

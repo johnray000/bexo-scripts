@@ -261,8 +261,11 @@ def que_es(ns):
     if con(ns, 'Vendes') and (con(ns, 'Realizar Orden') or any(norm(n.t).startswith('info del anunciante')
                                                                  for n in ns)):
         return 'orden'
-    if con(ns, 'Confirmar') and con(ns, 'Restablecer') and any(n.clase == 'EditText' for n in ns):
-        return 'filtrar' if con(ns, 'Filtrar') else 'monto'
+    if con(ns, 'Confirmar') and con(ns, 'Restablecer'):
+        if con(ns, 'Filtrar'):              # el panel, aunque esté bajado hasta los métodos (sin el campo del monto)
+            return 'filtrar'
+        if any(n.clase == 'EditText' for n in ns):
+            return 'monto'
     if con(ns, 'Seleccionar divisa'):
         return 'divisa'
     if con(ns, 'Seleccionar activo'):
@@ -366,19 +369,16 @@ def en_p2p(ns, metodo, monto, estado):
         tocar('la moneda (%s)' % moneda.t, moneda.x, moneda.y)
         time.sleep(1.5)                    # el menú sube animado: antes de eso el xml todavía muestra la lista
         return 'moneda'
-    # Método: el chip "Pago" no se toca (su lista no está grabada y no hace falta: en la orden el método viene solo).
-    # Pero si quedó otro método elegido, la lista no mostraría el anuncio.
-    if compacto(chip_pago.t) != 'pago' and not es_metodo(chip_pago.t, metodo):
-        frenar('El filtro de método dice "%s": ponelo en %s o sacalo a mano' % (chip_pago.t, metodo['nombre']),
-               'filtro_pago', ns)
-    if numero(chip_monto.t) != monto or not estado.get('filtro completo'):
-        # Siempre por el embudo: 1ª apertura "de cebo" (la app descarta ese Confirmar), 2ª con todo. Si después el
-        # chip Monto no muestra el monto, se vuelve a abrir. Si no abre al tocarlo, se toca de nuevo.
+    # Monto y método se ponen en el embudo; los chips de la lista (Monto, Pago) son la prueba de que agarró.
+    if numero(chip_monto.t) != monto or not es_metodo(chip_pago.t, metodo) or not estado.get('filtro completo'):
+        # Siempre por el embudo: 1ª apertura "de cebo" (la app descarta ese Confirmar), 2ª con todo. Si después los
+        # chips no muestran monto y método, se vuelve a abrir. Si no abre al tocarlo, se toca de nuevo.
         embudo = [n for n in ns if n.clase == 'ImageView' and n.clic and not n.t and abs(n.y - activo.y) < 45
                   and n.x > 900]
         if not embudo:
             frenar('No encontré el embudo (filtro general) a la derecha de los filtros', 'filtros', ns)
         estado['filtro completo'] = False
+        estado['pago antes'] = chip_pago.t          # el panel no muestra cuál método está elegido: se recuerda acá
         tocar('el embudo (filtro general)', embudo[0].x, embudo[0].y)
         return 'embudo'
     paso('filtros: Vender · USDT · VES · %s · %s' % (chip_monto.t, chip_pago.t))
@@ -406,7 +406,7 @@ def poner_interruptor(ns, texto, quiero):
     return ns
 
 
-def en_filtrar(ns, monto, estado):
+def en_filtrar(ns, monto, metodo, estado):
     """Panel "Filtrar" (embudo). 1ª apertura: solo apaga PRIMERA_VUELTA y confirma (la app descarta ese Confirmar).
     Después: deja INTERRUPTORES como deben, escribe el monto y confirma."""
     if not estado.get('cebado'):
@@ -417,27 +417,84 @@ def en_filtrar(ns, monto, estado):
         return 'filtro (primera vuelta)'
     for texto, quiero in INTERRUPTORES.items():
         ns = poner_interruptor(ns, texto, quiero)
-    en_monto(ns, monto, 'filtrar')
+    ns = poner_monto(ns, monto, 'filtrar')
+    ns = poner_metodo(ns, metodo, estado)
+    ok = con(ns, 'Confirmar')
+    if not ok:
+        frenar('No encontré Confirmar en el panel Filtrar', 'filtrar', ns)
+    tocar('Confirmar (filtro completo)', ok[0].x, ok[0].y)
     estado['filtro completo'] = True
     return 'filtro (completo)'
 
 
-def en_monto(ns, monto, tipo='monto'):
-    """Panel "Filtrar" u hoja "Quiero vender": escribe el monto y toca Confirmar."""
+def seleccionados(ns):
+    """El texto "(1 seleccionado/s)" junto a "Método de Pago": la única marca en el xml de que hay uno elegido
+    (grabación 16:34; los botones no traen selected/checked). None si no hay ninguno elegido."""
+    for n in ns:
+        m = re.search(r'\((\d+) seleccionado', n.t)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def botones_metodo(ns):
+    """Los botones de la sección "Método de Pago" (entre su título y "País/región")."""
+    tit = con(ns, 'Método de Pago')
+    if not tit:
+        return []
+    hasta = min([n.y for n in con(ns, 'País/región')] + [n.y - 30 for n in con(ns, 'Restablecer')] + [10 ** 5])
+    return [n for n in ns if tit[0].y + 40 < n.y < hasta - 20 and n.clic and n.t]
+
+
+def poner_metodo(ns, metodo, estado):
+    """Baja hasta "Método de Pago" (abajo de todo en el panel) y deja elegido SOLO el método de la pre-orden."""
+    ancho, alto = tamano_pantalla()
+    for _ in range(4):
+        if any(es_metodo(n.t, metodo) for n in botones_metodo(ns)):
+            break
+        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .70)), str(ancho // 2), str(int(alto * .35)),
+            '400')
+        time.sleep(1.2)
+        ns = nodos()
+    else:
+        frenar('No encontré "%s" en la sección Método de Pago del filtro' % metodo['nombre'], 'filtrar', ns)
+    elegidos = seleccionados(ns)
+    if elegidos:
+        if elegidos == 1 and es_metodo(estado.get('pago antes', ''), metodo):
+            paso('método: %s ya está elegido' % metodo['nombre'])
+            return ns
+        frenar('En el filtro hay %d método(s) elegido(s) y la lista decía "%s": dejalo en Todo a mano' %
+               (elegidos, estado.get('pago antes', '')), 'filtrar', ns)
+    boton = [n for n in botones_metodo(ns) if es_metodo(n.t, metodo)][0]
+    tocar('el método %s' % boton.t, boton.x, boton.y)
+    ns = nodos()
+    if seleccionados(ns) != 1:
+        frenar('Toqué %s y no quedó elegido' % boton.t, 'filtrar', ns)
+    return ns
+
+
+def en_monto(ns, monto):
+    """Hoja "Quiero vender": escribe el monto y toca Confirmar."""
+    ns = poner_monto(ns, monto, 'monto')
+    ok = con(ns, 'Confirmar')[0]
+    tocar('Confirmar (monto %s)' % fmt_monto(monto), ok.x, ok.y)
+
+
+def poner_monto(ns, monto, tipo):
+    """Escribe el monto en el campo del panel y baja el teclado. Devuelve la pantalla leída de nuevo."""
     campo = [n for n in ns if n.clase == 'EditText'][0]
     if numero(campo.t) != monto:
         escribir(campo, fmt_monto(monto))
         ns = nodos()
-        if not con(ns, 'Confirmar') and teclado_visible():   # el teclado tapa Confirmar: se baja
+        if teclado_visible():              # se baja (tapa Confirmar y no deja bajar hasta los métodos)
             tecla('BACK')
             ns = nodos()
         if que_es(ns) != tipo:
             frenar('Se cerró el panel del monto antes de confirmar', 'panel_monto', ns)
-        campo = [n for n in ns if n.clase == 'EditText'][0]
-        if numero(campo.t) != monto:
-            frenar('Escribí %s pero el campo dice "%s"' % (fmt_monto(monto), campo.t), 'panel_monto', ns)
-    ok = con(ns, 'Confirmar')[0]
-    tocar('Confirmar (monto %s)' % campo.t, ok.x, ok.y)
+        campo = [n for n in ns if n.clase == 'EditText']
+        if campo and numero(campo[0].t) != monto:
+            frenar('Escribí %s pero el campo dice "%s"' % (fmt_monto(monto), campo[0].t), 'panel_monto', ns)
+    return ns
 
 
 def buscar_en_lista(apodo):
@@ -489,7 +546,7 @@ def llegar_a_la_orden(apodo, metodo, monto):
                 buscar_en_lista(apodo)
                 hecho = 'buscar a %s' % apodo
         elif p == 'filtrar':
-            hecho = en_filtrar(ns, monto, estado)
+            hecho = en_filtrar(ns, monto, metodo, estado)
         elif p == 'monto':               # la hoja del chip Monto: no debería abrirse (se va por el embudo)
             en_monto(ns, monto)
             estado['filtro completo'] = False

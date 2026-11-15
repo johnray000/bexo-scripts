@@ -18,7 +18,7 @@ hasta **un paso antes de colocar la orden**: john tilda la casilla de términos 
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
 | `telefono/limpiar_descargas.py` | Muestra qué hay en Descargas (de los scripts / datos protegidos / tuyos). `--borrar-scripts`, `--borrar-viejos DÍAS`; pide escribir BORRAR. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. |
-| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (13 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "13 de 13 casos bien". |
+| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (15 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "15 de 15 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
 `01` Seleccionar divisa · `02`/`03` panel Filtrar (embudo) · `04` lista P2P con filtros · `05`/`06` "Vender USDT" ·
@@ -36,7 +36,7 @@ pantalla, `que_es()` dice cuál de las conocidas es (`PANTALLAS`) y hace **una**
 | Binance no está al frente | cierra la cortina; actividad de inicio → monkey → link `app.binance.com` |
 | inicio (animado, no se lee) | toca P2P (por texto o por posición `BOTON_P2P`) |
 | p2p | en orden: pestaña Vender (una vez) · moneda si no es VES · si el chip de método dice otro método (no "Pago" ni el tuyo) se frena · **embudo** hasta que el filtro quede verificado · todo listo → busca el apodo (hasta 10 pantallas) y toca SU Vender |
-| filtrar (panel del embudo) | 1ª apertura: solo apaga "Solo anuncios comerciables" y confirma (la app descarta ese Confirmar). 2ª: deja `INTERRUPTORES` como deben (los tres apagados), comprobando cada toque, escribe el monto y confirma. Si después el chip Monto no lo muestra, se vuelve a abrir |
+| filtrar (panel del embudo) | 1ª apertura: solo apaga "Solo anuncios comerciables" y confirma (la app descarta ese Confirmar). 2ª: deja `INTERRUPTORES` como deben (los tres apagados), comprobando cada toque, escribe el monto, baja hasta "Método de Pago" y elige el de la pre-orden, y confirma. Si después los chips Monto y Pago no los muestran, se vuelve a abrir |
 | monto (hoja "Quiero vender" del chip Monto) | no se usa: si quedó abierta, pone el monto y confirma, y después igual pasa por el embudo |
 | divisa | toca VES |
 | activo | BACK (no se elige nada: USDT ya está). Si el chip de activo no dice USDT, se frena y pide ponerlo a mano |
@@ -87,9 +87,12 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
 1. ~~Grabar el embudo~~ (hecho 15:27). Corrida 15:56: llegó a la lista con todo bien, pero no encontró a
    CloudMoneySolutions (anuncio de la madrugada) bajando 10 pantallas.
-1b. **Grabar la sección "Método de Pago" del panel Filtrar**: está ABAJO de todo (bajando: Monto, Tiempo límite,
-   Método de Pago con botones Todo / Pago Movil / Banco de Venezuela / Banesco / Mercantil / Provincial, captura de john
-   16:26). La grabación 16:14 solo tomó la parte de arriba. Hace falta el xml para saber cómo se marca el elegido.
+1b. ~~Método de Pago en el panel Filtrar~~ (grabación 16:34): está abajo de todo; botones con el nombre. El xml
+   **no marca cuál está elegido**: solo aparece "(1 seleccionado/s)" junto al título. Al reabrir el panel el método
+   vuelve a "Todo" (aunque la lista diga Pago Movil) y el orden de los botones cambia. El recorrido: en la 2ª vuelta
+   baja hasta ahí, si no hay ninguno elegido toca el de la pre-orden y comprueba "(1 seleccionado/s)"; si hay uno
+   elegido y la lista ya decía ese método, no lo toca (tocarlo lo desmarcaría); si no, se frena. La prueba final es
+   el chip "Pago" de la lista.
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.
