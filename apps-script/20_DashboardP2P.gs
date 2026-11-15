@@ -24,7 +24,9 @@ function dashboardP2PRespuesta_(p) {
   var token = CONFIG.DASH_TOKEN;
   if (!token || p.k !== token) return salida({ error: 'no autorizado' });
   try {
-    return salida(dashboardP2P_());
+    var vivos = {};
+    try { vivos = JSON.parse(p.vivos || '{}'); } catch (x) { vivos = {}; }
+    return salida(dashboardP2P_(vivos));
   } catch (e) {
     logError_('dashboardP2P_', e.message || e);
     return salida({ error: String(e.message || e) });
@@ -43,8 +45,10 @@ function configurarTableroP2P() {
     props.setProperty('DASH_TOKEN', token);
   }
   if (!props.getProperty('DASH_CICLO_DESDE')) props.setProperty('DASH_CICLO_DESDE', '03/11/2026');
-  var url = ScriptApp.getService().getUrl();
-  Logger.log('Pegá esto en el VPS cuando lo pida el instalador:\n' + url + '?dash=1&k=' + token);
+  // La dirección es la /exec de la implementación web que actualiza subir.sh (la misma que usa WAHA), no la que
+  // devuelve getUrl() desde el editor, que puede ser de otra implementación.
+  Logger.log('Pegá esto en el VPS (cambiando ID por el de tu implementación, el "Deployed AKfycb..." de subir.sh):\n' +
+             'https://script.google.com/macros/s/ID/exec?dash=1&k=' + token);
 }
 
 function probarDashboardP2P() {
@@ -85,7 +89,9 @@ function dashLeerOrdenes_() {
       monto: dashNum_(r[h['Monto']]),
       precio: dashNum_(r[h['Precio']]),
       contra: String(r[h['Contraparte']] || ''),
-      estado: String(r[h['Estado']] || '')
+      estado: String(r[h['Estado']] || ''),
+      rol: String(r[h['Rol']] || ''),
+      ad: String(r[h['Anuncio']] || '').replace(/^'/, '')
     };
   }).filter(function (o) { return o.f; });
 }
@@ -109,7 +115,12 @@ function dashP_(lista) {   // precio promedio ponderado
 function dashR_(x, d) { var k = Math.pow(10, d || 2); return Math.round(x * k) / k; }
 function dashTxt_(x) { return (Math.round(x * 100) / 100).toFixed(2).replace('.', ','); }   // 41,90 para los textos
 
-function dashboardP2P_() {
+/**
+ * vivos: precios en vivo de TUS anuncios de Binance, que manda el servidor del VPS (Apps Script no llega a Binance).
+ * { "<n° de anuncio>": {tipo:'Compra'|'Venta', cripto, precio, puesto, total, mejor, visible} }
+ */
+function dashboardP2P_(vivos) {
+  vivos = vivos || {};
   var ahora = new Date();
   var zona = Session.getScriptTimeZone();
   var ords = dashLeerOrdenes_();
@@ -139,20 +150,42 @@ function dashboardP2P_() {
 
   // Anuncios (deducidos de las órdenes UYU de los últimos 7 días)
   var hace7 = new Date(ahora.getTime() - 7 * 864e5);
+  // En Binance solo cuentan las órdenes de TUS anuncios (Rol = Anunciante), agrupadas por n° de anuncio.
+  var claveAnuncio = function (o) { return o.ex === 'Binance' && o.ad ? 'Binance|' + o.ad : o.ex + '|' + o.tipo + '|' + o.cripto; };
+  var esMio = function (o) { return o.ex !== 'Binance' || o.rol === 'Anunciante'; };
   var porAnuncio = {};
-  ords.filter(function (o) { return esUYU(o) && o.f >= hace7 && o.estado !== 'Cancelada'; })
+  ords.filter(function (o) { return esUYU(o) && esMio(o) && o.f >= hace7 && o.estado !== 'Cancelada'; })
     .sort(function (a, b) { return b.f - a.f; })
     .forEach(function (o) {
-      var k = o.ex + '|' + o.tipo + '|' + o.cripto;
+      var k = claveAnuncio(o);
       if (!porAnuncio[k]) porAnuncio[k] = { ex: o.ex, tipo: o.tipo, cripto: o.cripto, precio: o.precio, ultima: o.f, hoy: 0 };
       if (Utilities.formatDate(o.f, zona, 'yyyyMMdd') === Utilities.formatDate(ahora, zona, 'yyyyMMdd')) porAnuncio[k].hoy++;
     });
+  // Anuncios de Binance de los últimos 30 días: el VPS busca su precio en vivo con esta lista.
+  var hace30 = new Date(ahora.getTime() - 30 * 864e5);
+  var misAnunciosBinance = {};
+  ords.filter(function (o) { return o.ex === 'Binance' && o.rol === 'Anunciante' && o.ad && esUYU(o) && o.f >= hace30; })
+    .forEach(function (o) { if (!misAnunciosBinance[o.ad]) misAnunciosBinance[o.ad] = { tipo: o.tipo, cripto: o.cripto }; });
+  // Precio en vivo: pisa el de la última orden y suma los anuncios sin órdenes esta semana.
+  Object.keys(vivos).forEach(function (ad) {
+    var v = vivos[ad] || {};
+    var k = 'Binance|' + ad;
+    if (!porAnuncio[k]) porAnuncio[k] = { ex: 'Binance', tipo: v.tipo, cripto: v.cripto, precio: v.precio, ultima: null, hoy: 0 };
+    var a = porAnuncio[k];
+    a.vivo = true;
+    a.visible = v.visible !== false;
+    if (a.visible) { a.precio = +v.precio || a.precio; a.puesto = v.puesto; a.total = v.total; a.mejor = v.mejor; }
+  });
   var hora = +Utilities.formatDate(ahora, zona, 'H');
   var horaActiva = hora >= DASH_HORA_DESDE && hora <= DASH_HORA_HASTA;
   var anuncios = Object.keys(porAnuncio).map(function (k) {
     var a = porAnuncio[k];
-    var min = Math.round((ahora - a.ultima) / 60000);
-    var quieto = horaActiva && min >= DASH_SIN_ORDENES_MIN;
+    var min = a.ultima ? Math.round((ahora - a.ultima) / 60000) : null;
+    if (a.vivo && !a.visible) {
+      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'Revisar', nuevo: dashR_(a.precio),
+               porque: 'No aparece en el listado de Binance: ¿está pausado o sin saldo?', minUltima: min, hoy: a.hoy, vivo: true };
+    }
+    var quieto = horaActiva && (min === null || min >= DASH_SIN_ORDENES_MIN);
     var r = { accion: 'Mantener', nuevo: a.precio, porque: '' };
     if (a.tipo === 'Compra') {
       if (pendiente > DASH_LIMITE_PENDIENTE || quieto) {
@@ -161,7 +194,7 @@ function dashboardP2P_() {
         if (n > a.precio + 0.004) {
           r = { accion: 'Subir', nuevo: n, porque: pendiente > DASH_LIMITE_PENDIENTE
             ? 'Debés ' + Math.round(pendiente) + ' USDT (más de ' + DASH_LIMITE_PENDIENTE + '). Techo ' + dashTxt_(techo) + '.'
-            : 'Sin órdenes hace ' + min + ' min en hora de movimiento. Techo ' + dashTxt_(techo) + '.' };
+            : 'Sin órdenes ' + (min === null ? 'esta semana' : 'hace ' + min + ' min') + ' en hora de movimiento. Techo ' + dashTxt_(techo) + '.' };
         } else {
           r.porque = 'Ya estás en el techo (' + dashTxt_(techo) + '): subir más no deja margen.';
         }
@@ -175,14 +208,15 @@ function dashboardP2P_() {
         r.porque = 'No bajes: debés ' + Math.round(pendiente) + ' USDT y te llenarías de UYU sin recomprar.';
       } else if (pendiente < DASH_PENDIENTE_BAJO && quieto) {
         var nv = Math.max(a.precio - 0.05, piso);
-        if (nv < a.precio - 0.004) r = { accion: 'Bajar', nuevo: nv, porque: 'Sin ventas hace ' + min + ' min y debés poco. Piso ' + dashTxt_(piso) + '.' };
+        if (nv < a.precio - 0.004) r = { accion: 'Bajar', nuevo: nv, porque: 'Sin ventas ' + (min === null ? 'esta semana' : 'hace ' + min + ' min') + ' y debés poco. Piso ' + dashTxt_(piso) + '.' };
         else r.porque = 'Ya estás en el piso (' + dashTxt_(piso) + ').';
       } else {
-        r.porque = quieto ? 'Quieto hace ' + min + ' min, pero primero recomprá lo que debés.' : 'Va vendiendo.';
+        r.porque = quieto ? 'Quieto, pero primero recomprá lo que debés.' : 'Va vendiendo.';
       }
     }
     return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: r.accion,
-             nuevo: dashR_(r.nuevo), porque: r.porque, minUltima: min, hoy: a.hoy };
+             nuevo: dashR_(r.nuevo), porque: r.porque, minUltima: min, hoy: a.hoy,
+             vivo: !!a.vivo, puesto: a.puesto || null, total: a.total || null, mejor: a.mejor || null };
   }).sort(function (a, b) { return (a.tipo === b.tipo ? 0 : a.tipo === 'Compra' ? -1 : 1) || a.ex.localeCompare(b.ex); });
 
   // Rutas
@@ -272,6 +306,7 @@ function dashboardP2P_() {
       margen: compraHoy ? dashR_((ventaHoy / compraHoy - 1) * 100, 1) : 0, minimo: DASH_MARGEN_MIN * 100
     },
     anuncios: anuncios,
+    misAnunciosBinance: misAnunciosBinance,
     rutas: {
       uyu: { margen: pCompra ? dashR_((pVenta / pCompra - 1) * 100, 1) : 0, gananciaUSD: pVenta ? dashR_(ganUYU / pVenta, 0) : 0 },
       ars: { precio: dashR_(dashP_(ars), 1), semanaARS: Math.round(arsSemana) },
