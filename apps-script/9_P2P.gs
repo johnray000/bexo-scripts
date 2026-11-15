@@ -688,6 +688,7 @@ function linkNext_() {
 /** Página del link. Solo responde si la clave es correcta. */
 function doGet(e) {
   var p = (e && e.parameter) || {};
+  if (p.dash === '1') return dashboardP2PRespuesta_(p);   // 20_DashboardP2P.gs
   if (p.p2p === 'pre' && p.k === claveNext_()) return paginaPreOrden_(p);   // 11_PreOrden.gs
   if (p.p2p !== 'next' || p.k !== claveNext_()) {
     return HtmlService.createHtmlOutput('No autorizado');
