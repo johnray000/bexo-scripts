@@ -6,22 +6,22 @@ Recibe el link del anuncio que eligió la pre-orden (Apps Script, 9_P2P.gs):
 y maneja el teléfono por ADB (como okx_ordenes.py):
   1. Pide a Binance el detalle de ESE anuncio (desde el teléfono Binance sí responde): apodo, precio, límites y
      métodos. Si el monto no entra en los límites o el método no está en el anuncio, no abre nada.
-  2. Abre ese mismo anuncio en la app. Primero por enlace directo; si la app no acepta ninguno, por el camino
-     largo: P2P → Vender → USDT → filtro de método y monto → busca el apodo en la lista.
-     El método es obligatorio: con el mismo método y monto que usó la pre-orden, la app muestra la misma lista que
-     leyó la API, así que el anuncio aparece arriba. Límites y "terceros" ya los validó la pre-orden sobre ese adNo:
-     acá solo se confirma que es el mismo trader (apodo) y el precio.
-  3. En la orden: elige VES, escribe los Bs y elige el método de pago. NO toca "Vender" ni nada que confirme:
-     la orden la colocás vos, con tu huella.
+  2. Abre Binance → P2P → Vender → USDT → VES, pone el monto y el MÉTODO en los filtros (los mismos con los que
+     buscó la pre-orden, así la app muestra la misma lista que leyó la API) y busca el apodo en la lista.
+     Límites y "terceros" ya los validó la pre-orden sobre ese anuncio: acá solo se confirma que es el mismo trader.
+  3. Toca su "Vender" y en la pantalla "Vender USDT" escribe los Bs y elige tu método de pago.
+     NO toca la casilla de términos ni "Realizar Orden": la orden la colocás vos.
 
-  python binance_orden.py "LINK"              # el recorrido completo (lo corre telefono/binance_orden.sh)
-  python binance_orden.py --enlaces "LINK"    # prueba qué enlaces directos abre la app y guarda lo que acepta
-  python binance_orden.py --grabar            # 150 s guardando cada pantalla mientras hacés el recorrido a mano
-  python binance_orden.py --rastrear LINK     # abre un link en la app y busca en el registro a dónde lo llevó
-  python binance_orden.py --pantalla NOMBRE   # en 8 s guarda la pantalla en Descargas (para ajustar los textos)
+Los links directos no sirven: el 15/11/2026 se probaron 25 (anuncio, perfil, P2P) y la app no abre ninguno.
+Las pantallas son las de la grabación de ese día (--grabar).
+
+  python binance_orden.py "LINK"            # el recorrido completo (lo corre telefono/binance_orden.sh)
+  python binance_orden.py --grabar          # 150 s guardando cada pantalla mientras hacés el recorrido a mano
+  python binance_orden.py --pantalla NOMBRE # en 8 s guarda la pantalla en Descargas
 
 Lo que guarda (capturas y pantallas) queda en Descargas, con nombres binance_*.
 """
+import collections
 import json
 import os
 import re
@@ -34,36 +34,17 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
+from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla  # noqa: E402
 
 DESCARGAS = os.path.expanduser('~/storage/downloads')
 LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
-ENLACE_BUENO = os.path.expanduser('~/.binance_enlace')   # el enlace directo que funcionó la última vez
 DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
 
-# 15/11/2026: la app acepta https://app.binance.com y bnc://app.binance.com, pero NINGUNA dirección de anuncio
-# (adv?code=, p2p/adv, c2c/adv, adDetail: todas "Este enlace no funciona") y ya no deja compartir anuncios.
-# Se entra por el PERFIL del trader (eso sí se comparte) → pestaña Anuncios → su Vender. {u} = número de usuario.
-# El que funciona queda en ~/.binance_enlace.
-ENLACES = [
-    'https://app.binance.com/es-LA/advertiserDetail?advertiserNo={u}',
-    'https://app.binance.com/en/advertiserDetail?advertiserNo={u}',
-    'https://app.binance.com/es-LA/p2p/advertiserDetail?advertiserNo={u}',
-    'bnc://app.binance.com/c2c/advertiserDetail?advertiserNo={u}',
-    'bnc://app.binance.com/p2p/advertiserDetail?advertiserNo={u}',
-    'bnc://app.binance.com/c2c/userCenter?userNo={u}',
-]
-
-# Textos de la app (en español). Se comparan sin acentos ni mayúsculas. Ajustar con lo que muestre --pantalla.
-P2P = ('P2P', 'Trading P2P', 'Comercio P2P')
-VENDER_TAB = ('Vender',)
-FILTRO_PAGO = re.compile(r'^(todos los )?(pagos?|metodos? de pago)$|^todos los metodos')
-FILTRO_MONTO = re.compile(r'^(monto|importe|cantidad)$|ingresa.*monto')
-ACEPTAR_FILTRO = ('Confirmar', 'Aplicar', 'Listo', 'Buscar')
-SELECTOR_PAGO = re.compile(r'(seleccion|elegi|agrega).*(metodo|pago)|^metodo de pago$|^metodos? de pago$')
-CERRAR = ('Cerrar', 'Omitir', 'Ahora no', 'Más tarde', 'Entendido', 'Saltar', 'No, gracias', 'Aceptar')
+BOTON_P2P = (0.152, 0.305)   # ícono P2P del inicio (captura del 15/11): el inicio es animado y no se deja leer
+CERRAR = ('Cerrar', 'Omitir', 'Ahora no', 'Más tarde', 'Entendido', 'Saltar', 'No, gracias')
 # Ya dentro de la orden, NUNCA se toca algo que diga esto: es lo que coloca la orden (eso lo hacés vos).
-PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar|continuar|siguiente|aceptar|place')
+PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar|continuar|siguiente|aceptar|'
+                       r'haz clic|place|todo')
 
 
 class Frenado(Exception):
@@ -89,6 +70,10 @@ def paso(texto):
     print(time.strftime('%H:%M:%S ') + texto, flush=True)
 
 
+def fmt_monto(m):
+    return ('%.2f' % m).rstrip('0').rstrip('.')
+
+
 # ---------- 1. El anuncio ----------
 
 def leer_link(link):
@@ -96,8 +81,7 @@ def leer_link(link):
     ad = (q.get('code') or q.get('advNo') or [''])[0]
     if not ad.isdigit():
         raise Frenado('El link no trae el número de anuncio (code=...)')
-    monto = float((q.get('monto') or ['0'])[0] or 0)
-    return ad, monto, (q.get('pago') or [''])[0]
+    return ad, float((q.get('monto') or ['0'])[0] or 0), (q.get('pago') or [''])[0]
 
 
 def buscar(o, claves):
@@ -106,13 +90,10 @@ def buscar(o, claves):
         for k in claves:
             if o.get(k) not in (None, '', []):
                 return o[k]
-        for v in o.values():
-            r = buscar(v, claves)
-            if r not in (None, '', []):
-                return r
-    elif isinstance(o, list):
+        o = list(o.values())
+    if isinstance(o, list):
         for v in o:
-            r = buscar(v, claves)
+            r = buscar(v, claves) if isinstance(v, (dict, list)) else None
             if r not in (None, '', []):
                 return r
     return None
@@ -124,15 +105,13 @@ def detalle_anuncio(ad):
         datos = json.load(r).get('data')
     if not datos:
         raise Frenado('Binance no devolvió el anuncio %s: puede que ya no exista' % ad)
-    metodos = buscar(datos, ['tradeMethods']) or []
     return {
         'apodo': buscar(datos, ['nickName']) or '',
-        'usuario': str(buscar(datos, ['userNo', 'advertiserNo']) or ''),   # para abrir su perfil en la app
         'precio': float(buscar(datos, ['price']) or 0),
         'min': float(buscar(datos, ['minSingleTransAmount']) or 0),
         'max': float(buscar(datos, ['dynamicMaxSingleTransAmount', 'maxSingleTransAmount']) or 0),
         'metodos': [{'id': m.get('identifier') or '', 'nombre': m.get('tradeMethodName') or m.get('identifier') or ''}
-                    for m in metodos if isinstance(m, dict)],
+                    for m in buscar(datos, ['tradeMethods']) or [] if isinstance(m, dict)],
     }
 
 
@@ -151,46 +130,74 @@ def elegir_metodo(det, pago):
 
 # ---------- Pantalla ----------
 
-PAQ = ''   # paquete de Binance: solo se miran sus textos (si no, el apodo que imprime Termux cuenta como "visto")
+PAQ = ''   # paquete de Binance: solo se miran sus textos (si no, lo que imprime Termux cuenta como "visto")
+N = collections.namedtuple('N', 't x y clase clic rid y1 y2')
 
 
-def nodos():
-    """[(texto, x, y, clase, clickeable)] de la pantalla de Binance, con EditText aunque estén vacíos."""
-    _, xml = textos()
-    if not xml:
-        return []
+def volcar(espera=20, intentos=3):
+    """El XML de la pantalla. Con animaciones uiautomator se cuelga: se corta y se reintenta. '' si no se pudo."""
+    for _ in range(intentos):
+        try:
+            xml = adb('exec-out', 'uiautomator', 'dump', '/dev/tty', espera=espera)
+            if '<hierarchy' in xml:
+                return xml[xml.find('<?xml'):xml.rfind('>') + 1]
+        except subprocess.TimeoutExpired:
+            adb('shell', 'pkill', '-f', 'uiautomator')
+        time.sleep(1)
+    return ''
+
+
+def leer_nodos(xml):
     lista = []
+    if not xml:
+        return lista
     for n in ET.fromstring(xml).iter('node'):
         if PAQ and n.get('package') != PAQ:
             continue
-        b = re.findall(r'\d+', n.get('bounds') or '')
+        b = [int(v) for v in re.findall(r'\d+', n.get('bounds') or '')]
         if len(b) != 4:
             continue
         t = (n.get('text') or n.get('content-desc') or '').strip()
         clase = (n.get('class') or '').split('.')[-1]
-        if t or clase == 'EditText':
-            lista.append((t, (int(b[0]) + int(b[2])) // 2, (int(b[1]) + int(b[3])) // 2, clase,
-                          n.get('clickable') == 'true'))
+        rid = (n.get('resource-id') or '').split('/')[-1]
+        if t or clase == 'EditText' or rid:
+            lista.append(N(t, (b[0] + b[2]) // 2, (b[1] + b[3]) // 2, clase, n.get('clickable') == 'true', rid,
+                           b[1], b[3]))
     return lista
 
 
+def nodos(espera=20, intentos=3):
+    return leer_nodos(volcar(espera, intentos))
+
+
+def hay(texto, ns=None):
+    """¿Algún texto de la pantalla es igual a `texto` (sin acentos ni mayúsculas)?"""
+    return any(compacto(n.t) == compacto(texto) for n in (ns if ns is not None else nodos()))
+
+
+def que_veo(ns=None):
+    return ' | '.join(n.t for n in (ns if ns is not None else nodos()) if n.t)[:400]
+
+
 def guardar(nombre):
-    hora = time.strftime('%H%M%S')
-    base = 'binance_%s_%s' % (nombre, hora)
+    base = 'binance_%s_%s' % (nombre, time.strftime('%H%M%S'))
     adb('shell', 'screencap', '-p', '/sdcard/Download/%s.png' % base)
     with open(os.path.join(LOG_DIR, base + '.xml'), 'w') as f:
-        f.write(textos()[1])
+        f.write(volcar(15, 1))
     return base
 
 
 def frenar(motivo, nombre='fallo'):
-    base = guardar(nombre)
-    raise Frenado('%s. Guardé la pantalla en Descargas (%s.png)' % (motivo, base))
+    paso('veo: %s' % que_veo())
+    raise Frenado('%s. Guardé la pantalla en Descargas (%s.png)' % (motivo, guardar(nombre)))
 
 
 class Toques:
     """Todos los toques pasan por acá. Desde que se abre la orden (en_orden), no se toca nada PROHIBIDO."""
     en_orden = False
+
+    def nodo(self, n, nombre=None):
+        self.xy(nombre or n.t, n.x, n.y)
 
     def xy(self, texto, x, y):
         if self.en_orden and PROHIBIDO.search(norm(texto)):
@@ -199,13 +206,13 @@ class Toques:
         adb('shell', 'input', 'tap', str(x), str(y))
         time.sleep(2)
 
-    def texto(self, opciones, intentos=4, regex=None, parcial=False):
-        """Toca el primer texto igual a alguna opción (que la contenga, con parcial; o que cumpla regex)."""
+    def texto(self, opciones, intentos=3, parcial=False):
+        """Toca el primer texto igual a alguna opción (o que la contenga, con parcial). False si no aparece."""
         for _ in range(intentos):
-            for t, x, y, _, _ in nodos():
-                if (regex and regex.search(norm(t))) or any(
-                        compacto(t) == compacto(o) or (parcial and compacto(o) in compacto(t)) for o in opciones if o):
-                    self.xy(t, x, y)
+            for n in nodos():
+                if any(compacto(n.t) == compacto(o) or (parcial and compacto(o) in compacto(n.t))
+                       for o in opciones if o):
+                    self.nodo(n)
                     return True
             time.sleep(1.5)
         return False
@@ -214,25 +221,26 @@ class Toques:
 T = Toques()
 
 
-def cerrar_carteles():
-    for t, x, y, _, _ in nodos():
-        if t in CERRAR and not T.en_orden:
-            T.xy(t, x, y)
+def cerrar_carteles(ns):
+    for n in ns:
+        if n.t in CERRAR:
+            T.nodo(n)
             return True
     return False
 
 
-def en_pantalla(texto):
-    return any(compacto(texto) and compacto(texto) in compacto(t) for t, _, _, _, _ in nodos())
+def teclado_visible():
+    return 'mInputShown=true' in adb('shell', 'dumpsys', 'input_method')
 
 
-def escribir(numero):
-    adb('shell', 'input', 'text', numero)
+def borrar_y_escribir(n, valor):
+    """Toca un campo, borra lo que tenga y escribe el valor."""
+    T.nodo(n, 'campo "%s"' % (n.t or 'vacío'))
+    adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END')
+    for _ in range(14):
+        adb('shell', 'input', 'keyevent', 'KEYCODE_DEL')
+    adb('shell', 'input', 'text', valor)
     time.sleep(1.5)
-
-
-def fmt_monto(m):
-    return ('%.2f' % m).rstrip('0').rstrip('.')
 
 
 # ---------- 2. Llegar al anuncio ----------
@@ -248,236 +256,192 @@ def paquete_binance():
 
 
 def al_frente():
-    """La app que está en pantalla (la ventana con el foco)."""
     for l in adb('shell', 'dumpsys', 'window').splitlines():
-        if 'mCurrentFocus' in l or 'mFocusedApp' in l:
+        if 'mCurrentFocus' in l:
             return l.strip()
     return ''
 
 
-def que_veo():
-    return ' | '.join(t for t, _, _, _, _ in nodos()[:15])
+def en_p2p(ns):
+    """Portada de P2P (grabación 04): pestañas Comprar / Vender arriba y la barra de abajo P2P · Órdenes · Anuncios."""
+    return hay('Comprar', ns) and hay('Vender', ns) and hay('Anuncios', ns)
 
 
-def abrir_enlace(paquete, url):
-    r = adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', "'%s'" % url, paquete)
-    paso('am start: ' + ' '.join(r.split())[:200])
-    return 'Error' not in r and 'unable to resolve' not in r.lower()
-
-
-def esperar_anuncio(apodo, segundos=30):
-    """Espera a que Binance quede al frente mostrando el apodo. Cierra carteles mientras tanto."""
-    fin = time.time() + segundos
-    while time.time() < fin:
-        time.sleep(3)
-        if PAQ not in al_frente():
-            continue
-        ns = nodos()
-        if any('enlace no funciona' in norm(t) for t, _, _, _, _ in ns):   # la app no conoce ese enlace
-            for t, x, y, _, _ in ns:
-                if norm(t) == 'ok':
-                    adb('shell', 'input', 'tap', str(x), str(y))
-            paso('la app dice "Este enlace no funciona"')
-            return False
-        cerrar_carteles()
-        if en_pantalla(apodo):
-            return True
-    paso('al frente: %s' % al_frente())
-    paso('veo: %s' % que_veo())
-    return False
-
-
-def entrar_a_anuncios():
-    """En el perfil: pestaña "Anuncios (n)" y el Vender de su anuncio. Desde ahí ya es la orden."""
-    if not T.texto(('Anuncios',), intentos=3, parcial=True):
-        frenar('Abrí el perfil pero no encontré la pestaña Anuncios', 'perfil')
-    time.sleep(2)
-    botones = sorted((n for n in nodos() if norm(n[0]) in ('vender', 'vender usdt')), key=lambda n: n[2])
-    if not botones:
-        paso('veo: %s' % que_veo())
-        frenar('En sus anuncios no hay uno para venderle USDT', 'anuncios')
-    T.xy(botones[0][0], botones[0][1], botones[0][2])
-    T.en_orden = True
-
-
-def plantillas():
-    lista = ENLACES[:]
-    if os.path.exists(ENLACE_BUENO):
-        bueno = open(ENLACE_BUENO).read().strip()
-        if bueno in lista:
-            lista = [bueno] + [e for e in lista if e != bueno]
-    return lista
-
-
-def por_perfil(paquete, det):
-    if not det['usuario']:
-        paso('el anuncio no trae el número de usuario del trader')
-        return False
-    lista = plantillas()
-    if not os.path.exists(ENLACE_BUENO) or lista[0] != open(ENLACE_BUENO).read().strip():
-        return False   # ningún link de perfil funcionó todavía (probarlos con --enlaces): directo a la lista
-    for plantilla in lista[:1]:
-        if not abrir_enlace(paquete, plantilla.format(u=det['usuario'])):
-            continue
-        if esperar_anuncio(det['apodo']):
-            paso('abrió el perfil con %s' % plantilla)
-            with open(ENLACE_BUENO, 'w') as f:
-                f.write(plantilla)
-            entrar_a_anuncios()
-            return True
-    return False
-
-
-# Links a la portada de P2P (con el filtro de método, si la app lo toma). Se prueban antes de ir por el inicio.
-LINKS_P2P = []   # 15/11: probados 25 links (anuncio, perfil, P2P): la app no abre ninguno. Se va por el inicio.
-BOTON_P2P = (0.152, 0.31)   # ícono P2P del inicio (captura del 15/11), por si la pantalla animada no se deja leer
-
-
-def en_p2p():
-    ns = nodos()
-    return any(norm(n[0]) == 'vender' for n in ns) and any(norm(n[0]) == 'comprar' for n in ns)
-
-
-def abrir_p2p(paquete, metodo):
-    """Llega a la portada de P2P: primero por link; si no, abre Binance y toca P2P (por texto o por posición)."""
-    for plantilla in LINKS_P2P:
-        if not abrir_enlace(paquete, plantilla.format(pago=metodo['id'])):
-            continue
-        for _ in range(4):
-            time.sleep(3)
-            ns = nodos()
-            if any('enlace no funciona' in norm(t) for t, _, _, _, _ in ns):
-                T.texto(('Ok',), intentos=1)
-                break
-            if en_p2p():
-                paso('P2P abrió con %s' % plantilla)
-                return
+def abrir_p2p(paquete):
+    """Abre Binance (donde haya quedado) y llega a la portada de P2P."""
     adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER',
         paquete)
-    for _ in range(8):
-        time.sleep(3)
+    for _ in range(10):
+        time.sleep(2)
         if PAQ in al_frente():
             break
     else:
         frenar('Binance no se abrió (al frente: %s)' % al_frente(), 'inicio')
-    time.sleep(4)
-    cerrar_carteles()
-    if not T.texto(P2P, intentos=3):
-        ancho, alto = tamano_pantalla()
-        paso('no leí el botón P2P: lo toco por posición')
-        adb('shell', 'input', 'tap', str(int(ancho * BOTON_P2P[0])), str(int(alto * BOTON_P2P[1])))
-    for _ in range(4):
-        time.sleep(3)
-        cerrar_carteles()
-        if en_p2p():
-            return
-    frenar('No llegué a P2P desde el inicio de Binance', 'inicio')
-
-
-def por_lista(paquete, apodo, metodo, monto):
-    """Camino largo: P2P → Vender → USDT → filtros de método y monto → buscar el apodo y tocar su Vender."""
-    abrir_p2p(paquete, metodo)
-    tabs = sorted((n for n in nodos() if norm(n[0]) in [norm(v) for v in VENDER_TAB]), key=lambda n: n[2])
-    if not tabs:   # la pestaña es el "Vender" de más arriba (los de abajo son los botones de cada anuncio)
-        frenar('No encontré la pestaña Vender en P2P', 'p2p')
-    T.xy(tabs[0][0], tabs[0][1], tabs[0][2])
-    T.texto(('USDT',), intentos=2)
-    if not en_pantalla('VES'):
-        frenar('P2P no está en VES: elegí VES arriba una vez a mano y probá de nuevo', 'moneda')
-    # Método (obligatorio): el mismo filtro que usó la pre-orden
-    if not T.texto((), regex=FILTRO_PAGO):
-        frenar('No encontré el filtro de método de pago', 'filtro_pago')
-    if not T.texto((metodo['nombre'], metodo['id']), intentos=3, parcial=True):
-        frenar('No encontré "%s" en la lista de métodos' % metodo['nombre'], 'lista_metodos')
-    T.texto(ACEPTAR_FILTRO, intentos=1)
-    # Monto en Bs
-    if T.texto((), regex=FILTRO_MONTO, intentos=2):
-        escribir(fmt_monto(monto))
-        T.texto(ACEPTAR_FILTRO, intentos=2)
-    else:
-        paso('no encontré el filtro de monto: sigo solo con el método')
-    # Buscar el apodo en la lista y tocar el Vender de su tarjeta
+    time.sleep(3)
     ancho, alto = tamano_pantalla()
-    for _ in range(8):
-        time.sleep(2)
+    for intento in range(4):
+        ns = nodos(espera=8, intentos=1)   # el inicio es animado: si no se deja leer en 8 s, es el inicio
+        if en_p2p(ns):
+            return
+        if cerrar_carteles(ns):
+            continue
+        if not ns or hay('Depositar', ns) or hay('Exchange', ns) or hay('P2P', ns):
+            p2p = [n for n in ns if n.t == 'P2P']
+            if p2p:
+                T.nodo(p2p[0])
+            else:
+                paso('no leí el inicio: toco P2P por posición')
+                adb('shell', 'input', 'tap', str(int(ancho * BOTON_P2P[0])), str(int(alto * BOTON_P2P[1])))
+            time.sleep(4)
+        else:                              # quedó en otra pantalla de Binance: atrás hasta el inicio
+            paso('estoy en otra pantalla (%s): atrás' % que_veo(ns)[:80])
+            adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+            time.sleep(2)
+    if not en_p2p(nodos()):
+        frenar('No llegué a la portada de P2P', 'inicio')
+
+
+def preparar_lista(metodo, monto):
+    """En P2P: Vender, USDT, VES, monto y método en los filtros (pantallas 01 a 04 de la grabación)."""
+    ns = nodos()
+    vender = sorted((n for n in ns if norm(n.t) == 'vender'), key=lambda n: n.y)
+    T.nodo(vender[0])                      # la pestaña: el "Vender" de más arriba (los otros son de cada anuncio)
+    ns = nodos()
+    usdt = [n for n in ns if n.t == 'USDT' and n.y < 600]
+    if usdt:
+        T.nodo(usdt[0])
         ns = nodos()
-        fila = [n for n in ns if compacto(apodo) == compacto(n[0])]
+    # Moneda: arriba a la derecha. Si no es VES, se abre "Seleccionar divisa" y se toca VES.
+    fiat = [n for n in ns if n.y < 360 and n.x > 800 and re.fullmatch(r'[A-Z]{3}', n.t)]
+    if not fiat:
+        frenar('No encontré la moneda (VES) arriba a la derecha', 'moneda')
+    if fiat[0].t != 'VES':
+        T.nodo(fiat[0])
+        if not T.texto(('VES',)):
+            frenar('No pude elegir VES', 'moneda')
+        ns = nodos()
+    # Monto: el filtro (tv_amount) abre el panel "Filtrar": campo "Ingresa el monto total" y Confirmar.
+    chip = [n for n in ns if n.rid == 'tv_amount']
+    if not chip:
+        frenar('No encontré el filtro de monto', 'filtro_monto')
+    T.nodo(chip[0], 'filtro de monto')
+    ns = nodos()
+    campo = [n for n in ns if n.clase == 'EditText']
+    if not campo or not hay('Filtrar', ns):
+        frenar('No se abrió el panel Filtrar', 'panel_filtrar')
+    borrar_y_escribir(campo[0], fmt_monto(monto))
+    if teclado_visible():
+        adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+        time.sleep(1.5)
+    if not T.texto(('Confirmar',)):
+        frenar('No encontré Confirmar en el panel Filtrar', 'panel_filtrar')
+    # Método: el filtro a la derecha del monto (dice "Pago" o el método elegido antes).
+    ns = nodos()
+    chip = [n for n in ns if n.rid == 'tv_amount']
+    if not chip:
+        frenar('Después del monto no volví a la lista', 'lista')
+    pago = sorted((n for n in ns if n.t and abs(n.y - chip[0].y) < 30 and chip[0].x < n.x < 900 and n.t != chip[0].t),
+                  key=lambda n: n.x)
+    if not pago:
+        frenar('No encontré el filtro de método (Pago)', 'filtro_pago')
+    if compacto(metodo['nombre']) != compacto(pago[0].t) and compacto(metodo['id']) != compacto(pago[0].t):
+        T.nodo(pago[0], 'filtro de método (%s)' % pago[0].t)
+        time.sleep(1)
+        if not T.texto((metodo['nombre'], metodo['id']), parcial=True):
+            frenar('No encontré "%s" en la lista de métodos' % metodo['nombre'], 'lista_metodos')
+        ns = nodos()
+        if not any(n.rid == 'tv_amount' for n in ns):   # si la lista de métodos pide confirmar
+            for n in ns:
+                if norm(n.t) in ('confirmar', 'aplicar', 'listo'):
+                    T.nodo(n)
+                    break
+    ns = nodos()
+    filtros = [n.t for n in ns if n.y < 460 and (n.rid == 'tv_amount' or compacto(n.t) in (
+        compacto(metodo['nombre']), compacto(metodo['id'])))]
+    paso('filtros: %s' % ' | '.join(filtros))
+
+
+def buscar_en_lista(apodo):
+    """Busca el apodo en la lista (bajando hasta 10 pantallas) y toca el Vender de su tarjeta."""
+    ancho, alto = tamano_pantalla()
+    for _ in range(10):
+        ns = nodos()
+        fila = [n for n in ns if compacto(n.t) == compacto(apodo)]
         if fila:
-            _, _, ya, _, _ = fila[0]
-            botones = sorted((n for n in ns if norm(n[0]) in ('vender', 'vender usdt') and n[2] > ya - 50),
-                             key=lambda n: n[2])
-            if botones:
-                T.xy(botones[0][0], botones[0][1], botones[0][2])
+            debajo = sorted((n for n in ns if norm(n.t) == 'vender' and n.y > fila[0].y and n.y < 2160),
+                            key=lambda n: n.y)
+            if debajo:
+                T.nodo(debajo[0], 'Vender de %s' % apodo)
                 T.en_orden = True
-                return True
-        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .75)), str(ancho // 2), str(int(alto * .35)), '400')
-    frenar('No encontré a %s en la lista (¿lo tomó otro o cambió de precio?)' % apodo, 'lista')
+                return
+        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .75)), str(ancho // 2),
+            str(int(alto * .35)), '500')
+        time.sleep(1.5)
+    frenar('No encontré a %s en la lista (¿lo tomó otro, cambió el precio o se quedó sin USDT?)' % apodo, 'lista')
 
 
 # ---------- 3. Completar la orden (sin colocarla) ----------
 
 def completar_orden(det, metodo, monto):
-    """Pantalla "Vender USDT" (vista el 15/11/2026): pestaña "En VES", el monto (0), "VES Todo", Límite, Vendes,
-    la fila de TU método de pago (ej. "Banesco 0000000 >"), Info. del anunciante, la casilla de términos y el botón
-    "Realizar Orden". Se completa monto y método. La casilla y "Realizar Orden" quedan para vos."""
+    """Pantalla "Vender USDT" (grabación 05): En VES / En USDT, el monto (EditText), VES Todo, Límite, Vendes,
+    la fila de TU método (ej. "Pago Movil 00000000"), Info. del anunciante, la casilla y "Realizar Orden".
+    Se completa monto y método. La casilla y "Realizar Orden" quedan para vos."""
     T.en_orden = True
-    time.sleep(3)
-    ns = nodos()
-    if not any(norm(n[0]) in ('vendes', 'vender usdt') for n in ns):
-        paso('veo: %s' % que_veo())
-        frenar('No llegué a la pantalla "Vender USDT"', 'orden')
-    for n in ns:                       # monto en Bs: pestaña "En VES" (si hay otra en USDT)
-        if norm(n[0]) == 'en ves':
-            T.xy(n[0], n[1], n[2])
-            ns = nodos()
-            break
-    campos = [n for n in ns if n[3] == 'EditText']
-    if not campos:                     # sin EditText: el "0" grande debajo de "En VES"
-        y_ves = min([n[2] for n in ns if norm(n[0]) == 'en ves'] or [0])
-        campos = sorted([n for n in ns if re.fullmatch(r'[\d.,]+', n[0]) and n[2] > y_ves], key=lambda n: n[2])
-    if not campos:
-        paso('veo: %s' % que_veo())
-        frenar('No encontré dónde escribir el monto', 'monto')
-    T.xy('campo de monto', campos[0][1], campos[0][2])
-    adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END')
-    for _ in range(12):                # borra el 0 (o lo que hubiera)
-        adb('shell', 'input', 'keyevent', 'KEYCODE_DEL')
-    escribir(fmt_monto(monto))
-    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # baja el teclado
     time.sleep(2)
     ns = nodos()
-    if not any(norm(n[0]) == 'vendes' for n in ns):
-        frenar('Al bajar el teclado se cerró la orden', 'teclado')
-    # Método: la fila entre "Vendes" y "Info. del anunciante". Si ya muestra el tuyo, no se toca.
-    y_desde = max(n[2] for n in ns if norm(n[0]) == 'vendes')
-    y_hasta = min([n[2] for n in ns if norm(n[0]).startswith('info del anunciante')] or [10 ** 5])
-    fila = [n for n in ns if y_desde + 40 < n[2] < y_hasta and n[0]]
-    paso('fila de método: %s' % ' | '.join(n[0] for n in fila))
-    elegido = lambda: any(compacto(metodo['nombre']) in compacto(n[0]) or compacto(metodo['id']) in compacto(n[0])
-                          for n in fila)
-    if fila and not elegido():
-        T.xy(fila[0][0], fila[0][1], fila[0][2])
-        time.sleep(2)
-        if not T.texto((metodo['nombre'], metodo['id']), intentos=3, parcial=True):
-            frenar('No tenés "%s" entre tus métodos de pago (o se llama distinto)' % metodo['nombre'], 'metodos')
-        time.sleep(2)
+    if not hay('Vender USDT', ns) or not hay('Vendes', ns):
+        frenar('No llegué a la pantalla "Vender USDT"', 'orden')
+    if not hay(det['apodo'], ns):
+        paso('ojo: no veo a %s en la orden' % det['apodo'])
+    en_ves = [n for n in ns if norm(n.t) == 'en ves']
+    if en_ves:
+        T.nodo(en_ves[0])
         ns = nodos()
-        fila = [n for n in ns if y_desde + 40 < n[2] < y_hasta and n[0]]
-    metodo_ok = bool(fila) and elegido()
-    digitos = re.sub(r'\D', '', fmt_monto(monto).split('.')[0])
-    monto_ok = any(digitos and digitos == re.sub(r'\D', '', t.split('.')[0]) for t, _, _, _, _ in nodos())
-    return monto_ok, metodo_ok
+    campo = [n for n in ns if n.clase == 'EditText']
+    if not campo:
+        frenar('No encontré dónde escribir el monto', 'monto')
+    if re.sub(r'\D', '', campo[0].t.split('.')[0]) != re.sub(r'\D', '', fmt_monto(monto).split('.')[0]):
+        borrar_y_escribir(campo[0], fmt_monto(monto))
+    if teclado_visible():
+        adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # baja el teclado (solo si está, si no saldría de la orden)
+        time.sleep(1.5)
+    ns = nodos()
+    if not hay('Vendes', ns):
+        frenar('Se cerró la orden al bajar el teclado', 'teclado')
+    # Método: la fila entre "Vendes" y "Info. del anunciante". Si ya muestra el tuyo, no se toca.
+    desde = max(n.y for n in ns if norm(n.t) == 'vendes')
+    hasta = min([n.y for n in ns if norm(n.t).startswith('info del anunciante')] or [10 ** 5])
+
+    def fila_metodo(ns):
+        return [n for n in ns if desde + 40 < n.y < hasta and n.t]
+
+    def es_el_metodo(fila):
+        return any(compacto(metodo['nombre']) in compacto(n.t) or compacto(metodo['id']) in compacto(n.t)
+                   for n in fila)
+    fila = fila_metodo(ns)
+    if fila and not es_el_metodo(fila):
+        T.nodo(fila[0], 'fila de método (%s)' % fila[0].t)
+        if not T.texto((metodo['nombre'], metodo['id']), parcial=True):
+            frenar('No tenés "%s" entre tus métodos de pago (o se llama distinto)' % metodo['nombre'], 'metodos')
+        time.sleep(1.5)
+        ns = nodos()
+        fila = fila_metodo(ns)
+    paso('fila de método: %s' % ' | '.join(n.t for n in fila))
+    campo = [n for n in ns if n.clase == 'EditText']
+    monto_ok = bool(campo) and re.sub(r'\D', '', campo[0].t.split('.')[0]) == \
+        re.sub(r'\D', '', fmt_monto(monto).split('.')[0])
+    return monto_ok, bool(fila) and es_el_metodo(fila)
 
 
 def recorrido(link):
     ad, monto, pago = leer_link(link)
     det = detalle_anuncio(ad)
     metodo = elegir_metodo(det, pago)
-    paso('anuncio %s: %s, precio %s, límites %s-%s, %s' % (ad, det['apodo'], det['precio'], det['min'], det['max'],
-                                                          metodo['nombre']))
+    paso('anuncio %s: %s, precio %s, límites %s-%s, %s' % (ad, det['apodo'], det['precio'], fmt_monto(det['min']),
+                                                          fmt_monto(det['max']), metodo['nombre']))
     if not monto:
         raise Frenado('El link no trae el monto: subí el Apps Script nuevo y buscá el anuncio de nuevo')
-    if det['min'] and monto < det['min'] or det['max'] and monto > det['max']:
+    if (det['min'] and monto < det['min']) or (det['max'] and monto > det['max']):
         raise Frenado('%s Bs no entra en los límites del anuncio (%s - %s): buscá otro anuncio' %
                       (fmt_monto(monto), fmt_monto(det['min']), fmt_monto(det['max'])))
     if not conectar():
@@ -486,78 +450,15 @@ def recorrido(link):
         raise Frenado('El teléfono está bloqueado: desbloquealo y probá de nuevo')
     avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
            (det['apodo'], fmt_monto(monto), metodo['nombre']))
-    paquete = paquete_binance()
-    if not por_perfil(paquete, det):
-        paso('ningún enlace abrió el perfil: voy por la lista')
-        por_lista(paquete, det['apodo'], metodo, monto)
+    abrir_p2p(paquete_binance())
+    preparar_lista(metodo, monto)
+    buscar_en_lista(det['apodo'])
     monto_ok, metodo_ok = completar_orden(det, metodo, monto)
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok)) if not ok]
-    return '%s · %s Bs · %s · precio %s.%s Revisá y tocá Vender vos. (%s.png)' % (
+    return '%s · %s Bs · %s · precio %s.%s Revisá, tildá la casilla y tocá Realizar Orden vos. (%s.png)' % (
         det['apodo'], fmt_monto(monto), metodo['nombre'], det['precio'],
         (' ⚠️ No pude confirmar ' + ' ni '.join(faltan) + '.') if faltan else '', base)
-
-
-def probar_enlaces(link):
-    """Muestra qué enlaces de Binance declara la app y prueba abrir el anuncio con cada uno."""
-    ad, _, _ = leer_link(link)
-    det = detalle_anuncio(ad)
-    if not conectar():
-        raise Frenado('No hay ADB')
-    paquete = paquete_binance()
-    filtros = [l.strip() for l in adb('shell', 'dumpsys', 'package', paquete).splitlines()
-               if re.search(r'Scheme: "|Authority: "|Path: "|PathPrefix|PathPattern', l)]
-    archivo = os.path.join(LOG_DIR, 'binance_enlaces.txt')
-    with open(archivo, 'w') as f:
-        f.write('\n'.join(filtros))
-    print('Enlaces que declara %s (%d líneas, todo en %s):' % (paquete, len(filtros), archivo))
-    for l in sorted(set(filtros)):
-        if 'binance' in l or 'Scheme' in l:
-            print('  ' + l)
-    print('\nAnuncio %s de %s (usuario %s). Probando enlaces al perfil:' % (ad, det['apodo'], det['usuario'] or '?'))
-    if not det['usuario']:
-        print('  El detalle del anuncio no trae el número de usuario. Lo guardé en binance_detalle.json')
-        req = urllib.request.Request(DETALLE + ad, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as r, open(os.path.join(LOG_DIR, 'binance_detalle.json'), 'wb') as f:
-            f.write(r.read())
-        return
-    for n, plantilla in enumerate(ENLACES):
-        url = plantilla.format(u=det['usuario'])
-        if not abrir_enlace(paquete, url):
-            print('  ✗ la app no lo acepta: ' + url)
-            continue
-        ok = esperar_anuncio(det['apodo'], 25)
-        print('  %s %s' % ('✓ ABRE EL PERFIL:' if ok else '· no abre el perfil:', url))
-        if ok:
-            with open(ENLACE_BUENO, 'w') as f:
-                f.write(plantilla)
-            T.texto(('Anuncios',), intentos=3, parcial=True)
-            time.sleep(2)
-            print('  Guardé la pestaña Anuncios: %s.png' % guardar('anuncios'))
-            break
-    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
-
-
-def rastrear(url):
-    """Abre un link en la app (ej. el link corto de un perfil compartido) y busca en el registro de Android
-    la dirección interna a la que la app lo convirtió. Guarda todo en Descargas/binance_rastreo.txt."""
-    if not conectar():
-        raise Frenado('No hay ADB')
-    paquete = paquete_binance()
-    adb('logcat', '-c')
-    if not abrir_enlace(paquete, url) and '://www.binance.com/' in url:
-        abrir_enlace(paquete, url.replace('://www.binance.com/', '://app.binance.com/'))   # la app solo toma app.
-    time.sleep(12)
-    registro = adb('logcat', '-d', '-v', 'brief', espera=60)
-    pistas = [l for l in registro.splitlines()
-              if re.search(r'bnc://|app\.binance\.com|binance\.com/|dplk|advertiser|userNo|deeplink|DeepLink|schema|router',
-                           l, re.I)]
-    with open(os.path.join(LOG_DIR, 'binance_rastreo.txt'), 'w') as f:
-        f.write('\n'.join(pistas))
-    print('%d líneas con pistas (todas en Descargas/binance_rastreo.txt). Las primeras:' % len(pistas))
-    for l in pistas[:40]:
-        print('  ' + l[:300])
-    print('Pantalla: %s.png' % guardar('rastreo'))
 
 
 def grabar(segundos=150):
@@ -571,15 +472,15 @@ def grabar(segundos=150):
     ultima, n, fin = None, 0, time.time() + segundos
     print('Grabando %d s. Hacé el recorrido a mano, despacio, sin tocar Realizar Orden.' % segundos, flush=True)
     while time.time() < fin:
-        _, xml = textos()
-        if xml and PAQ in xml:
-            firma = ' | '.join(t for t, _, _, _, _ in nodos())
-            if firma != ultima:
-                ultima, n = firma, n + 1
-                with open(os.path.join(carpeta, '%02d.xml' % n), 'w') as f:
-                    f.write(xml)
-                adb('shell', 'screencap', '-p', '/sdcard/Download/binance_grabacion/%02d.png' % n)
-                print('  pantalla %d: %s' % (n, firma[:90]), flush=True)
+        xml = volcar(10, 1)
+        ns = leer_nodos(xml)
+        firma = que_veo(ns)
+        if ns and firma != ultima:   # el xml y la firma salen de la misma lectura
+            ultima, n = firma, n + 1
+            with open(os.path.join(carpeta, '%02d.xml' % n), 'w') as f:
+                f.write(xml)
+            adb('shell', 'screencap', '-p', '/sdcard/Download/binance_grabacion/%02d.png' % n)
+            print('  pantalla %d: %s' % (n, firma[:90]), flush=True)
         time.sleep(1)
     print('Listo: %d pantallas en Descargas/binance_grabacion' % n)
 
@@ -594,11 +495,7 @@ if __name__ == '__main__':
             print('Guardé %s.png y .xml en Descargas' % guardar(args[1] if len(args) > 1 else 'pantalla'))
         elif args[:1] == ['--grabar']:
             grabar()
-        elif args[:1] == ['--rastrear'] and len(args) > 1:
-            rastrear(args[1])
-        elif args[:1] == ['--enlaces'] and len(args) > 1:
-            probar_enlaces(args[1])
-        elif len(args) == 1:
+        elif len(args) == 1 and not args[0].startswith('--'):
             r = recorrido(args[0])
             print(r)
             avisar('Binance: orden armada ✅', r)

@@ -38,8 +38,8 @@ Log en el teléfono: `tail -5 ~/subir.log`
   cada 10 min pide los números al Apps Script (`apps-script/20_DashboardP2P.gs`, `?dash=1&k=DASH_TOKEN`).
   Se instala o actualiza con `sudo bash dashboard_instalar.sh`. Log: `journalctl -u dashboard-p2p -n 20`.
 - `binance_orden.py`: arma en la app de Binance la orden de una pre-orden y **se frena antes de colocarla**. Recibe el
-  link "Abrir en Binance" (trae adNo, monto en Bs y método), revisa ese anuncio en Binance (límites, método), lo abre en
-  la app (enlace directo o P2P → Vender → filtro de método y monto → apodo), elige VES, escribe los Bs y elige tu método.
-  Ya dentro de la orden no toca nada que diga Vender/Confirmar: eso lo hacés vos. Se usa compartiendo el link con
-  Termux (`telefono/termux-url-opener` → `telefono/binance_orden.sh`). `--enlaces LINK` prueba qué enlaces abre la app;
-  `--pantalla NOMBRE` guarda la pantalla. Log: `tail -20 ~/binance_orden.log`; capturas en Descargas (`binance_*`).
+  link "Abrir en Binance" (trae adNo, monto en Bs y método), revisa ese anuncio en Binance (límites, método), abre
+  P2P → Vender → USDT → VES, pone monto y método en los filtros, busca el apodo, toca su Vender y en "Vender USDT"
+  escribe los Bs y elige tu método. La casilla de términos y "Realizar Orden" no las toca nunca. La app no abre
+  anuncios por link: va siempre por la lista. `--grabar` guarda cada pantalla mientras hacés el recorrido a mano
+  (para ajustar los toques). Log: `tail -20 ~/binance_orden.log`; capturas en Descargas (`binance_*`).
