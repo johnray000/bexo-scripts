@@ -17,7 +17,7 @@ hasta **un paso antes de colocar la orden**: john tilda la casilla de términos 
 | `apps-script/9_P2P.gs` | El link del anuncio trae `&monto=<Bs>&pago=<método>` (línea con `LINK_ANUNCIO`). **Falta subirlo** (`sh ~/bexo-scripts/apps-script/subir.sh`). |
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
-| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (13 casos + `que_es` de todas las pantallas + apodo ausente). Tiene que dar "13 de 13 casos bien". |
+| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (13 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "13 de 13 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
 `01` Seleccionar divisa · `02`/`03` panel Filtrar (embudo) · `04` lista P2P con filtros · `05`/`06` "Vender USDT" ·
@@ -35,7 +35,7 @@ pantalla, `que_es()` dice cuál de las conocidas es (`PANTALLAS`) y hace **una**
 | Binance no está al frente | cierra la cortina; actividad de inicio → monkey → link `app.binance.com` |
 | inicio (animado, no se lee) | toca P2P (por texto o por posición `BOTON_P2P`) |
 | p2p | en orden: pestaña Vender (una vez) · moneda si no es VES · si el chip de método dice otro método (no "Pago" ni el tuyo) se frena · **embudo** hasta que el filtro quede verificado · todo listo → busca el apodo (hasta 10 pantallas) y toca SU Vender |
-| filtrar (panel del embudo) | deja `INTERRUPTORES` como deben (los tres apagados: comerciables, Pro, Verificados), comprobando cada toque · escribe el monto · Confirmar. Si en esa apertura **no hubo nada que cambiar**, el filtro queda verificado; si no, en la lista se vuelve a abrir el embudo |
+| filtrar (panel del embudo) | 1ª apertura: solo apaga "Solo anuncios comerciables" y confirma (la app descarta ese Confirmar). 2ª: deja `INTERRUPTORES` como deben (los tres apagados), comprobando cada toque, escribe el monto y confirma. Si después el chip Monto no lo muestra, se vuelve a abrir |
 | monto (hoja "Quiero vender" del chip Monto) | no se usa: si quedó abierta, pone el monto y confirma, y después igual pasa por el embudo |
 | divisa | toca VES |
 | activo | BACK (no se elige nada: USDT ya está). Si el chip de activo no dice USDT, se frena y pide ponerlo a mano |
@@ -83,7 +83,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
 ## Pendiente, en orden
 
-1. ~~Grabar el embudo~~ (hecho 15:27).
+1. ~~Grabar el embudo~~ (hecho 15:27). Corrida 15:56: llegó a la lista con todo bien, pero no encontró a
+   CloudMoneySolutions (anuncio de la madrugada) bajando 10 pantallas.
+1b. **Grabar la parte de métodos de pago del panel Filtrar** (john: en la 2ª apertura se eligen ahí). No está grabada.
 2. Probar en el teléfono el recorrido completo con un adNo vigente:
    `python ~/bexo-scripts/binance_orden.py "https://c2c.binance.com/es-LA/adv?code=<adNo>&monto=<Bs>&pago=PagoMovil"`.
    Si se frena: deja `binance_*.png` y `.xml` en Descargas.

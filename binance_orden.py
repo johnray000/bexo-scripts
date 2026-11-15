@@ -4,7 +4,6 @@
   python binance_orden.py "LINK"            # el recorrido completo (lo corre telefono/binance_orden.sh)
   python binance_orden.py --buscar [MONTO] [MÉTODO]          # lista los anuncios como la pre-orden (5000 PagoMovil)
   python binance_orden.py --prueba [MONTO] [MÉTODO] [PUESTO] # elige uno (1 = el primero) y corre el recorrido
-  python binance_orden.py --probar MONTO     # busca un anuncio como la pre-orden (Pago Movil) y hace el recorrido
   python binance_orden.py --grabar [SEG]    # (60 s) guarda cada pantalla mientras hacés el camino a mano
   python binance_orden.py --pantalla NOMBRE # en 8 s guarda la pantalla en Descargas
 
@@ -37,8 +36,6 @@ DESCARGAS = os.path.expanduser('~/storage/downloads')
 LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
 DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
 BUSCAR = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'   # la misma que usa el relay del VPS
-LINK_ANUNCIO = 'https://c2c.binance.com/es-LA/adv?code='
-BUSCAR = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'   # la misma que usa el relay del VPS
 LINK = 'https://c2c.binance.com/es-LA/adv?code=%s&monto=%s&pago=%s'      # el mismo formato que 9_P2P.gs
 PAQUETES = ('com.binance.dev', 'com.binance.android', 'com.binance.app')
 INICIO_ACT = 'com.eaas.launcher.activities.main.MainActivity'
@@ -50,7 +47,6 @@ PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar
 MAX_VUELTAS = 40
 # Panel "Filtrar" (embudo): cómo tienen que quedar los interruptores (john, 15/11: los tres apagados, para que la
 # lista muestre los mismos anuncios que la API de la pre-orden).
-PRIMERA_APERTURA = ('Solo anuncios comerciables',)   # la 1ª vez la app descarta el filtro: solo esto y Confirmar
 INTERRUPTORES = {'Solo anuncios comerciables': False, 'Solo comerciantes Pro': False,
                  'Solo comerciantes Verificados': False}
 # La primera vez que se confirma el filtro la app lo descarta: en esa primera apertura solo se apaga este y se
@@ -600,44 +596,6 @@ def recorrido(link):
 
 # ---------- Herramientas ----------
 
-def buscar_prueba(monto, pago='PagoMovil'):
-    """Anuncios para VENDER USDT por VES con ese método donde entra el monto, en el orden de Binance (mejor precio
-    primero). La misma consulta que hace la pre-orden por el relay; desde el teléfono Binance responde directo."""
-    cuerpo = {'asset': 'USDT', 'fiat': 'VES', 'tradeType': 'SELL', 'page': 1, 'rows': 20,
-              'payTypes': [pago], 'transAmount': monto}
-    req = urllib.request.Request(BUSCAR, data=json.dumps(cuerpo).encode(),
-                                 headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        datos = json.load(r).get('data') or []
-    salida = []
-    for a in datos:
-        adv, quien = a.get('adv') or {}, a.get('advertiser') or {}
-        mn = float(adv.get('minSingleTransAmount') or 0)
-        mx = float(adv.get('dynamicMaxSingleTransAmount') or adv.get('maxSingleTransAmount') or 0)
-        metodos = [m.get('identifier') for m in adv.get('tradeMethods') or []]
-        if mn <= monto <= mx and pago in metodos:
-            salida.append({'adNo': adv.get('advNo'), 'apodo': quien.get('nickName') or '', 'precio': adv.get('price'),
-                           'min': mn, 'max': mx, 'metodos': metodos})
-    return salida
-
-
-def probar(monto, pago='PagoMovil'):
-    """Busca un anuncio de prueba, muestra cuál es (para que sepas qué tiene que armar) y hace el recorrido."""
-    ads = buscar_prueba(monto, pago)
-    if not ads:
-        raise Frenado('Binance no devolvió anuncios de %s para %s Bs' % (pago, fmt_monto(monto)))
-    for i, a in enumerate(ads[:3], 1):
-        print('  %d. %s · precio %s · %s-%s Bs · %s' % (i, a['apodo'], a['precio'], fmt_monto(a['min']),
-                                                       fmt_monto(a['max']), ', '.join(a['metodos'])), flush=True)
-    a = ads[0]
-    link = '%s%s&monto=%s&pago=%s' % (LINK_ANUNCIO, a['adNo'], fmt_monto(monto), pago)
-    print('\nTIENE QUE ARMAR: %s · %s Bs · %s\n%s\nEmpiezo en 8 s…' % (a['apodo'], fmt_monto(monto), pago, link),
-          flush=True)
-    avisar('Binance: prueba con %s' % a['apodo'], '%s Bs · %s · precio %s' % (fmt_monto(monto), pago, a['precio']))
-    time.sleep(8)
-    return recorrido(link)
-
-
 def buscar_anuncios(monto, pago, filas=20):
     """Los anuncios donde vendés USDT por VES con ese método y monto, en el orden de Binance (como la pre-orden)."""
     cuerpo = {'asset': 'USDT', 'fiat': 'VES', 'tradeType': 'SELL', 'page': 1, 'rows': filas,
@@ -646,10 +604,12 @@ def buscar_anuncios(monto, pago, filas=20):
                                  headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=15) as r:
         datos = json.load(r).get('data') or []
-    return [{'adNo': a['adv']['advNo'], 'apodo': a['advertiser']['nickName'], 'precio': float(a['adv']['price']),
-             'min': float(a['adv']['minSingleTransAmount']),
-             'max': float(a['adv']['dynamicMaxSingleTransAmount']),
-             'pagos': [m.get('identifier') for m in a['adv'].get('tradeMethods', [])]} for a in datos]
+    ads = [{'adNo': a['adv']['advNo'], 'apodo': a['advertiser']['nickName'], 'precio': float(a['adv']['price']),
+            'min': float(a['adv']['minSingleTransAmount']),
+            'max': float(a['adv'].get('dynamicMaxSingleTransAmount') or a['adv'].get('maxSingleTransAmount') or 0),
+            'pagos': [m.get('identifier') for m in a['adv'].get('tradeMethods', [])]} for a in datos]
+    # Solo los que aceptan ese monto y ese método (lo mismo que valida el recorrido antes de abrir la app)
+    return [a for a in ads if a['min'] <= monto <= a['max'] and (not pago or pago in a['pagos'])]
 
 
 def prueba(monto, pago, puesto, arrancar=True):
@@ -740,13 +700,6 @@ if __name__ == '__main__':
                 print(r)
                 avisar('Binance: orden armada ✅', r)
                 subprocess.run(['termux-vibrate', '-d', '600'], check=False)
-        elif args[:1] == ['--probar']:
-            if len(args) < 2 or numero(args[1]) is None:
-                raise Frenado('Uso: --probar MONTO (en Bs, ej. --probar 5000)')
-            r = probar(numero(args[1]), args[2] if len(args) > 2 else 'PagoMovil')
-            print(r)
-            avisar('Binance: orden armada ✅', r)
-            subprocess.run(['termux-vibrate', '-d', '600'], check=False)
         elif args[:1] == ['--grabar']:
             grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):

@@ -284,14 +284,14 @@ mal_que_es = [(k, b.que_es(b.leer_nodos(X[k][X[k].find('<?xml'):]))) for k in es
 mal_que_es = [(k, q) for k, q in mal_que_es if q != esperado[k]]
 print('  ' + ('BIEN' if not mal_que_es else 'MAL: %s' % mal_que_es))
 
-print('==== --probar: búsqueda con una respuesta con la forma de Binance (campos de vps/relay_binance.py)')
+print('==== --buscar / --prueba: búsqueda con una respuesta con la forma de Binance (campos de vps/relay_binance.py)')
 import io  # noqa: E402
 import json  # noqa: E402
 
 
 def falso_urlopen(req, timeout=15):
     cuerpo = json.loads(req.data)
-    assert cuerpo['tradeType'] == 'SELL' and cuerpo['payTypes'] == ['PagoMovil'] and cuerpo['transAmount'] == 5000
+    assert cuerpo['tradeType'] == 'SELL' and cuerpo['payTypes'] == ['PagoMovil'] and str(cuerpo['transAmount']) == '5000'
     ads = [('1', 'Caro', '10000', '50000', ['PagoMovil']),        # el monto no entra
            ('2', 'wen2', '300', '81600', ['Banesco', 'PagoMovil']),
            ('3', 'Otro', '1000', '9000', ['PagoMovil'])]
@@ -302,7 +302,7 @@ def falso_urlopen(req, timeout=15):
 
 
 b.urllib.request.urlopen = falso_urlopen
-r = b.buscar_prueba(5000)
+r = b.buscar_anuncios(5000.0, 'PagoMovil')
 ok_busca = [a['apodo'] for a in r] == ['wen2', 'Otro']
 print('  %s: %s' % ('BIEN' if ok_busca else 'MAL', [a['apodo'] for a in r]))
 if not ok_busca:
