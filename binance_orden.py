@@ -497,11 +497,18 @@ def poner_monto(ns, monto, tipo):
     return ns
 
 
-def buscar_en_lista(apodo):
-    """Busca el apodo bajando hasta 10 pantallas y toca el Vender de SU tarjeta (el primero debajo del apodo)."""
+PRECIO = re.compile(r'^\d{1,3}(,\d{3})*\.\d{2,3}$')   # "1,058.000": el precio grande de cada tarjeta
+PANTALLAS_LISTA = 15
+TOLERANCIA_PRECIO = 0.003   # el precio del anuncio puede moverse un poco entre la API y la app
+
+
+def buscar_en_lista(apodo, precio=None):
+    """Busca el apodo bajando DESPACIO (sin inercia: el 15/11 16:42 un gesto rápido se salteó tarjetas) y toca el
+    Vender de SU tarjeta (el primero debajo del apodo). Anota en la terminal a quién vio en cada pantalla.
+    La lista va de mayor a menor precio: si ya pasó el precio del anuncio sin verlo, se frena ahí."""
     global EN_ORDEN
     ancho, alto = tamano_pantalla()
-    for _ in range(10):
+    for i in range(PANTALLAS_LISTA):
         ns = nodos()
         for fila in (n for n in ns if compacto(n.t) == compacto(apodo)):
             debajo = sorted((n for n in con(ns, 'Vender') if fila.y < n.y < alto * 0.9), key=lambda n: n.y)
@@ -509,13 +516,24 @@ def buscar_en_lista(apodo):
                 tocar('Vender de %s' % apodo, debajo[0].x, debajo[0].y)
                 EN_ORDEN = True
                 return
-        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .75)), str(ancho // 2),
-            str(int(alto * .35)), '500')
+        precios = [numero(n.t) for n in ns if PRECIO.match(n.t)]
+        vendedores = [n for n in con(ns, 'Vender') if n.x > 700]   # los de las tarjetas (la pestaña está a la izquierda)
+        quienes = [n.t for n in ns if not n.rid and len(n.t) > 1 and n.clase == 'TextView' and n.t not in
+                   ('Vender', 'Comprar') and any(0 < v.y - n.y < 520 for v in vendedores)]
+        paso('lista %d: %s · precios %s' % (i + 1, ', '.join(quienes) or '(nadie)',
+                                            '%s a %s' % (fmt_monto(max(precios)), fmt_monto(min(precios)))
+                                            if precios else '-'))
+        if precio and precios and max(precios) < precio * (1 - TOLERANCIA_PRECIO):
+            frenar('Pasé el precio de %s (%s) sin verlo: la lista ya va por %s. ¿Lo tomó otro o cambió?' %
+                   (apodo, precio, fmt_monto(max(precios))), 'lista', ns)
+        # despacio (1,5 s) y la mitad de la pantalla: sin inercia, cada pantalla se superpone con la anterior
+        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .80)), str(ancho // 2),
+            str(int(alto * .30)), '1500')
         time.sleep(1.5)
-    frenar('No encontré a %s en la lista (¿lo tomó otro, cambió el precio o se quedó sin USDT?)' % apodo, 'lista')
+    frenar('No encontré a %s en %d pantallas de la lista' % (apodo, PANTALLAS_LISTA), 'lista')
 
 
-def llegar_a_la_orden(apodo, metodo, monto):
+def llegar_a_la_orden(apodo, metodo, monto, precio=None):
     """El bucle: lee, reconoce la pantalla, hace UNA acción. Termina en la pantalla "Vender USDT" del anunciante."""
     ancho, alto = tamano_pantalla()
     veces = collections.Counter()
@@ -543,7 +561,7 @@ def llegar_a_la_orden(apodo, metodo, monto):
         elif p == 'p2p':
             hecho = en_p2p(ns, metodo, monto, estado)
             if hecho == 'listo':
-                buscar_en_lista(apodo)
+                buscar_en_lista(apodo, precio)
                 hecho = 'buscar a %s' % apodo
         elif p == 'filtrar':
             hecho = en_filtrar(ns, monto, metodo, estado)
@@ -642,7 +660,7 @@ def recorrido(link):
     paquete_binance()
     avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
            (det['apodo'], fmt_monto(monto), metodo['nombre']))
-    ns = llegar_a_la_orden(det['apodo'], metodo, monto)
+    ns = llegar_a_la_orden(det['apodo'], metodo, monto, det['precio'])
     monto_ok, metodo_ok = completar_orden(ns, det['apodo'], metodo, monto)
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok)) if not ok]

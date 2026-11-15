@@ -93,6 +93,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    baja hasta ahí, si no hay ninguno elegido toca el de la pre-orden y comprueba "(1 seleccionado/s)"; si hay uno
    elegido y la lista ya decía ese método, no lo toca (tocarlo lo desmarcaría); si no, se frena. La prueba final es
    el chip "Pago" de la lista.
+1d. Corrida 16:40 (`--prueba 5000`, risteran29 a 1070,30): embudo y método perfectos (chips 5,000 · Pago Movil),
+   pero no lo encontró: la lista terminó en 1058–1055, o sea que el gesto rápido (0,5 s) se salteó tarjetas por inercia.
+   Ahora baja despacio (1,5 s, media pantalla), anota quién vio en cada pantalla y se frena si ya pasó su precio.
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.

@@ -340,5 +340,17 @@ try:
     bien -= 1
 except b.Frenado as e:
     print('  BIEN: %s' % e)
+print('==== el apodo no está y la lista ya pasó su precio (como 16:42): se frena en la primera pantalla')
+t = Telefono(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES}, embudo_falla=0, descarta_primera=False)
+preparar(t)
+try:
+    b.llegar_a_la_orden('NoExiste', METODO, 5000.0, precio=1080.0)
+    print('  MAL: no se frenó')
+    bien -= 1
+except b.Frenado as e:
+    ok_precio = 'Pasé el precio' in str(e)
+    print('  %s: %s' % ('BIEN' if ok_precio else 'MAL', e))
+    if not ok_precio:
+        bien -= 1
 print('\n%d de %d casos bien%s' % (bien, len(casos), '' if not mal_que_es else ' · que_es MAL'))
 sys.exit(0 if bien == len(casos) and not mal_que_es else 1)
