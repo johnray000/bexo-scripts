@@ -19,7 +19,7 @@ bien; john lo pidió el 15/11 17:14) y john toca "Realizar Orden" él mismo.
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
 | `telefono/limpiar_descargas.py` | Muestra qué hay en Descargas (de los scripts / datos protegidos / tuyos). `--borrar-scripts`, `--borrar-viejos DÍAS`; pide escribir BORRAR. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. |
-| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (15 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "15 de 15 casos bien". |
+| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (16 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "16 de 16 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
 `01` Seleccionar divisa · `02`/`03` panel Filtrar (embudo) · `04` lista P2P con filtros · `05`/`06` "Vender USDT" ·
@@ -109,6 +109,10 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    2ª, ~30 s), esperas más cortas después de cada toque.
 1g. **Corrida 17:10 (`--prueba 5000`): recorrido completo OK** (IbelsExchange, 5000, Pago Movil) en ~80 s. Después:
    la casilla la tilda el recorrido.
+1h. Corrida 17:45: al tocar Vender de una reserva salió el cartel "El precio del anuncio se ha actualizado… Entendido"
+   (FiatPlaceSellOrderActivity). Ahora (como lo hace john): Entendido → atrás a la lista → arrastre hacia abajo para
+   refrescar → buscar de nuevo con 2 % de margen de precio (hasta 2 veces). El aviso de 1 % se calcula con el precio
+   que muestra la orden ("Precio Bs …"), y también avisa si el elegido bajó más de 1 % desde la pre-orden.
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.

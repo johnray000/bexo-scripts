@@ -256,10 +256,14 @@ PANTALLAS = {
     'p2p':     'lista de P2P: Comprar / Vender arriba, barra P2P · Órdenes · Anuncios (grabación 04)',
     'inicio':  'inicio de Binance: animado, uiautomator no lo lee (o se lee P2P / Depositar)',
     'cartel':  'un cartel con Cerrar / Omitir / OK…',
+    'precio cambiado': 'cartel sobre la orden: "El precio del anuncio se ha actualizado…" + Entendido (15/11 17:46)',
 }
 
 
 def que_es(ns):
+    # cartel sobre la orden (15/11 17:46): "El precio del anuncio se ha actualizado, confirma el precio… [Entendido]"
+    if con(ns, 'Entendido') and any(norm(n.t).startswith('el precio del anuncio se ha actualizado') for n in ns):
+        return 'precio cambiado'
     if con(ns, 'Vendes') and (con(ns, 'Realizar Orden') or any(norm(n.t).startswith('info del anunciante')
                                                                  for n in ns)):
         return 'orden'
@@ -508,7 +512,7 @@ ELEGIDO = None   # el candidato cuyo Vender se tocó (el anuncio de la pre-orden
 AVISO_RESERVA = 0.01   # si la reserva tiene un precio más de 1 % peor que el elegido, se avisa con ⚠️
 
 
-def buscar_en_lista(candidatos):
+def buscar_en_lista(candidatos, tolerancia=TOLERANCIA_PRECIO):
     """candidatos: [{'apodo', 'precio', ...}] en orden de preferencia (el anuncio de la pre-orden primero, después las
     reservas). Baja DESPACIO (sin inercia: el 15/11 16:42 un gesto rápido se salteó tarjetas), anota a quién vio en
     cada pantalla y toca el Vender del mejor candidato que aparezca. Si aparece una reserva pero un preferido podría
@@ -544,7 +548,7 @@ def buscar_en_lista(candidatos):
         paso('lista %d: %s · precios %s' % (i + 1, ', '.join(quienes) or '(nadie)',
                                             '%s a %s' % (fmt_monto(max(precios)), fmt_monto(min(precios)))
                                             if precios else '-'))
-        if piso and precios and max(precios) < piso * (1 - TOLERANCIA_PRECIO):
+        if piso and precios and max(precios) < piso * (1 - tolerancia):
             nombres = ', '.join(c['apodo'] for c in candidatos)
             frenar('Pasé el precio de %s sin verlos: la lista ya va por %s. Los tomó otro o cambiaron%s' %
                    (nombres, fmt_monto(max(precios)), ' (vi a %s más arriba: corré de nuevo)' % vista if vista else ''),
@@ -560,6 +564,7 @@ def buscar_en_lista(candidatos):
 def llegar_a_la_orden(candidatos, metodo, monto):
     """El bucle: lee, reconoce la pantalla, hace UNA acción. Termina en la pantalla "Vender USDT" del anunciante
     (el de la pre-orden o una reserva: ELEGIDO). candidatos: ver buscar_en_lista."""
+    global EN_ORDEN
     ancho, alto = tamano_pantalla()
     veces = collections.Counter()
     estado = {}
@@ -572,6 +577,20 @@ def llegar_a_la_orden(candidatos, metodo, monto):
             continue
         ns = nodos(espera=8, intentos=1)   # corto: el inicio es animado y uiautomator se cuelga ahí
         p = que_es(ns)
+        if EN_ORDEN and p == 'precio cambiado':
+            # El anunciante cambió el precio: Entendido, atrás a la lista, refrescar y buscar de nuevo (como john).
+            veces['precio cambiado'] += 1
+            if veces['precio cambiado'] > 2:
+                frenar('El precio de %s cambió otra vez: lo dejo' % ELEGIDO['apodo'], 'precio', ns)
+            ok = con(ns, 'Entendido')[0]
+            paso('el precio de %s cambió' % ELEGIDO['apodo'])
+            tocar('Entendido (cambió el precio)', ok.x, ok.y, en_orden_ok=True)
+            EN_ORDEN = False               # ya no se está armando esa orden: se sale sin tocar nada más
+            if que_es(nodos()) == 'orden':
+                tecla('BACK')
+            estado['refrescar'] = True
+            estado.pop('esperé orden', None)
+            continue
         if EN_ORDEN and p != 'orden':      # ya tocó el Vender del anunciante: solo puede esperar la orden
             if estado.get('esperé orden'):
                 frenar('Toqué Vender de %s pero no se abrió la orden' % ELEGIDO['apodo'], 'orden', ns)
@@ -583,10 +602,18 @@ def llegar_a_la_orden(candidatos, metodo, monto):
                 return ns
             tecla('BACK')                   # quedó abierta una orden vieja (de otra vez): se sale sin tocar nada
             hecho = 'salir de una orden vieja'
+        elif p == 'p2p' and estado.get('refrescar'):
+            del estado['refrescar']
+            paso('refresco la lista (arrastre hacia abajo)')
+            adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .30)), str(ancho // 2),
+                str(int(alto * .75)), '800')
+            time.sleep(3)
+            estado['tolerancia'] = 0.02    # el precio cambió: más margen para cortar la búsqueda
+            hecho = 'refrescar'
         elif p == 'p2p':
             hecho = en_p2p(ns, metodo, monto, estado)
             if hecho == 'listo':
-                buscar_en_lista(candidatos)
+                buscar_en_lista(candidatos, estado.get('tolerancia', TOLERANCIA_PRECIO))
                 hecho = 'buscar a %s' % ELEGIDO['apodo']
         elif p == 'filtrar':
             hecho = en_filtrar(ns, monto, metodo, estado)
@@ -663,7 +690,19 @@ def completar_orden(ns, apodo, metodo, monto):
     metodo_ok = any(compacto(metodo['nombre']) in compacto(n.t) or compacto(metodo['id']) in compacto(n.t)
                     for n in fila)
     casilla_ok = tildar_casilla(ns) if monto_ok and metodo_ok else False
+    precio = precio_de_la_orden(ns)
+    if precio and ELEGIDO is not None:
+        ELEGIDO['precio_orden'] = precio
     return monto_ok, metodo_ok, casilla_ok
+
+
+def precio_de_la_orden(ns):
+    """El precio que muestra la orden arriba ("Precio  Bs 1,068.255"): puede no ser el de la búsqueda."""
+    for t in con(ns, 'Precio'):
+        for n in ns:
+            if abs(n.y - t.y) < 30 and n.x > t.x and n.t.startswith('Bs') and numero(n.t):
+                return numero(n.t)
+    return None
 
 
 def tildar_casilla(ns):
@@ -724,11 +763,17 @@ def armar_candidatos(ad, alts, monto, pago):
 def resumen(principal, elegido, monto, metodo, faltan, base):
     """El mensaje final y si hay que avisar (⚠️): se usó una reserva con un precio más de AVISO_RESERVA peor que el
     anuncio de la pre-orden, o no se pudo saber su precio."""
-    texto = '%s · %s Bs · %s · precio %s.' % (elegido['apodo'], fmt_monto(monto), metodo['nombre'], elegido['precio'])
+    precio = elegido.get('precio_orden') or elegido['precio']   # el de la orden manda (puede haber cambiado)
+    texto = '%s · %s Bs · %s · precio %s.' % (elegido['apodo'], fmt_monto(monto), metodo['nombre'], precio)
     alerta = False
+    if not elegido['reserva'] and principal['precio']:
+        dif = (principal['precio'] - precio) / principal['precio']
+        if dif > AVISO_RESERVA:
+            alerta = True
+            texto += ' ⚠️ El precio bajó %.1f%% desde la pre-orden (%s).' % (dif * 100, principal['precio'])
     if elegido['reserva']:
         if principal['precio']:
-            dif = (principal['precio'] - elegido['precio']) / principal['precio']
+            dif = (principal['precio'] - precio) / principal['precio']
             alerta = dif > AVISO_RESERVA
             nota = ' ⚠️ Precio %.1f%% peor que %s (%s).' % (dif * 100, principal['apodo'], principal['precio']) \
                 if alerta else ''

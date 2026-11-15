@@ -16,6 +16,7 @@ CARPETA (en los archivos del proyecto, p2p/binance_app/grabacion/; no va al repo
   orden_wen2.xml         Vender USDT de wen2, casilla sin tildar   (15:27, 09)
   filtrar_metodos.xml    panel Filtrar bajado hasta "Método de Pago", ninguno elegido (16:34, 02)
   filtrar_metodos_elegido.xml  lo mismo con "(1 seleccionado/s)" (16:34, 03)
+  precio_actualizado.xml cartel "El precio del anuncio se ha actualizado… Entendido" sobre la orden (17:46)
   filtrar_reabierto.xml  panel reabierto: el método volvió a "Todo" aunque la lista diga Pago Movil (16:34, 05)
 
 Cada toque se resuelve buscando qué nodo del xml actual está en ese punto (como el teléfono). Se imita lo que pasa
@@ -35,7 +36,8 @@ import binance_orden as b  # noqa: E402
 
 X = {k: open(os.path.join(CARPETA, k + '.xml')).read()
      for k in ('01', '03', '04', '05', 'quiero_vender', 'seleccionar_activo', 'lista_ars_comprar', 'filtrar',
-               'lista_ves', 'orden_wen2', 'filtrar_metodos', 'filtrar_metodos_elegido', 'filtrar_reabierto')}
+               'lista_ves', 'orden_wen2', 'filtrar_metodos', 'filtrar_metodos_elegido', 'filtrar_reabierto',
+               'precio_actualizado')}
 METODOS_PANEL = ('Pago Movil', 'Banco de Venezuela', 'Banesco', 'Mercantil', 'Provincial')
 NO_GRABADA = ('<?xml version="1.0"?><hierarchy><node text="PANTALLA NO GRABADA" class="android.widget.TextView" '
               'package="com.binance.dev" bounds="[0,500][1080,600]"/></hierarchy>')
@@ -63,14 +65,15 @@ def llave(xml, rid, prendida):
 class Telefono:
     def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
                  frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000',
-                 recuerda_metodo=False):
+                 recuerda_metodo=False, precio_cambia=False):
         self.lista = lista
         self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
                       embudo_falla=embudo_falla, descarta=descarta_primera, campo='', foco=False,
                       orden_monto=orden_monto, tocado_apodo=None,
                       aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
-                      recuerda=recuerda_metodo, panel_metodo=None, casilla=False)
+                      recuerda=recuerda_metodo, panel_metodo=None, casilla=False,
+                      precio_cambia=precio_cambia, refrescado=False)
         self.malos = []
 
     def xml(self):
@@ -104,6 +107,8 @@ class Telefono:
             x = cambiar(X[self.orden_xml], self.orden_rid_txt, '2131432247',
                         s['campo'] if s['foco'] else s['orden_monto'])
             return llave(x, '2131430132', s['casilla'])      # la casilla de términos
+        if p == 'precio_dialogo':
+            return X['precio_actualizado']
         if p == 'divisa':
             return X['01']
         if p == 'activo':
@@ -170,6 +175,16 @@ class Telefono:
                     self.malos.append('entró al anuncio sin monto o sin VES')
                 s['tocado_apodo'] = self.apodo if y < 900 else 'otro'
                 s['pantalla'], s['foco'] = 'orden', False
+                if s['precio_cambia'] is True:    # 17:46: el anunciante cambió el precio (una vez)
+                    s['precio_cambia'] = 'mostrado'
+                    s['pantalla'] = 'precio_dialogo'
+                elif s['precio_cambia'] == 'mostrado' and not s['refrescado']:
+                    self.malos.append('volvió a entrar sin refrescar la lista')
+        elif p == 'precio_dialogo':
+            if t == 'Entendido':
+                s['pantalla'] = 'orden'
+            else:
+                self.malos.append('tocó "%s" en el cartel de precio' % t)
         elif p == 'divisa':
             if t in ('VES', 'UYU', 'COP', 'AZN', 'USD', 'ARS'):
                 s['moneda'], s['pantalla'] = t, 'p2p'
@@ -225,6 +240,8 @@ class Telefono:
             self.key(a[3])
         elif a[:3] == ('shell', 'input', 'swipe') and s['pantalla'] == 'filtrar':
             s['vista'], s['foco'] = 'metodos', False
+        elif a[:3] == ('shell', 'input', 'swipe') and s['pantalla'] == 'p2p' and int(a[4]) < int(a[6]):
+            s['refrescado'] = True                # arrastre hacia abajo: refresca la lista
         elif a[:3] == ('shell', 'dumpsys', 'window'):
             return {'binance': 'mCurrentFocus=Window{1 u0 com.binance.dev/x}',
                     'cortina': 'mCurrentFocus=Window{88b51fd u0 NotificationShade}',
@@ -299,6 +316,8 @@ casos = [
     ('Binance cerrado y cortina abierta (como 02:03), inicio animado', 'orden True True True',
      dict(frente='cortina', pantalla='inicio')),
     ('la orden trae otro monto: lo corrige', 'orden True True True', dict(orden_monto='1234')),
+    ('el precio cambió al abrir la orden: Entendido, atrás, refrescar y de nuevo', 'orden True True True',
+     dict(precio_cambia=True)),
     ('quedó abierta una orden vieja', 'orden True True True', dict(pantalla='orden')),
 ]
 bien = sum(correr(*c[:2], **c[2]) for c in casos)
@@ -307,7 +326,7 @@ print('==== que_es() con todas las pantallas grabadas')
 esperado = {'01': 'divisa', '03': 'filtrar', '04': 'p2p', '05': 'orden', 'quiero_vender': 'monto',
             'seleccionar_activo': 'activo', 'lista_ars_comprar': 'p2p', 'filtrar': 'filtrar', 'lista_ves': 'p2p',
             'orden_wen2': 'orden', 'filtrar_metodos': 'filtrar', 'filtrar_metodos_elegido': 'filtrar',
-            'filtrar_reabierto': 'filtrar'}
+            'filtrar_reabierto': 'filtrar', 'precio_actualizado': 'precio cambiado'}
 b.PAQ = 'com.binance.dev'
 mal_que_es = [(k, b.que_es(b.leer_nodos(X[k][X[k].find('<?xml'):]))) for k in esperado]
 mal_que_es = [(k, q) for k, q in mal_que_es if q != esperado[k]]
@@ -397,6 +416,15 @@ ok_res = all([
             [c('Barato', 1000.0), c('wen2', 1068.0, True)], None),
 ])
 if not ok_res:
+    bien -= 1
+
+print('==== aviso con el precio de la orden (puede haber cambiado)')
+pr = {'apodo': 'uno', 'precio': 1070.0}
+t1, a1 = b.resumen(pr, {'apodo': 'uno', 'precio': 1070.0, 'precio_orden': 1055.0, 'reserva': False}, 5000.0, METODO, [], 'x')
+t2, a2 = b.resumen(pr, {'apodo': 'uno', 'precio': 1070.0, 'precio_orden': 1068.0, 'reserva': False}, 5000.0, METODO, [], 'x')
+ok_pr = a1 and 'bajó 1.4%' in t1 and not a2
+print('  %s: bajó 1,4 %% -> alerta=%s · bajó 0,2 %% -> alerta=%s' % ('BIEN' if ok_pr else 'MAL', a1, a2))
+if not ok_pr:
     bien -= 1
 
 print('==== armar_candidatos: el anuncio ya no existe en Binance, la reserva sí')
