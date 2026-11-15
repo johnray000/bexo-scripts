@@ -188,7 +188,8 @@ def guardar(nombre):
 
 
 def frenar(motivo, nombre='fallo'):
-    paso('veo: %s' % que_veo())
+    paso('al frente: %s' % al_frente())
+    paso('veo: %s' % (que_veo(nodos(espera=8, intentos=1)) or '(nada de Binance)'))
     raise Frenado('%s. Guardé la pantalla en Descargas (%s.png)' % (motivo, guardar(nombre)))
 
 
@@ -267,18 +268,43 @@ def en_p2p(ns):
     return hay('Comprar', ns) and hay('Vender', ns) and hay('Anuncios', ns)
 
 
+def traer_binance(paquete):
+    """Pone Binance al frente. Prueba tres formas, de la más limpia a la que seguro anda (un link de
+    app.binance.com: el 15/11 abrió la app las 25 veces, con el cartel "Este enlace no funciona", que se cierra)."""
+    def al_frente_ya(segundos=10):
+        for _ in range(segundos // 2):
+            time.sleep(2)
+            f = al_frente()
+            if PAQ in f:
+                return True
+            if 'NotificationShade' in f:
+                adb('shell', 'cmd', 'statusbar', 'collapse')
+        return False
+    adb('shell', 'cmd', 'statusbar', 'collapse')
+    comp = adb('shell', 'cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN',
+               '-c', 'android.intent.category.LAUNCHER', paquete).strip().splitlines()
+    if comp and '/' in comp[-1]:
+        paso('abro %s: %s' % (comp[-1], ' '.join(adb('shell', 'am', 'start', '-n', comp[-1]).split())[:120]))
+        if al_frente_ya():
+            return True
+    paso('monkey: %s' % ' '.join(adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER',
+                                     '1').split())[-80:])
+    if al_frente_ya():
+        return True
+    paso('abro con link de app.binance.com')
+    adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'https://app.binance.com/es-LA', paquete)
+    if al_frente_ya():
+        time.sleep(3)
+        for n in nodos(espera=8, intentos=1):
+            if norm(n.t) == 'ok':
+                T.nodo(n)
+        return True
+    return False
+
+
 def abrir_p2p(paquete):
     """Abre Binance (donde haya quedado) y llega a la portada de P2P."""
-    adb('shell', 'cmd', 'statusbar', 'collapse')   # si quedó abierta la cortina de notificaciones, tapa la app
-    adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER',
-        paquete)
-    for _ in range(10):
-        time.sleep(2)
-        if PAQ in al_frente():
-            break
-        if 'NotificationShade' in al_frente():
-            adb('shell', 'cmd', 'statusbar', 'collapse')
-    else:
+    if not traer_binance(paquete):
         frenar('Binance no se abrió (al frente: %s)' % al_frente(), 'inicio')
     time.sleep(3)
     ancho, alto = tamano_pantalla()
