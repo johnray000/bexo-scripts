@@ -113,6 +113,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    (FiatPlaceSellOrderActivity). Ahora (como lo hace john): Entendido → atrás a la lista → arrastre hacia abajo para
    refrescar → buscar de nuevo con 2 % de margen de precio (hasta 2 veces). El aviso de 1 % se calcula con el precio
    que muestra la orden ("Precio Bs …"), y también avisa si el elegido bajó más de 1 % desde la pre-orden.
+1i. **Corrida 17:55 (`--prueba 5000`): recorrido completo OK con casilla** (Ari18, 5000, Pago Movil, casilla
+   tildada, ~75 s). Ojo: `--prueba` no filtra frases (Ari18 dice "SOLO TITULARES"); en producción filtra el Apps Script.
+   **Siguiente: subir el Apps Script y probar con `preOrdenDePrueba`.**
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.
