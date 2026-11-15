@@ -14,7 +14,8 @@ Cómo trabaja: en cada vuelta lee la pantalla, decide CUÁL es (solo conoce las 
 única acción que corresponde. Si la pantalla no es ninguna conocida, o repite la misma acción 3 veces sin avanzar,
 se frena y guarda captura + xml en Descargas (binance_*). No adivina: lo que no está grabado no se toca.
 
-En la pantalla "Vender USDT" solo toca "En VES" y el campo del monto. NUNCA la casilla ni "Realizar Orden".
+En la pantalla "Vender USDT" solo toca "En VES", el campo del monto y la casilla de términos (si monto y método
+están bien). NUNCA "Realizar Orden": eso lo tocás vos.
 Los links directos a anuncios/perfiles/P2P no sirven (probados 25 el 15/11/2026): se va siempre por la lista.
 """
 import collections
@@ -197,7 +198,7 @@ def leer_nodos(xml):
         clase = (n.get('class') or '').split('.')[-1]
         clic = n.get('clickable') == 'true'
         # con texto, campos, interruptores y botones-ícono (el embudo no tiene texto)
-        if t or clase in ('EditText', 'Switch') or (clic and clase == 'ImageView'):
+        if t or clase in ('EditText', 'Switch', 'CheckBox') or (clic and clase == 'ImageView'):
             lista.append(N(t, (b[0] + b[2]) // 2, (b[1] + b[3]) // 2, clase,
                            (n.get('resource-id') or '').split('/')[-1], clic,
                            n.get('checked') == 'true' if n.get('checkable') == 'true' else None))
@@ -632,8 +633,8 @@ def llegar_a_la_orden(candidatos, metodo, monto):
 
 def completar_orden(ns, apodo, metodo, monto):
     """Pantalla "Vender USDT" (grabación 05): deja el monto en VES y revisa que el método sea el tuyo.
-    Solo toca "En VES" y el campo. La fila del método NO se toca (la lista de tus métodos no está grabada):
-    si no es el tuyo, avisa. La casilla y "Realizar Orden" quedan para vos."""
+    Solo toca "En VES", el campo y, si monto y método están bien, la casilla de términos. La fila del método NO se
+    toca (la lista de tus métodos no está grabada): si no es el tuyo, avisa. "Realizar Orden" queda para vos."""
     if not con(ns, apodo):
         paso('ojo: no veo a %s en la orden' % apodo)
     campos = [n for n in ns if n.clase == 'EditText']
@@ -661,7 +662,24 @@ def completar_orden(ns, apodo, metodo, monto):
     monto_ok = bool(campos) and numero(campos[0].t) == monto
     metodo_ok = any(compacto(metodo['nombre']) in compacto(n.t) or compacto(metodo['id']) in compacto(n.t)
                     for n in fila)
-    return monto_ok, metodo_ok
+    casilla_ok = tildar_casilla(ns) if monto_ok and metodo_ok else False
+    return monto_ok, metodo_ok, casilla_ok
+
+
+def tildar_casilla(ns):
+    """Tilda la casilla de términos ("Haz clic para aceptar…", la única CheckBox de la orden) y comprueba que quedó
+    tildada. Solo se llama si monto y método están bien. "Realizar Orden" NUNCA: eso lo tocás vos (john, 15/11 17:14:
+    la casilla sí, la orden no)."""
+    casillas = [n for n in ns if n.clase == 'CheckBox']
+    if len(casillas) != 1:
+        paso('ojo: no encontré una sola casilla de términos (%d): la dejo para vos' % len(casillas))
+        return False
+    if not casillas[0].prendido:
+        tocar('la casilla de términos', casillas[0].x, casillas[0].y, en_orden_ok=True)
+        casillas = [n for n in nodos() if n.clase == 'CheckBox']
+    ok = len(casillas) == 1 and bool(casillas[0].prendido)
+    paso('casilla de términos: %s' % ('tildada' if ok else 'NO quedó tildada'))
+    return ok
 
 
 def armar_candidatos(ad, alts, monto, pago):
@@ -720,7 +738,8 @@ def resumen(principal, elegido, monto, metodo, faltan, base):
     if faltan:
         alerta = True
         texto += ' ⚠️ No pude confirmar ' + ' ni '.join(faltan) + '.'
-    return texto + ' Revisá, tildá la casilla y tocá Realizar Orden vos. (%s.png)' % base, alerta
+    return texto + (' Revisá, tildá la casilla y tocá Realizar Orden vos.' if 'la casilla' in faltan else
+                    ' Casilla tildada: revisá y tocá Realizar Orden vos.') + ' (%s.png)' % base, alerta
 
 
 def recorrido(link):
@@ -738,9 +757,9 @@ def recorrido(link):
     avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
            (' / '.join(c['apodo'] for c in candidatos), fmt_monto(monto), metodo['nombre']))
     ns = llegar_a_la_orden(candidatos, metodo, monto)
-    monto_ok, metodo_ok = completar_orden(ns, ELEGIDO['apodo'], metodo, monto)
+    monto_ok, metodo_ok, casilla_ok = completar_orden(ns, ELEGIDO['apodo'], metodo, monto)
     base = guardar('listo')
-    faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok)) if not ok]
+    faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
     avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto)
     subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)

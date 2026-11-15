@@ -70,7 +70,7 @@ class Telefono:
                       embudo_falla=embudo_falla, descarta=descarta_primera, campo='', foco=False,
                       orden_monto=orden_monto, tocado_apodo=None,
                       aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
-                      recuerda=recuerda_metodo, panel_metodo=None)
+                      recuerda=recuerda_metodo, panel_metodo=None, casilla=False)
         self.malos = []
 
     def xml(self):
@@ -101,8 +101,9 @@ class Telefono:
                 x = cambiar(x, 'Ingresa el monto total', '2131432527', s['campo'])
             return x
         if p == 'orden':
-            return cambiar(X[self.orden_xml], self.orden_rid_txt, '2131432247',
-                           s['campo'] if s['foco'] else s['orden_monto'])
+            x = cambiar(X[self.orden_xml], self.orden_rid_txt, '2131432247',
+                        s['campo'] if s['foco'] else s['orden_monto'])
+            return llave(x, '2131430132', s['casilla'])      # la casilla de términos
         if p == 'divisa':
             return X['01']
         if p == 'activo':
@@ -132,7 +133,10 @@ class Telefono:
             return
         n = self.nodo_en(x, y)
         t, clase = (n[1], n[3]) if n else ('', '')
-        if p == 'orden' and (b.PROHIBIDO.search(b.norm(t)) or y > 1950 or clase == 'CheckBox'):
+        if p == 'orden' and clase == 'CheckBox':
+            s['casilla'] = not s['casilla']
+            s['toques_casilla'] = s.get('toques_casilla', 0) + 1
+        elif p == 'orden' and (b.PROHIBIDO.search(b.norm(t)) or y > 2130):     # Realizar Orden, "Haz clic…"
             self.malos.append('tocó "%s" en la orden' % (t or clase))
         if p == 'p2p':
             if t == 'Vender' and y < 480:
@@ -256,7 +260,9 @@ def correr(nombre, espera, **kw):
     print('==== %s' % nombre)
     try:
         ns = b.llegar_a_la_orden([{'apodo': t.apodo, 'precio': None, 'reserva': False}], METODO, 5000.0)
-        res = 'orden %s %s' % b.completar_orden(ns, b.ELEGIDO['apodo'], METODO, 5000.0)
+        res = 'orden %s %s %s' % b.completar_orden(ns, b.ELEGIDO['apodo'], METODO, 5000.0)
+        if not t.s['casilla'] or t.s.get('toques_casilla') != 1:
+            t.malos.append('la casilla quedó %s (%s toques)' % (t.s['casilla'], t.s.get('toques_casilla')))
         if t.s['tocado_apodo'] != t.apodo:
             t.malos.append('abrió la orden de otro')
     except b.Frenado as e:
@@ -274,26 +280,26 @@ def correr(nombre, espera, **kw):
 
 
 casos = [
-    ('15:27: lista VES sin monto, filtro de fábrica, el embudo falla y descarta la 1ª vez', 'orden True True', {}),
-    ('lo mismo con la lista de la madrugada (PrincessYor)', 'orden True True', dict(lista='04')),
-    ('el embudo abre siempre y no descarta', 'orden True True', dict(embudo_falla=0, descarta_primera=False)),
-    ('interruptores ya apagados y monto puesto: igual pasa dos veces por el embudo', 'orden True True',
+    ('15:27: lista VES sin monto, filtro de fábrica, el embudo falla y descarta la 1ª vez', 'orden True True True', {}),
+    ('lo mismo con la lista de la madrugada (PrincessYor)', 'orden True True True', dict(lista='04')),
+    ('el embudo abre siempre y no descarta', 'orden True True True', dict(embudo_falla=0, descarta_primera=False)),
+    ('interruptores ya apagados y monto puesto: igual pasa dos veces por el embudo', 'orden True True True',
      dict(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES})),
-    ('"Pro" prendido además de los otros', 'orden True True',
+    ('"Pro" prendido además de los otros', 'orden True True True',
      dict(llaves={'2131444437': True, '2131444418': True, '2131444409': True})),
     ('el embudo no abre nunca', 'no avanza', dict(embudo_falla=99)),
-    ('moneda ARS y pestaña Comprar', 'orden True True', dict(moneda='ARS', tab='comprar')),
-    ('la lista venía con Banesco (el panel lo olvida): elige Pago Movil', 'orden True True', dict(pago='Banesco')),
-    ('el panel recuerda Pago Movil: no lo toca (si lo tocara, lo desmarcaría)', 'orden True True',
+    ('moneda ARS y pestaña Comprar', 'orden True True True', dict(moneda='ARS', tab='comprar')),
+    ('la lista venía con Banesco (el panel lo olvida): elige Pago Movil', 'orden True True True', dict(pago='Banesco')),
+    ('el panel recuerda Pago Movil: no lo toca (si lo tocara, lo desmarcaría)', 'orden True True True',
      dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False)),
     ('el panel recuerda Banesco: se frena y pide dejarlo en Todo', 'dejalo en Todo',
      dict(pago='Banesco', recuerda_metodo=True)),
-    ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True', dict(pantalla='activo')),
-    ('quedó abierta la hoja "Quiero vender" (como 02:13)', 'orden True True', dict(pantalla='monto')),
-    ('Binance cerrado y cortina abierta (como 02:03), inicio animado', 'orden True True',
+    ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True True', dict(pantalla='activo')),
+    ('quedó abierta la hoja "Quiero vender" (como 02:13)', 'orden True True True', dict(pantalla='monto')),
+    ('Binance cerrado y cortina abierta (como 02:03), inicio animado', 'orden True True True',
      dict(frente='cortina', pantalla='inicio')),
-    ('la orden trae otro monto: lo corrige', 'orden True True', dict(orden_monto='1234')),
-    ('quedó abierta una orden vieja', 'orden True True', dict(pantalla='orden')),
+    ('la orden trae otro monto: lo corrige', 'orden True True True', dict(orden_monto='1234')),
+    ('quedó abierta una orden vieja', 'orden True True True', dict(pantalla='orden')),
 ]
 bien = sum(correr(*c[:2], **c[2]) for c in casos)
 
@@ -352,6 +358,17 @@ except b.Frenado as e:
     print('  %s: %s' % ('BIEN' if ok_precio else 'MAL', e))
     if not ok_precio:
         bien -= 1
+print('==== orden con un método que no es el tuyo: no toca la casilla')
+t = Telefono(pantalla='orden')
+preparar(t)
+b.EN_ORDEN = True
+ns = b.leer_nodos(t.xml()[t.xml().find('<?xml'):])
+r = b.completar_orden(ns, 'wen2', {'id': 'Banesco', 'nombre': 'Banesco'}, 5000.0)
+ok_cas = r == (True, False, False) and not t.s['casilla'] and not t.malos
+print('  %s: %s · casilla=%s' % ('BIEN' if ok_cas else 'MAL', r, t.s['casilla']))
+if not ok_cas:
+    bien -= 1
+
 print('==== reservas (lista grabada con wen2 a 1068)')
 
 

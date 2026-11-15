@@ -6,7 +6,8 @@ Rama: `recorrido-binance` (todavía sin merge a `main`; regla del proyecto: una 
 
 Con los datos de una pre-orden (Apps Script `apps-script/11_PreOrden.gs` + `9_P2P.gs`, que ya elige el anuncio por API
 vía el relay del VPS y valida método, límites y "no acepto terceros"), el teléfono recorre **solo** la app de Binance
-hasta **un paso antes de colocar la orden**: john tilda la casilla de términos y toca "Realizar Orden" él mismo.
+hasta **un paso antes de colocar la orden**: el recorrido tilda la casilla de términos (si monto y método están
+bien; john lo pidió el 15/11 17:14) y john toca "Realizar Orden" él mismo.
 
 ## Piezas
 
@@ -47,8 +48,9 @@ pantalla, `que_es()` dice cuál de las conocidas es (`PANTALLAS`) y hace **una**
 Si repite la misma acción 3 veces sin avanzar, o pasan 30 vueltas, se frena. La fila de filtros se ubica por
 posición (la fila debajo de la pestaña Vender: activo · monto · pago), no por resource-id.
 
-**Orden ("Vender USDT"):** solo toca "En VES" (si el campo está en USDT) y el campo del monto (si no dice el monto).
-La fila del método no se toca: si no es el tuyo, avisa. **Seguridad:** desde que toca el Vender del anunciante,
+**Orden ("Vender USDT"):** solo toca "En VES" (si el campo está en USDT), el campo del monto (si no dice el monto)
+y, si monto y método están bien, la casilla de términos (la única CheckBox; comprueba que quedó tildada).
+La fila del método no se toca: si no es el tuyo, avisa y deja la casilla para john. **Seguridad:** desde que toca el Vender del anunciante,
 `tocar()` solo acepta toques marcados como permitidos y además rechaza cualquier texto `PROHIBIDO` (vender,
 confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
@@ -105,6 +107,8 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 1f. **Velocidad** (pendiente): hoy ~75 s hasta la lista. Ideas medidas en las corridas: abrir Binance donde quedó
    (sin volver al inicio, ~15 s), probar "Guardar filtro para el próximo uso" (evitaría la 1ª vuelta y parte de la
    2ª, ~30 s), esperas más cortas después de cada toque.
+1g. **Corrida 17:10 (`--prueba 5000`): recorrido completo OK** (IbelsExchange, 5000, Pago Movil) en ~80 s. Después:
+   la casilla la tilda el recorrido.
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.
