@@ -16,6 +16,7 @@ y maneja el teléfono por ADB (como okx_ordenes.py):
 
   python binance_orden.py "LINK"              # el recorrido completo (lo corre telefono/binance_orden.sh)
   python binance_orden.py --enlaces "LINK"    # prueba qué enlaces directos abre la app y guarda lo que acepta
+  python binance_orden.py --grabar            # 150 s guardando cada pantalla mientras hacés el recorrido a mano
   python binance_orden.py --rastrear LINK     # abre un link en la app y busca en el registro a dónde lo llevó
   python binance_orden.py --pantalla NOMBRE   # en 8 s guarda la pantalla en Descargas (para ajustar los textos)
 
@@ -328,13 +329,7 @@ def por_perfil(paquete, det):
 
 
 # Links a la portada de P2P (con el filtro de método, si la app lo toma). Se prueban antes de ir por el inicio.
-LINKS_P2P = [
-    'https://app.binance.com/es-LA/p2p/trade/sell/USDT?fiat=VES&payment={pago}',
-    'https://app.binance.com/es-LA/trade/sell/USDT?fiat=VES&payment={pago}',
-    'bnc://app.binance.com/c2c/home',
-    'bnc://app.binance.com/p2p/home',
-    'https://app.binance.com/es-LA/p2p',
-]
+LINKS_P2P = []   # 15/11: probados 25 links (anuncio, perfil, P2P): la app no abre ninguno. Se va por el inicio.
 BOTON_P2P = (0.152, 0.31)   # ícono P2P del inicio (captura del 15/11), por si la pantalla animada no se deja leer
 
 
@@ -565,6 +560,30 @@ def rastrear(url):
     print('Pantalla: %s.png' % guardar('rastreo'))
 
 
+def grabar(segundos=150):
+    """Mientras hacés el recorrido A MANO, guarda cada pantalla nueva de Binance (xml + captura) en
+    Descargas/binance_grabacion/. Con eso se arman los toques exactos, sin adivinar."""
+    if not conectar():
+        raise Frenado('No hay ADB')
+    paquete_binance()
+    carpeta = os.path.join(LOG_DIR, 'binance_grabacion')
+    os.makedirs(carpeta, exist_ok=True)
+    ultima, n, fin = None, 0, time.time() + segundos
+    print('Grabando %d s. Hacé el recorrido a mano, despacio, sin tocar Realizar Orden.' % segundos, flush=True)
+    while time.time() < fin:
+        _, xml = textos()
+        if xml and PAQ in xml:
+            firma = ' | '.join(t for t, _, _, _, _ in nodos())
+            if firma != ultima:
+                ultima, n = firma, n + 1
+                with open(os.path.join(carpeta, '%02d.xml' % n), 'w') as f:
+                    f.write(xml)
+                adb('shell', 'screencap', '-p', '/sdcard/Download/binance_grabacion/%02d.png' % n)
+                print('  pantalla %d: %s' % (n, firma[:90]), flush=True)
+        time.sleep(1)
+    print('Listo: %d pantallas en Descargas/binance_grabacion' % n)
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
     try:
@@ -573,6 +592,8 @@ if __name__ == '__main__':
                 raise Frenado('No hay ADB')
             time.sleep(8)
             print('Guardé %s.png y .xml en Descargas' % guardar(args[1] if len(args) > 1 else 'pantalla'))
+        elif args[:1] == ['--grabar']:
+            grabar()
         elif args[:1] == ['--rastrear'] and len(args) > 1:
             rastrear(args[1])
         elif args[:1] == ['--enlaces'] and len(args) > 1:
