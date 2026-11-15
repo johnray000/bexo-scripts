@@ -96,19 +96,29 @@ td.n,th.n{text-align:right}
 .empty{color:var(--mut);font-size:13px;padding:8px 0}
 .hm-c{aspect-ratio:auto;height:24px}
 @media (max-width:700px){
- .recs thead{display:none}
- .recs,.recs tbody{display:block}
- .recs tr{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:6px 12px;padding:12px 0 12px 12px;border-bottom:1px solid #1d2430}
- .recs td{border:0;padding:0;text-align:left!important}
- .recs td:nth-child(1),.recs td:nth-child(5){grid-column:1/-1}
- .recs td:nth-child(2):before{content:"hoy ";color:var(--mut);font-size:11.5px}
- .recs td:nth-child(4):before{content:"→ ";color:var(--mut)}
- .recs td:nth-child(4){font-weight:600}
+ body{font-size:13px}
+ .page{padding:14px 12px 28px}
+ .card{padding:12px}
+ .recs,.recs tbody,.recs thead{display:block}
+ .recs thead tr,.recs tbody tr{display:grid;grid-template-columns:minmax(0,1fr) 46px 74px 46px;column-gap:6px;align-items:center}
+ .recs thead tr{border-bottom:1px solid var(--line)}
+ .recs th{border:0;padding:6px 0;font-size:10.5px}
+ .recs th:first-child{padding-left:10px}
+ .recs th:nth-child(5){display:none}
+ .recs tbody tr{padding:9px 0 9px 10px;border-bottom:1px solid #1d2430;row-gap:3px}
+ .recs td{border:0;padding:0;font-size:12.5px}
+ .recs td:nth-child(5){grid-column:1/-1;font-size:11.5px;line-height:1.35}
+ .recs td:first-child .note{font-size:10.5px}
+ .recs td:nth-child(4){font-weight:650}
+ .recs .tag{font-size:9px;padding:1px 5px;margin-right:5px}
+ .recs .pill{font-size:10px;padding:2px 6px}
  .r-buy td:first-child,.r-sell td:first-child{box-shadow:none}
  .recs tr.r-buy{box-shadow:inset 3px 0 0 var(--buy)}.recs tr.r-sell{box-shadow:inset 3px 0 0 var(--sell)}
- .hm-c{height:16px}
+ .hm-c{height:14px}
+ .routes4{grid-template-columns:1fr 1fr!important;gap:0 12px}
+ .route .note{font-size:11px}
 }
-@media (max-width:560px){.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
+@media (max-width:560px){.kpis .card .val{font-size:22px}.lbl{font-size:10.5px}.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
 </style>
 </head>
 <body>
@@ -158,7 +168,7 @@ td.n,th.n{text-align:right}
       <div>2. Debés menos de 50 USDT: podés bajar la venta 0,05 para vender más.</div>
       <div>3. Sin órdenes en 2 horas, en hora de movimiento (10 a 23 h): mové 0,05 hacia el mercado.</div>
       <div>4. Nunca pasar los límites de "punta a punta".</div>
-      <div class="note">Los anuncios salen de tus órdenes UYU de los últimos 7 días (el precio es el de la última orden).</div>
+      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). OKX y Bybit: precio de la última orden de los últimos 7 días.</div>
     </details>
   </div>
 
@@ -232,7 +242,12 @@ td.n,th.n{text-align:right}
   }
 
   function render(d) {
-    var c = d.ciclo || {}, p = d.punta || {};
+    var c = d.ciclo, p = d.punta || {};
+    if (!c) {
+      $('live').className = 'live err';
+      $('liveTxt').textContent = 'Todavía sin números de la planilla' + (d.servidor && d.servidor.error ? ': ' + d.servidor.error : '');
+      return;
+    }
     $('desde').textContent = c.desde || '—';
     if (p.venta) punta(p);
     $('ganUSD').innerHTML = '$' + n(c.gananciaUSD) + '<small>USD</small>';
@@ -253,10 +268,16 @@ td.n,th.n{text-align:right}
     $('recs').innerHTML = (d.anuncios || []).map(function (a) {
       var compra = a.tipo === 'Compra';
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
-        : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>' : '<span class="pill p-off">Mantener</span>';
+        : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>'
+        : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
+      var hace = a.minUltima == null ? 'sin órdenes esta semana'
+        : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
+      var meta = a.vivo && a.puesto
+        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
+        : hace + ' · hoy ' + a.hoy + (a.ex === 'Binance' ? '' : ' · precio de la última orden');
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
-        '<div class="note">última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h') + ' · hoy ' + a.hoy + '</div></td>' +
+        '<div class="note">' + meta + '</div></td>' +
         '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + n(a.nuevo, 2) + '</td>' +
         '<td class="note">' + esc(a.porque) + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes UYU en los últimos 7 días.</td></tr>';

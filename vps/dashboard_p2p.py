@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -34,10 +35,67 @@ def log(msg):
     print(time.strftime('%d/%m %H:%M:%S'), msg, flush=True)
 
 
+BINANCE = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'
+
+
+def pagina_binance(asset, tipo_taker, pagina):
+    cuerpo = {'asset': asset, 'fiat': 'UYU', 'tradeType': tipo_taker, 'page': pagina, 'rows': 20, 'payTypes': []}
+    req = urllib.request.Request(BINANCE, data=json.dumps(cuerpo).encode(),
+                                 headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r).get('data') or []
+
+
+def anuncios_binance_vivos():
+    """Busca tus anuncios de Binance (los n° que mandó el Apps Script la vez anterior) en el listado público UYU.
+    Devuelve {n°: {tipo, cripto, precio, puesto, total, mejor, visible}}. Si Binance falla, devuelve {}."""
+    try:
+        with open(DATOS, encoding='utf-8') as f:
+            mios = json.load(f).get('misAnunciosBinance') or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    vivos = {}
+    grupos = {}
+    for ad, info in mios.items():
+        # Tu anuncio de VENTA lo ve quien quiere COMPRAR (tradeType BUY) y al revés.
+        taker = 'BUY' if info.get('tipo') == 'Venta' else 'SELL'
+        grupos.setdefault((info.get('cripto') or 'USDT', taker), []).append(ad)
+    for (asset, taker), ads in grupos.items():
+        faltan = set(ads)
+        puesto, mejor = 0, None
+        try:
+            for pagina in range(1, 6):
+                lista = pagina_binance(asset, taker, pagina)
+                for a in lista:
+                    puesto += 1
+                    n = str(a['adv']['advNo'])
+                    precio = float(a['adv']['price'])
+                    if n in faltan:
+                        faltan.discard(n)
+                        vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'precio': precio, 'puesto': puesto, 'visible': True}
+                    elif mejor is None:
+                        mejor = precio
+                if len(lista) < 20:
+                    break
+        except Exception as e:  # noqa: BLE001
+            log(f'Binance {asset} {taker}: {e}')
+            continue
+        for n in ads:
+            if n in vivos:
+                vivos[n].update(total=puesto, mejor=mejor)
+            else:
+                vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'visible': False}
+    return vivos
+
+
 def actualizar():
     """Pide los números al Apps Script. Si falla, deja el data.json anterior y anota el error."""
     try:
-        with urllib.request.urlopen(URL, timeout=90) as r:   # sigue solo la redirección de Google
+        url = URL
+        vivos = anuncios_binance_vivos()
+        if vivos:
+            url += '&vivos=' + urllib.parse.quote(json.dumps(vivos, separators=(',', ':')))
+        with urllib.request.urlopen(url, timeout=90) as r:   # sigue solo la redirección de Google
             datos = json.loads(r.read().decode('utf-8'))
         if 'error' in datos:
             raise ValueError(datos['error'])
