@@ -1,0 +1,7 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Lo corre Termux cuando le compartís un link (Compartir → Termux). Se copia a ~/bin/termux-url-opener.
+# Link de un anuncio de Binance → arma la orden en la app (sin colocarla). Otros links: no hace nada.
+case "$1" in
+  *binance.com*adv*code=*) sh ~/bexo-scripts/telefono/binance_orden.sh "$1" ;;
+  *) echo "No sé qué hacer con este link: $1" ;;
+esac

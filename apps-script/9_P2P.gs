@@ -605,7 +605,9 @@ function prepararOrdenP2P_(montoArs, nombre, saltados, forzar, metodos) {
     '👤 ' + [a.apodo,
              a.ordenesConVos ? a.ordenesConVos + (a.ordenesConVos === 1 ? ' orden' : ' órdenes') + ' con vos' : 'nuevo',
              a.pagos.join(', ')].join(' · '),
-    LINK_ANUNCIO + a.adNo
+    // monto y pago van en el link para que el teléfono (binance_orden.py) arme la orden en la app; la web los ignora
+    LINK_ANUNCIO + a.adNo + '&monto=' + Math.round(montoVes) + '&pago=' + encodeURIComponent(
+      (metodos || metodosOrdenActivos_()).filter(function (m) { return a.pagos.indexOf(m) !== -1; })[0] || a.pagos[0] || '')
   ];
   if (!a.ordenesConVos) {
     lineas.push('', '📝 ' + (String(a.descripcion || '').trim().slice(0, 500) || 'sin descripción'));

@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""Arma la orden P2P de la pre-orden en la app de Binance y se frena UN PASO ANTES de colocarla.
+
+Recibe el link del anuncio que eligió la pre-orden (Apps Script, 9_P2P.gs):
+  https://c2c.binance.com/es-LA/adv?code=<adNo>&monto=<Bs>&pago=<método>
+y maneja el teléfono por ADB (como okx_ordenes.py):
+  1. Pide a Binance el detalle de ESE anuncio (desde el teléfono Binance sí responde): apodo, precio, límites y
+     métodos. Si el monto no entra en los límites o el método no está en el anuncio, no abre nada.
+  2. Abre ese mismo anuncio en la app. Primero por enlace directo; si la app no acepta ninguno, por el camino
+     largo: P2P → Vender → USDT → filtro de método y monto → busca el apodo en la lista.
+     El método es obligatorio: con el mismo método y monto que usó la pre-orden, la app muestra la misma lista que
+     leyó la API, así que el anuncio aparece arriba. Límites y "terceros" ya los validó la pre-orden sobre ese adNo:
+     acá solo se confirma que es el mismo trader (apodo) y el precio.
+  3. En la orden: elige VES, escribe los Bs y elige el método de pago. NO toca "Vender" ni nada que confirme:
+     la orden la colocás vos, con tu huella.
+
+  python binance_orden.py "LINK"              # el recorrido completo (lo corre telefono/binance_orden.sh)
+  python binance_orden.py --enlaces "LINK"    # prueba qué enlaces directos abre la app y guarda lo que acepta
+  python binance_orden.py --pantalla NOMBRE   # en 8 s guarda la pantalla en Descargas (para ajustar los textos)
+
+Lo que guarda (capturas y pantallas) queda en Descargas, con nombres binance_*.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos  # noqa: E402
+
+DESCARGAS = os.path.expanduser('~/storage/downloads')
+LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
+ENLACE_BUENO = os.path.expanduser('~/.binance_enlace')   # el enlace directo que funcionó la última vez
+DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
+
+# Enlaces directos a probar, en orden. {ad} = número del anuncio. El que funciona queda en ~/.binance_enlace.
+ENLACES = [
+    'https://c2c.binance.com/es-LA/adv?code={ad}',
+    'https://p2p.binance.com/es-LA/adv?code={ad}',
+    'https://app.binance.com/es-LA/adv?code={ad}',
+    'https://www.binance.com/es-LA/adv?code={ad}',
+    'bnc://app.binance.com/c2c/adv?code={ad}',
+    'bnc://app.binance.com/p2p/adv?code={ad}',
+    'bnc://app.binance.com/c2c/adDetail?advNo={ad}',
+    'bnc://app.binance.com/p2p/adDetail?advNo={ad}',
+]
+
+# Textos de la app (en español). Se comparan sin acentos ni mayúsculas. Ajustar con lo que muestre --pantalla.
+P2P = ('P2P', 'Trading P2P', 'Comercio P2P')
+VENDER_TAB = ('Vender',)
+FILTRO_PAGO = re.compile(r'^(todos los )?(pagos?|metodos? de pago)$|^todos los metodos')
+FILTRO_MONTO = re.compile(r'^(monto|importe|cantidad)$|ingresa.*monto')
+ACEPTAR_FILTRO = ('Confirmar', 'Aplicar', 'Listo', 'Buscar')
+SELECTOR_PAGO = re.compile(r'(seleccion|elegi|agrega).*(metodo|pago)|^metodo de pago$|^metodos? de pago$')
+CERRAR = ('Cerrar', 'Omitir', 'Ahora no', 'Más tarde', 'Entendido', 'Saltar', 'No, gracias', 'Aceptar')
+# Ya dentro de la orden, NUNCA se toca algo que diga esto: es lo que coloca la orden (eso lo hacés vos).
+PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar|continuar|siguiente|aceptar|place')
+
+
+class Frenado(Exception):
+    """El recorrido se frenó: motivo para la notificación."""
+
+
+def norm(s):
+    s = unicodedata.normalize('NFD', str(s or '')).encode('ascii', 'ignore').decode().lower()
+    return re.sub(r'[^a-z0-9 ]', '', s).strip()
+
+
+def compacto(s):
+    """Para comparar textos: sin acentos, espacios ni signos. Si no queda nada (apodo en chino), el texto tal cual."""
+    return norm(s).replace(' ', '') or str(s or '').strip()
+
+
+def avisar(titulo, texto):
+    subprocess.run(['termux-notification', '--id', 'binance-orden', '--title', titulo, '--content', texto],
+                   check=False)
+
+
+def paso(texto):
+    print(time.strftime('%H:%M:%S ') + texto, flush=True)
+
+
+# ---------- 1. El anuncio ----------
+
+def leer_link(link):
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(link.strip()).query)
+    ad = (q.get('code') or q.get('advNo') or [''])[0]
+    if not ad.isdigit():
+        raise Frenado('El link no trae el número de anuncio (code=...)')
+    monto = float((q.get('monto') or ['0'])[0] or 0)
+    return ad, monto, (q.get('pago') or [''])[0]
+
+
+def buscar(o, claves):
+    """Primer valor de alguna de las claves, buscando en todo el JSON."""
+    if isinstance(o, dict):
+        for k in claves:
+            if o.get(k) not in (None, '', []):
+                return o[k]
+        for v in o.values():
+            r = buscar(v, claves)
+            if r not in (None, '', []):
+                return r
+    elif isinstance(o, list):
+        for v in o:
+            r = buscar(v, claves)
+            if r not in (None, '', []):
+                return r
+    return None
+
+
+def detalle_anuncio(ad):
+    req = urllib.request.Request(DETALLE + ad, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        datos = json.load(r).get('data')
+    if not datos:
+        raise Frenado('Binance no devolvió el anuncio %s: puede que ya no exista' % ad)
+    metodos = buscar(datos, ['tradeMethods']) or []
+    return {
+        'apodo': buscar(datos, ['nickName']) or '',
+        'precio': float(buscar(datos, ['price']) or 0),
+        'min': float(buscar(datos, ['minSingleTransAmount']) or 0),
+        'max': float(buscar(datos, ['dynamicMaxSingleTransAmount', 'maxSingleTransAmount']) or 0),
+        'metodos': [{'id': m.get('identifier') or '', 'nombre': m.get('tradeMethodName') or m.get('identifier') or ''}
+                    for m in metodos if isinstance(m, dict)],
+    }
+
+
+def elegir_metodo(det, pago):
+    """El método de pago es obligatorio: tiene que estar en el anuncio. Sin pago en el link, solo si hay uno."""
+    ids = [m['id'] for m in det['metodos']]
+    if pago:
+        for m in det['metodos']:
+            if compacto(m['id']) == compacto(pago):
+                return m
+        raise Frenado('El anuncio ya no acepta %s (acepta %s)' % (pago, ', '.join(ids) or 'nada'))
+    if len(det['metodos']) == 1:
+        return det['metodos'][0]
+    raise Frenado('El link no dice el método y el anuncio tiene varios (%s): subí el Apps Script nuevo' % ', '.join(ids))
+
+
+# ---------- Pantalla ----------
+
+def nodos():
+    """[(texto, x, y, clase, clickeable)] de la pantalla, con EditText aunque estén vacíos."""
+    _, xml = textos()
+    if not xml:
+        return []
+    lista = []
+    for n in ET.fromstring(xml).iter('node'):
+        b = re.findall(r'\d+', n.get('bounds') or '')
+        if len(b) != 4:
+            continue
+        t = (n.get('text') or n.get('content-desc') or '').strip()
+        clase = (n.get('class') or '').split('.')[-1]
+        if t or clase == 'EditText':
+            lista.append((t, (int(b[0]) + int(b[2])) // 2, (int(b[1]) + int(b[3])) // 2, clase,
+                          n.get('clickable') == 'true'))
+    return lista
+
+
+def guardar(nombre):
+    hora = time.strftime('%H%M%S')
+    base = 'binance_%s_%s' % (nombre, hora)
+    adb('shell', 'screencap', '-p', '/sdcard/Download/%s.png' % base)
+    with open(os.path.join(LOG_DIR, base + '.xml'), 'w') as f:
+        f.write(textos()[1])
+    return base
+
+
+def frenar(motivo, nombre='fallo'):
+    base = guardar(nombre)
+    raise Frenado('%s. Guardé la pantalla en Descargas (%s.png)' % (motivo, base))
+
+
+class Toques:
+    """Todos los toques pasan por acá. Desde que se abre la orden (en_orden), no se toca nada PROHIBIDO."""
+    en_orden = False
+
+    def xy(self, texto, x, y):
+        if self.en_orden and PROHIBIDO.search(norm(texto)):
+            raise Frenado('Por seguridad no toqué "%s"' % texto)
+        paso('toco "%s"' % texto)
+        adb('shell', 'input', 'tap', str(x), str(y))
+        time.sleep(2)
+
+    def texto(self, opciones, intentos=4, regex=None, parcial=False):
+        """Toca el primer texto igual a alguna opción (que la contenga, con parcial; o que cumpla regex)."""
+        for _ in range(intentos):
+            for t, x, y, _, _ in nodos():
+                if (regex and regex.search(norm(t))) or any(
+                        compacto(t) == compacto(o) or (parcial and compacto(o) in compacto(t)) for o in opciones if o):
+                    self.xy(t, x, y)
+                    return True
+            time.sleep(1.5)
+        return False
+
+
+T = Toques()
+
+
+def cerrar_carteles():
+    for t, x, y, _, _ in nodos():
+        if t in CERRAR and not T.en_orden:
+            T.xy(t, x, y)
+            return True
+    return False
+
+
+def en_pantalla(texto):
+    return any(compacto(texto) and compacto(texto) in compacto(t) for t, _, _, _, _ in nodos())
+
+
+def escribir(numero):
+    adb('shell', 'input', 'text', numero)
+    time.sleep(1.5)
+
+
+def fmt_monto(m):
+    return ('%.2f' % m).rstrip('0').rstrip('.')
+
+
+# ---------- 2. Llegar al anuncio ----------
+
+def paquete_binance():
+    for linea in adb('shell', 'pm', 'list', 'packages').splitlines():
+        p = linea.replace('package:', '').strip()
+        if p in ('com.binance.dev', 'com.binance.android', 'com.binance.app'):
+            return p
+    raise Frenado('No encuentro la app de Binance instalada')
+
+
+def abrir_enlace(paquete, url):
+    adb('shell', 'am', 'force-stop', paquete)
+    r = adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', "'%s'" % url, paquete)
+    return 'Error' not in r and 'unable to resolve' not in r.lower()
+
+
+def por_enlace(paquete, ad, apodo):
+    lista = ENLACES[:]
+    if os.path.exists(ENLACE_BUENO):
+        bueno = open(ENLACE_BUENO).read().strip()
+        lista = [bueno] + [e for e in lista if e != bueno]
+    for plantilla in lista:
+        if not abrir_enlace(paquete, plantilla.format(ad=ad)):
+            continue
+        for _ in range(4):
+            time.sleep(4)
+            cerrar_carteles()
+            if en_pantalla(apodo):
+                paso('abrió con %s' % plantilla)
+                with open(ENLACE_BUENO, 'w') as f:
+                    f.write(plantilla)
+                return True
+    return False
+
+
+def por_lista(paquete, apodo, metodo, monto):
+    """Camino largo: P2P → Vender → USDT → filtros de método y monto → buscar el apodo y tocar su Vender."""
+    adb('shell', 'am', 'force-stop', paquete)
+    adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
+    time.sleep(10)
+    cerrar_carteles()
+    if not T.texto(P2P, intentos=5):
+        frenar('No encontré el botón P2P en el inicio de Binance', 'inicio')
+    time.sleep(3)
+    cerrar_carteles()
+    if not T.texto(VENDER_TAB):
+        frenar('No encontré la pestaña Vender en P2P', 'p2p')
+    T.texto(('USDT',), intentos=2)
+    if not en_pantalla('VES'):
+        frenar('P2P no está en VES: elegí VES arriba una vez a mano y probá de nuevo', 'moneda')
+    # Método (obligatorio): el mismo filtro que usó la pre-orden
+    if not T.texto((), regex=FILTRO_PAGO):
+        frenar('No encontré el filtro de método de pago', 'filtro_pago')
+    if not T.texto((metodo['nombre'], metodo['id']), intentos=3, parcial=True):
+        frenar('No encontré "%s" en la lista de métodos' % metodo['nombre'], 'lista_metodos')
+    T.texto(ACEPTAR_FILTRO, intentos=1)
+    # Monto en Bs
+    if T.texto((), regex=FILTRO_MONTO, intentos=2):
+        escribir(fmt_monto(monto))
+        T.texto(ACEPTAR_FILTRO, intentos=2)
+    else:
+        paso('no encontré el filtro de monto: sigo solo con el método')
+    # Buscar el apodo en la lista y tocar el Vender de su tarjeta
+    ancho, alto = tamano_pantalla()
+    for _ in range(8):
+        time.sleep(2)
+        ns = nodos()
+        fila = [n for n in ns if compacto(apodo) == compacto(n[0])]
+        if fila:
+            _, _, ya, _, _ = fila[0]
+            botones = sorted((n for n in ns if norm(n[0]) in ('vender', 'vender usdt') and n[2] > ya - 50),
+                             key=lambda n: n[2])
+            if botones:
+                T.xy(botones[0][0], botones[0][1], botones[0][2])
+                T.en_orden = True
+                return True
+        adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .75)), str(ancho // 2), str(int(alto * .35)), '400')
+    frenar('No encontré a %s en la lista (¿lo tomó otro o cambió de precio?)' % apodo, 'lista')
+
+
+# ---------- 3. Completar la orden (sin colocarla) ----------
+
+def completar_orden(det, metodo, monto):
+    T.en_orden = True
+    time.sleep(3)
+    ns = nodos()
+    campos = [n for n in ns if n[3] == 'EditText']
+    if not campos:
+        frenar('Estoy en el anuncio pero no veo dónde escribir el monto', 'orden')
+    # Si hay pestañas USDT / VES, pasar a VES (el monto de la pre-orden es en Bs)
+    ves = [n for n in ns if n[0] == 'VES' and n[4]]
+    if ves:
+        cerca = min(ves, key=lambda n: abs(n[2] - campos[0][2]))
+        T.xy(cerca[0], cerca[1], cerca[2])
+        campos = [n for n in nodos() if n[3] == 'EditText'] or campos
+    T.xy(campos[0][0] or 'campo de monto', campos[0][1], campos[0][2])
+    escribir(fmt_monto(monto))
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # baja el teclado
+    time.sleep(2)
+    if not en_pantalla(det['apodo']) and not any(n[3] == 'EditText' for n in nodos()):
+        frenar('Al bajar el teclado se cerró la orden', 'teclado')
+    # Método de pago: el tuyo que coincide con el del anuncio
+    if T.texto((), regex=SELECTOR_PAGO, intentos=2):
+        time.sleep(2)
+        if not T.texto((metodo['nombre'], metodo['id']), intentos=3, parcial=True):
+            frenar('No tenés "%s" entre tus métodos de pago (o se llama distinto)' % metodo['nombre'], 'metodos')
+    else:
+        paso('no vi el selector de método: reviso si ya está elegido')
+    digitos = re.sub(r'\D', '', fmt_monto(monto).split('.')[0])
+    monto_ok = any(digitos and digitos in re.sub(r'\D', '', t) for t, _, _, _, _ in nodos())
+    metodo_ok = en_pantalla(metodo['nombre']) or en_pantalla(metodo['id'])
+    return monto_ok, metodo_ok
+
+
+def recorrido(link):
+    ad, monto, pago = leer_link(link)
+    det = detalle_anuncio(ad)
+    metodo = elegir_metodo(det, pago)
+    paso('anuncio %s: %s, precio %s, límites %s-%s, %s' % (ad, det['apodo'], det['precio'], det['min'], det['max'],
+                                                          metodo['nombre']))
+    if not monto:
+        raise Frenado('El link no trae el monto: subí el Apps Script nuevo y buscá el anuncio de nuevo')
+    if det['min'] and monto < det['min'] or det['max'] and monto > det['max']:
+        raise Frenado('%s Bs no entra en los límites del anuncio (%s - %s): buscá otro anuncio' %
+                      (fmt_monto(monto), fmt_monto(det['min']), fmt_monto(det['max'])))
+    if not conectar():
+        raise Frenado('No hay ADB. Tocá RECONECTAR en la notificación de ADB y probá de nuevo')
+    if bloqueado():
+        raise Frenado('El teléfono está bloqueado: desbloquealo y probá de nuevo')
+    avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
+           (det['apodo'], fmt_monto(monto), metodo['nombre']))
+    paquete = paquete_binance()
+    if not por_enlace(paquete, ad, det['apodo']):
+        paso('ningún enlace directo abrió el anuncio: voy por la lista')
+        por_lista(paquete, det['apodo'], metodo, monto)
+    monto_ok, metodo_ok = completar_orden(det, metodo, monto)
+    base = guardar('listo')
+    faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok)) if not ok]
+    return '%s · %s Bs · %s · precio %s.%s Revisá y tocá Vender vos. (%s.png)' % (
+        det['apodo'], fmt_monto(monto), metodo['nombre'], det['precio'],
+        (' ⚠️ No pude confirmar ' + ' ni '.join(faltan) + '.') if faltan else '', base)
+
+
+def probar_enlaces(link):
+    """Muestra qué enlaces de Binance declara la app y prueba abrir el anuncio con cada uno."""
+    ad, _, _ = leer_link(link)
+    det = detalle_anuncio(ad)
+    if not conectar():
+        raise Frenado('No hay ADB')
+    paquete = paquete_binance()
+    filtros = [l.strip() for l in adb('shell', 'dumpsys', 'package', paquete).splitlines()
+               if re.search(r'Scheme: "|Authority: "|Path: "|PathPrefix|PathPattern', l)]
+    archivo = os.path.join(LOG_DIR, 'binance_enlaces.txt')
+    with open(archivo, 'w') as f:
+        f.write('\n'.join(filtros))
+    print('Enlaces que declara %s (%d líneas, todo en %s):' % (paquete, len(filtros), archivo))
+    for l in sorted(set(filtros)):
+        if 'binance' in l or 'Scheme' in l:
+            print('  ' + l)
+    print('\nAnuncio %s de %s. Probando enlaces:' % (ad, det['apodo']))
+    for plantilla in ENLACES:
+        url = plantilla.format(ad=ad)
+        if not abrir_enlace(paquete, url):
+            print('  ✗ la app no lo acepta: ' + url)
+            continue
+        time.sleep(8)
+        cerrar_carteles()
+        ok = en_pantalla(det['apodo'])
+        print('  %s %s' % ('✓ ABRE EL ANUNCIO:' if ok else '· abre la app pero no el anuncio:', url))
+        guardar('enlace%d' % ENLACES.index(plantilla))
+        if ok:
+            with open(ENLACE_BUENO, 'w') as f:
+                f.write(plantilla)
+            break
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+
+
+if __name__ == '__main__':
+    args = sys.argv[1:]
+    try:
+        if args[:1] == ['--pantalla']:
+            if not conectar():
+                raise Frenado('No hay ADB')
+            time.sleep(8)
+            print('Guardé %s.png y .xml en Descargas' % guardar(args[1] if len(args) > 1 else 'pantalla'))
+        elif args[:1] == ['--enlaces'] and len(args) > 1:
+            probar_enlaces(args[1])
+        elif len(args) == 1:
+            r = recorrido(args[0])
+            print(r)
+            avisar('Binance: orden armada ✅', r)
+            subprocess.run(['termux-vibrate', '-d', '600'], check=False)
+        else:
+            print(__doc__)
+            sys.exit(2)
+    except Frenado as e:
+        print('FRENADO: %s' % e, flush=True)
+        avisar('Binance: me frené ⚠️', str(e))
+        sys.exit(1)
