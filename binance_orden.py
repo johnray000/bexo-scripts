@@ -312,7 +312,10 @@ def por_perfil(paquete, det):
     if not det['usuario']:
         paso('el anuncio no trae el número de usuario del trader')
         return False
-    for plantilla in plantillas():
+    lista = plantillas()
+    if not os.path.exists(ENLACE_BUENO) or lista[0] != open(ENLACE_BUENO).read().strip():
+        return False   # ningún link de perfil funcionó todavía (probarlos con --enlaces): directo a la lista
+    for plantilla in lista[:1]:
         if not abrir_enlace(paquete, plantilla.format(u=det['usuario'])):
             continue
         if esperar_anuncio(det['apodo']):
@@ -324,18 +327,65 @@ def por_perfil(paquete, det):
     return False
 
 
+# Links a la portada de P2P (con el filtro de método, si la app lo toma). Se prueban antes de ir por el inicio.
+LINKS_P2P = [
+    'https://app.binance.com/es-LA/p2p/trade/sell/USDT?fiat=VES&payment={pago}',
+    'https://app.binance.com/es-LA/trade/sell/USDT?fiat=VES&payment={pago}',
+    'bnc://app.binance.com/c2c/home',
+    'bnc://app.binance.com/p2p/home',
+    'https://app.binance.com/es-LA/p2p',
+]
+BOTON_P2P = (0.152, 0.31)   # ícono P2P del inicio (captura del 15/11), por si la pantalla animada no se deja leer
+
+
+def en_p2p():
+    ns = nodos()
+    return any(norm(n[0]) == 'vender' for n in ns) and any(norm(n[0]) == 'comprar' for n in ns)
+
+
+def abrir_p2p(paquete, metodo):
+    """Llega a la portada de P2P: primero por link; si no, abre Binance y toca P2P (por texto o por posición)."""
+    for plantilla in LINKS_P2P:
+        if not abrir_enlace(paquete, plantilla.format(pago=metodo['id'])):
+            continue
+        for _ in range(4):
+            time.sleep(3)
+            ns = nodos()
+            if any('enlace no funciona' in norm(t) for t, _, _, _, _ in ns):
+                T.texto(('Ok',), intentos=1)
+                break
+            if en_p2p():
+                paso('P2P abrió con %s' % plantilla)
+                return
+    adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER',
+        paquete)
+    for _ in range(8):
+        time.sleep(3)
+        if PAQ in al_frente():
+            break
+    else:
+        frenar('Binance no se abrió (al frente: %s)' % al_frente(), 'inicio')
+    time.sleep(4)
+    cerrar_carteles()
+    if not T.texto(P2P, intentos=3):
+        ancho, alto = tamano_pantalla()
+        paso('no leí el botón P2P: lo toco por posición')
+        adb('shell', 'input', 'tap', str(int(ancho * BOTON_P2P[0])), str(int(alto * BOTON_P2P[1])))
+    for _ in range(4):
+        time.sleep(3)
+        cerrar_carteles()
+        if en_p2p():
+            return
+    frenar('No llegué a P2P desde el inicio de Binance', 'inicio')
+
+
 def por_lista(paquete, apodo, metodo, monto):
     """Camino largo: P2P → Vender → USDT → filtros de método y monto → buscar el apodo y tocar su Vender."""
-    adb('shell', 'am', 'force-stop', paquete)
-    adb('shell', 'monkey', '-p', paquete, '-c', 'android.intent.category.LAUNCHER', '1')
-    time.sleep(10)
-    cerrar_carteles()
-    if not T.texto(P2P, intentos=5):
-        frenar('No encontré el botón P2P en el inicio de Binance', 'inicio')
-    time.sleep(3)
-    cerrar_carteles()
-    if not T.texto(VENDER_TAB):
+    abrir_p2p(paquete, metodo)
+    tabs = sorted((n for n in nodos() if norm(n[0]) in [norm(v) for v in VENDER_TAB]), key=lambda n: n[2])
+    if not tabs:   # la pestaña es el "Vender" de más arriba (los de abajo son los botones de cada anuncio)
         frenar('No encontré la pestaña Vender en P2P', 'p2p')
+    T.xy(tabs[0][0], tabs[0][1], tabs[0][2])
     T.texto(('USDT',), intentos=2)
     if not en_pantalla('VES'):
         frenar('P2P no está en VES: elegí VES arriba una vez a mano y probá de nuevo', 'moneda')
@@ -500,7 +550,8 @@ def rastrear(url):
         raise Frenado('No hay ADB')
     paquete = paquete_binance()
     adb('logcat', '-c')
-    abrir_enlace(paquete, url)
+    if not abrir_enlace(paquete, url) and '://www.binance.com/' in url:
+        abrir_enlace(paquete, url.replace('://www.binance.com/', '://app.binance.com/'))   # la app solo toma app.
     time.sleep(12)
     registro = adb('logcat', '-d', '-v', 'brief', espera=60)
     pistas = [l for l in registro.splitlines()
