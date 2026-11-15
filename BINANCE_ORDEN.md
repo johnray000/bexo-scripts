@@ -17,6 +17,7 @@ hasta **un paso antes de colocar la orden**: john tilda la casilla de términos 
 | `apps-script/9_P2P.gs` | El link del anuncio trae `&monto=<Bs>&pago=<método>` (línea con `LINK_ANUNCIO`). **Falta subirlo** (`sh ~/bexo-scripts/apps-script/subir.sh`). |
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
+| `telefono/limpiar_descargas.py` | Muestra qué hay en Descargas (de los scripts / datos protegidos / tuyos). `--borrar-scripts`, `--borrar-viejos DÍAS`; pide escribir BORRAR. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. |
 | `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (13 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "13 de 13 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
@@ -68,7 +69,8 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
   elige en la segunda apertura, "el o los métodos"): pantalla no grabada.
 - Los interruptores traen `checked` en el xml. La barra de abajo (P2P · Órdenes · Anuncios) **no siempre sale** en el
   xml: la lista se reconoce por Comprar + Vender + Rápido / Comercio por bloques.
-- En ARS la fila de filtros trae además casillas "Pro" y "Nuevo usuario"; en VES no.
+- La fila de filtros a veces trae casillas "Pro" y/o "Nuevo usuario" después de Pago (en ARS y en VES); se toman
+  solo las tres primeras (activo · monto · pago).
 - **El chip "Pago" no se toca**: en la orden el método vino solo en Pago Movil (wen2, 15:27). La lista de métodos no está
   grabada. Si el chip quedó en otro método, el recorrido se frena y pide sacarlo a mano.
 - El xml de una grabación se guarda unos instantes antes que su png: pueden no coincidir del todo.
@@ -85,7 +87,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
 1. ~~Grabar el embudo~~ (hecho 15:27). Corrida 15:56: llegó a la lista con todo bien, pero no encontró a
    CloudMoneySolutions (anuncio de la madrugada) bajando 10 pantallas.
-1b. **Grabar la parte de métodos de pago del panel Filtrar** (john: en la 2ª apertura se eligen ahí). No está grabada.
+1b. ~~Métodos en el panel Filtrar~~: grabación 16:14 → **el panel no tiene métodos de pago** (termina en "Tiempo
+   límite de pago"). El método se elige con el chip "Pago" de la lista; john lo dejó en Pago Movil y el recorrido lo
+   acepta. La hoja que abre ese chip **no quedó grabada** (si hace falta tocarlo, grabarla quedándose quieto en ella).
 2. Probar en el teléfono el recorrido completo con un adNo vigente:
    `python ~/bexo-scripts/binance_orden.py "https://c2c.binance.com/es-LA/adv?code=<adNo>&monto=<Bs>&pago=PagoMovil"`.
    Si se frena: deja `binance_*.png` y `.xml` en Descargas.
