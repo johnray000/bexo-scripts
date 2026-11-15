@@ -17,7 +17,7 @@ bien; john lo pidió el 15/11 17:14) y john toca "Realizar Orden" él mismo.
 | `okx_ordenes.py` | Funciones compartidas de ADB: `adb()`, `conectar()` (reintenta el 5555 ~30 s), `bloqueado()`, `tamano_pantalla()`. |
 | `apps-script/9_P2P.gs` | El link del anuncio trae `&monto=<Bs>&pago=<método>` (línea con `LINK_ANUNCIO`). **Falta subirlo** (`sh ~/bexo-scripts/apps-script/subir.sh`). |
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
-| `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
+| `telefono/termux-url-opener` | Compartir el link → Termux → corre el recorrido (`telefono/binance_orden.sh`, log en `~/binance_orden.log`). **Falta instalarlo** en `~/bin/`. El Apps Script manda, después de la pre-orden, **un WhatsApp con solo el link** (`enviarLinkSolo_` en 11_PreOrden.gs): ese es el que se comparte (Termux solo lo toma directo si es un link y nada más). |
 | `telefono/limpiar_descargas.py` | Muestra qué hay en Descargas (de los scripts / datos protegidos / tuyos). `--borrar-scripts`, `--borrar-viejos DÍAS`; pide escribir BORRAR. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. |
 | `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (16 casos + `que_es` de todas las pantallas + búsqueda de prueba + apodo ausente). Tiene que dar "16 de 16 casos bien". |
 
@@ -131,5 +131,5 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 3. Subir el Apps Script (`subir.sh`) para que el link traiga monto y método.
 4. Instalar el botón Compartir: `mkdir -p ~/bin`, `cp ~/bexo-scripts/telefono/termux-url-opener ~/bin/`,
    `chmod +x ~/bin/termux-url-opener` (revisar antes que no exista otro `termux-url-opener`).
-5. Probar desde la página de la pre-orden: mantener apretado "Abrir en Binance" → Compartir → Termux.
+5. Probar desde WhatsApp: mantener apretado el mensaje que tiene solo el link → Compartir → Termux.
 6. Merge de `recorrido-binance` a `main` y en el teléfono `git -C ~/bexo-scripts checkout main`.

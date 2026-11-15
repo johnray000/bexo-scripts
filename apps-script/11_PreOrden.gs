@@ -185,6 +185,7 @@ function enviarPreOrdenes(siempre) {
         var msj = mensajePreOrden_(n, tasa, agenda);
         ok = whatsAppConfirmado_(msj.orden);
         if (ok && msj.datos) whatsAppConfirmado_(msj.datos);
+        if (ok) enviarLinkSolo_(msj.orden);   // para Compartir → Termux (binance_orden.py)
       }
       if (ok) marcarEnviada_(n.id);   // si no, queda ENVIANDO y se reintenta sola
     } catch (e) {
@@ -219,6 +220,22 @@ function whatsAppConfirmado_(texto) {
     logError_('PREORDEN_WHATSAPP', e.message || e);
   }
   return false;
+}
+
+/**
+ * Manda el link del anuncio SOLO, en un mensaje aparte (el último): mantenerlo apretado → Compartir → Termux y el
+ * teléfono arma la orden en la app de Binance (telefono/termux-url-opener → binance_orden.py). Termux lo manda directo
+ * al recorrido solo si lo compartido es un link y nada más; con el mensaje entero abre otro diálogo.
+ */
+function enviarLinkSolo_(texto) {
+  var link = linkAnuncioDe_(texto);
+  if (link) whatsAppConfirmado_(link);
+}
+
+/** El link del anuncio (con &monto, &pago y &alt) dentro de un texto, sin comillas ni asteriscos al final. '' si no hay. */
+function linkAnuncioDe_(texto) {
+  var m = String(texto || '').match(new RegExp(LINK_ANUNCIO.replace(/[.?]/g, '\\$&') + '\\S+'));
+  return m ? m[0].replace(/["'*)\].,]+$/, '') : '';
 }
 
 /** Pasa la fila de ENVIANDO a ENVIADA. Busca por ID porque las filas nuevas entran arriba y corren las demás. */

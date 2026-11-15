@@ -712,7 +712,9 @@ function preOrdenDePrueba() {
     ].join('\n');
   }
   Logger.log(texto);
-  Logger.log(whatsAppConfirmado_(texto) ? 'Enviado por WhatsApp.' : 'WhatsApp NO lo aceptó: mirá Errores.');
+  var ok = whatsAppConfirmado_(texto);
+  Logger.log(ok ? 'Enviado por WhatsApp.' : 'WhatsApp NO lo aceptó: mirá Errores.');
+  if (ok) enviarLinkSolo_(texto);   // el link solo, para Compartir → Termux
 }
 
 /** Guarda una frase en la hoja. tipo: 'BLOQUEAR' o 'PERMITIR'. */
