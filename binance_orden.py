@@ -205,7 +205,7 @@ class Toques:
             raise Frenado('Por seguridad no toqué "%s"' % texto)
         paso('toco "%s"' % texto)
         adb('shell', 'input', 'tap', str(x), str(y))
-        time.sleep(2)
+        time.sleep(1.2)
 
     def texto(self, opciones, intentos=3, parcial=False):
         """Toca el primer texto igual a alguna opción (o que la contenga, con parcial). False si no aparece."""
@@ -336,19 +336,27 @@ def preparar_lista(metodo, monto):
     vender = sorted((n for n in ns if norm(n.t) == 'vender'), key=lambda n: n.y)
     T.nodo(vender[0])                      # la pestaña: el "Vender" de más arriba (los otros son de cada anuncio)
     ns = nodos()
-    usdt = [n for n in ns if n.t == 'USDT' and n.y < 600]
-    if usdt:
-        T.nodo(usdt[0])
+    # USDT y la moneda son menús: solo se tocan si NO están ya en USDT / VES (si no, abren "Seleccionar ...").
+    if not any(n.t == 'USDT' and n.y < 600 for n in ns):
+        activo = [n for n in ns if 330 < n.y < 480 and n.x < 260 and re.fullmatch(r'[A-Z0-9]{2,6}', n.t)]
+        if not activo:
+            frenar('No encontré el activo (USDT) en los filtros', 'activo')
+        T.nodo(activo[0], 'activo (%s)' % activo[0].t)
+        if not T.texto(('USDT',)):
+            frenar('No pude elegir USDT', 'activo')
         ns = nodos()
-    # Moneda: arriba a la derecha. Si no es VES, se abre "Seleccionar divisa" y se toca VES.
-    fiat = [n for n in ns if n.y < 360 and n.x > 800 and re.fullmatch(r'[A-Z]{3}', n.t)]
+    fiat = [n for n in ns if n.y < 360 and n.x > 700 and re.fullmatch(r'[A-Z]{3}', n.t)]
     if not fiat:
-        frenar('No encontré la moneda (VES) arriba a la derecha', 'moneda')
-    if fiat[0].t != 'VES':
-        T.nodo(fiat[0])
-        if not T.texto(('VES',)):
-            frenar('No pude elegir VES', 'moneda')
+        frenar('No encontré la moneda arriba a la derecha', 'moneda')
+    if fiat[0].t != 'VES':                 # estaba en ARS, UYU, COP…: se abre "Seleccionar divisa" y se toca VES
+        T.nodo(fiat[0], 'moneda (%s)' % fiat[0].t)
+        ves = [n for n in nodos() if n.t == 'VES']
+        if not ves:
+            frenar('No encontré VES en Seleccionar divisa', 'moneda')
+        T.nodo(ves[0])
         ns = nodos()
+        if not any(n.t == 'VES' and n.y < 360 for n in ns):
+            frenar('Elegí VES pero arriba sigue otra moneda', 'moneda')
     # Monto: el filtro (tv_amount) abre el panel "Filtrar": campo "Ingresa el monto total" y Confirmar.
     chip = [n for n in ns if n.rid == 'tv_amount']
     if not chip:
