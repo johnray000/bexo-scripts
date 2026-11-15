@@ -101,7 +101,8 @@ def leer_link(link):
     ad = (q.get('code') or q.get('advNo') or [''])[0]
     if not ad.isdigit():
         raise Frenado('El link no trae el número de anuncio (code=...)')
-    return ad, float((q.get('monto') or ['0'])[0] or 0), (q.get('pago') or [''])[0]
+    alts = [x for x in (q.get('alt') or [''])[0].split(',') if x.isdigit() and x != ad]   # reservas (Apps Script)
+    return ad, float((q.get('monto') or ['0'])[0] or 0), (q.get('pago') or [''])[0], alts
 
 
 def buscar(o, claves):
@@ -502,20 +503,39 @@ PANTALLAS_LISTA = 15
 TOLERANCIA_PRECIO = 0.003   # el precio del anuncio puede moverse un poco entre la API y la app
 
 
-def buscar_en_lista(apodo, precio=None):
-    """Busca el apodo bajando DESPACIO (sin inercia: el 15/11 16:42 un gesto rápido se salteó tarjetas) y toca el
-    Vender de SU tarjeta (el primero debajo del apodo). Anota en la terminal a quién vio en cada pantalla.
-    La lista va de mayor a menor precio: si ya pasó el precio del anuncio sin verlo, se frena ahí."""
-    global EN_ORDEN
+ELEGIDO = None   # el candidato cuyo Vender se tocó (el anuncio de la pre-orden o una reserva)
+AVISO_RESERVA = 0.01   # si la reserva tiene un precio más de 1 % peor que el elegido, se avisa con ⚠️
+
+
+def buscar_en_lista(candidatos):
+    """candidatos: [{'apodo', 'precio', ...}] en orden de preferencia (el anuncio de la pre-orden primero, después las
+    reservas). Baja DESPACIO (sin inercia: el 15/11 16:42 un gesto rápido se salteó tarjetas), anota a quién vio en
+    cada pantalla y toca el Vender del mejor candidato que aparezca. Si aparece una reserva pero un preferido podría
+    estar más abajo (precio menor), sigue bajando. La lista va de mayor a menor precio: cuando ya pasó el precio de
+    todos los candidatos sin verlos, se frena."""
+    global EN_ORDEN, ELEGIDO
     ancho, alto = tamano_pantalla()
+    piso = min([c['precio'] for c in candidatos if c.get('precio')] or [0])
+    vista = None                       # una reserva vista mientras se esperaba a un preferido
     for i in range(PANTALLAS_LISTA):
         ns = nodos()
-        for fila in (n for n in ns if compacto(n.t) == compacto(apodo)):
-            debajo = sorted((n for n in con(ns, 'Vender') if fila.y < n.y < alto * 0.9), key=lambda n: n.y)
-            if debajo:
-                tocar('Vender de %s' % apodo, debajo[0].x, debajo[0].y)
-                EN_ORDEN = True
-                return
+        visibles = []
+        for k, c in enumerate(candidatos):
+            for fila in (n for n in ns if compacto(n.t) == compacto(c['apodo'])):
+                debajo = sorted((n for n in con(ns, 'Vender') if fila.y < n.y < alto * 0.9), key=lambda n: n.y)
+                if debajo:
+                    visibles.append((k, c, debajo[0]))
+                    break
+        if visibles:
+            k, c, boton = min(visibles, key=lambda v: v[0])
+            pendientes = [p['apodo'] for p in candidatos[:k]
+                          if p.get('precio') and c.get('precio') and p['precio'] < c['precio'] * (1 - TOLERANCIA_PRECIO)]
+            if not pendientes:
+                tocar('Vender de %s%s' % (c['apodo'], ' (reserva)' if k else ''), boton.x, boton.y)
+                EN_ORDEN, ELEGIDO = True, c
+                return c
+            vista = vista or c['apodo']
+            paso('veo a %s (reserva), pero %s puede estar más abajo: sigo' % (c['apodo'], ', '.join(pendientes)))
         precios = [numero(n.t) for n in ns if PRECIO.match(n.t)]
         vendedores = [n for n in con(ns, 'Vender') if n.x > 700]   # los de las tarjetas (la pestaña está a la izquierda)
         quienes = [n.t for n in ns if not n.rid and len(n.t) > 1 and n.clase == 'TextView' and n.t not in
@@ -523,18 +543,22 @@ def buscar_en_lista(apodo, precio=None):
         paso('lista %d: %s · precios %s' % (i + 1, ', '.join(quienes) or '(nadie)',
                                             '%s a %s' % (fmt_monto(max(precios)), fmt_monto(min(precios)))
                                             if precios else '-'))
-        if precio and precios and max(precios) < precio * (1 - TOLERANCIA_PRECIO):
-            frenar('Pasé el precio de %s (%s) sin verlo: la lista ya va por %s. ¿Lo tomó otro o cambió?' %
-                   (apodo, precio, fmt_monto(max(precios))), 'lista', ns)
+        if piso and precios and max(precios) < piso * (1 - TOLERANCIA_PRECIO):
+            nombres = ', '.join(c['apodo'] for c in candidatos)
+            frenar('Pasé el precio de %s sin verlos: la lista ya va por %s. Los tomó otro o cambiaron%s' %
+                   (nombres, fmt_monto(max(precios)), ' (vi a %s más arriba: corré de nuevo)' % vista if vista else ''),
+                   'lista', ns)
         # despacio (1,5 s) y la mitad de la pantalla: sin inercia, cada pantalla se superpone con la anterior
         adb('shell', 'input', 'swipe', str(ancho // 2), str(int(alto * .80)), str(ancho // 2),
             str(int(alto * .30)), '1500')
         time.sleep(1.5)
-    frenar('No encontré a %s en %d pantallas de la lista' % (apodo, PANTALLAS_LISTA), 'lista')
+    frenar('No encontré a %s en %d pantallas de la lista' %
+           (', '.join(c['apodo'] for c in candidatos), PANTALLAS_LISTA), 'lista')
 
 
-def llegar_a_la_orden(apodo, metodo, monto, precio=None):
-    """El bucle: lee, reconoce la pantalla, hace UNA acción. Termina en la pantalla "Vender USDT" del anunciante."""
+def llegar_a_la_orden(candidatos, metodo, monto):
+    """El bucle: lee, reconoce la pantalla, hace UNA acción. Termina en la pantalla "Vender USDT" del anunciante
+    (el de la pre-orden o una reserva: ELEGIDO). candidatos: ver buscar_en_lista."""
     ancho, alto = tamano_pantalla()
     veces = collections.Counter()
     estado = {}
@@ -549,7 +573,7 @@ def llegar_a_la_orden(apodo, metodo, monto, precio=None):
         p = que_es(ns)
         if EN_ORDEN and p != 'orden':      # ya tocó el Vender del anunciante: solo puede esperar la orden
             if estado.get('esperé orden'):
-                frenar('Toqué Vender de %s pero no se abrió la orden' % apodo, 'orden', ns)
+                frenar('Toqué Vender de %s pero no se abrió la orden' % ELEGIDO['apodo'], 'orden', ns)
             estado['esperé orden'] = True
             time.sleep(2)
             continue
@@ -561,8 +585,8 @@ def llegar_a_la_orden(apodo, metodo, monto, precio=None):
         elif p == 'p2p':
             hecho = en_p2p(ns, metodo, monto, estado)
             if hecho == 'listo':
-                buscar_en_lista(apodo, precio)
-                hecho = 'buscar a %s' % apodo
+                buscar_en_lista(candidatos)
+                hecho = 'buscar a %s' % ELEGIDO['apodo']
         elif p == 'filtrar':
             hecho = en_filtrar(ns, monto, metodo, estado)
         elif p == 'monto':               # la hoja del chip Monto: no debería abrirse (se va por el embudo)
@@ -640,33 +664,87 @@ def completar_orden(ns, apodo, metodo, monto):
     return monto_ok, metodo_ok
 
 
+def armar_candidatos(ad, alts, monto, pago):
+    """El anuncio de la pre-orden y sus reservas, cada uno revisado contra Binance (desde el teléfono): solo quedan
+    los que siguen existiendo, aceptan el monto y el método. Devuelve (candidatos, método, principal): principal es
+    el anuncio de la pre-orden tal como lo eligió el Apps Script (apodo y precio; precio None si ya no existe)."""
+    candidatos, metodo, problemas = [], None, []
+    principal = {'apodo': 'el anuncio %s' % ad, 'precio': None}
+    for i, adno in enumerate([ad] + alts):
+        quien = 'anuncio' if i == 0 else 'reserva %d' % i
+        try:
+            d = detalle_anuncio(adno)
+        except Frenado as e:
+            problemas.append('%s: %s' % (quien, e))
+            continue
+        except (OSError, ValueError) as e:   # sin respuesta de Binance: no se sabe si sirve
+
+            problemas.append('%s: Binance no respondió (%s)' % (quien, e))
+            continue
+        if i == 0:
+            principal = {'apodo': d['apodo'], 'precio': d['precio']}
+        try:
+            m = elegir_metodo(d, pago)
+        except Frenado as e:
+            problemas.append('%s (%s): %s' % (quien, d['apodo'], e))
+            continue
+        if (d['min'] and monto < d['min']) or (d['max'] and monto > d['max']):
+            problemas.append('%s (%s): %s Bs no entra en %s - %s' % (quien, d['apodo'], fmt_monto(monto),
+                                                                     fmt_monto(d['min']), fmt_monto(d['max'])))
+            continue
+        metodo = metodo or m
+        candidatos.append({'adNo': adno, 'apodo': d['apodo'], 'precio': d['precio'], 'reserva': i > 0})
+        paso('%s %s: %s, precio %s, límites %s-%s, %s' % (quien, adno, d['apodo'], d['precio'], fmt_monto(d['min']),
+                                                         fmt_monto(d['max']), m['nombre']))
+    for p in problemas:
+        paso('no sirve: %s' % p)
+    if not candidatos:
+        raise Frenado('Ni el anuncio ni las reservas sirven: ' + ' · '.join(problemas))
+    return candidatos, metodo, principal
+
+
+def resumen(principal, elegido, monto, metodo, faltan, base):
+    """El mensaje final y si hay que avisar (⚠️): se usó una reserva con un precio más de AVISO_RESERVA peor que el
+    anuncio de la pre-orden, o no se pudo saber su precio."""
+    texto = '%s · %s Bs · %s · precio %s.' % (elegido['apodo'], fmt_monto(monto), metodo['nombre'], elegido['precio'])
+    alerta = False
+    if elegido['reserva']:
+        if principal['precio']:
+            dif = (principal['precio'] - elegido['precio']) / principal['precio']
+            alerta = dif > AVISO_RESERVA
+            nota = ' ⚠️ Precio %.1f%% peor que %s (%s).' % (dif * 100, principal['apodo'], principal['precio']) \
+                if alerta else ''
+        else:
+            alerta, nota = True, ' ⚠️ No pude saber el precio del anuncio original para comparar.'
+        texto = '🔁 RESERVA (no estaba %s): %s%s' % (principal['apodo'], texto, nota)
+    if faltan:
+        alerta = True
+        texto += ' ⚠️ No pude confirmar ' + ' ni '.join(faltan) + '.'
+    return texto + ' Revisá, tildá la casilla y tocá Realizar Orden vos. (%s.png)' % base, alerta
+
+
 def recorrido(link):
-    global EN_ORDEN
-    EN_ORDEN = False
-    ad, monto, pago = leer_link(link)
-    det = detalle_anuncio(ad)
-    metodo = elegir_metodo(det, pago)
-    paso('anuncio %s: %s, precio %s, límites %s-%s, %s' % (ad, det['apodo'], det['precio'], fmt_monto(det['min']),
-                                                          fmt_monto(det['max']), metodo['nombre']))
+    global EN_ORDEN, ELEGIDO
+    EN_ORDEN, ELEGIDO = False, None
+    ad, monto, pago, alts = leer_link(link)
     if not monto:
         raise Frenado('El link no trae el monto: subí el Apps Script nuevo y buscá el anuncio de nuevo')
-    if (det['min'] and monto < det['min']) or (det['max'] and monto > det['max']):
-        raise Frenado('%s Bs no entra en los límites del anuncio (%s - %s): buscá otro anuncio' %
-                      (fmt_monto(monto), fmt_monto(det['min']), fmt_monto(det['max'])))
+    candidatos, metodo, principal = armar_candidatos(ad, alts, monto, pago)
     if not conectar():
         raise Frenado('No hay ADB. Tocá RECONECTAR en la notificación de ADB y probá de nuevo')
     if bloqueado():
         raise Frenado('El teléfono está bloqueado: desbloquealo y probá de nuevo')
     paquete_binance()
     avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
-           (det['apodo'], fmt_monto(monto), metodo['nombre']))
-    ns = llegar_a_la_orden(det['apodo'], metodo, monto, det['precio'])
-    monto_ok, metodo_ok = completar_orden(ns, det['apodo'], metodo, monto)
+           (' / '.join(c['apodo'] for c in candidatos), fmt_monto(monto), metodo['nombre']))
+    ns = llegar_a_la_orden(candidatos, metodo, monto)
+    monto_ok, metodo_ok = completar_orden(ns, ELEGIDO['apodo'], metodo, monto)
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok)) if not ok]
-    return '%s · %s Bs · %s · precio %s.%s Revisá, tildá la casilla y tocá Realizar Orden vos. (%s.png)' % (
-        det['apodo'], fmt_monto(monto), metodo['nombre'], det['precio'],
-        (' ⚠️ No pude confirmar ' + ' ni '.join(faltan) + '.') if faltan else '', base)
+    texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
+    avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto)
+    subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
+    return texto
 
 
 # ---------- Herramientas ----------
@@ -700,9 +778,19 @@ def prueba(monto, pago, puesto, arrancar=True):
     if puesto > len(ads):
         raise Frenado('Hay solo %d anuncios' % len(ads))
     a = ads[puesto - 1]
+    # reservas: los 2 siguientes de OTRO trader (sin filtro de frases: esto es solo para probar la app; las de verdad
+    # las elige el Apps Script con sus filtros)
+    alts = []
+    for x in ads[puesto:]:
+        if len(alts) < 2 and x['apodo'] != a['apodo'] and x['apodo'] not in [y['apodo'] for y in alts]:
+            alts.append(x)
     link = LINK % (a['adNo'], fmt_monto(monto), urllib.parse.quote(pago))
-    print('\nPRUEBA: usuario %s · %s Bs · %s · precio %s · puesto %d\n%s' %
-          (a['apodo'], fmt_monto(monto), pago, a['precio'], puesto, link), flush=True)
+    if alts:
+        link += '&alt=' + ','.join(x['adNo'] for x in alts)
+    print('\nPRUEBA: usuario %s · %s Bs · %s · precio %s · puesto %d' %
+          (a['apodo'], fmt_monto(monto), pago, a['precio'], puesto))
+    print('RESERVAS: %s\n%s' % (' · '.join('%s %s' % (x['apodo'], x['precio']) for x in alts) or 'ninguna', link),
+          flush=True)
     if not arrancar:
         return link
     for i in range(5, 0, -1):
@@ -773,15 +861,11 @@ if __name__ == '__main__':
             r = prueba(monto, pago, puesto, arrancar=args[0] == '--prueba')
             if args[0] == '--prueba':
                 print(r)
-                avisar('Binance: orden armada ✅', r)
-                subprocess.run(['termux-vibrate', '-d', '600'], check=False)
         elif args[:1] == ['--grabar']:
             grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):
             r = recorrido(args[0])
             print(r)
-            avisar('Binance: orden armada ✅', r)
-            subprocess.run(['termux-vibrate', '-d', '600'], check=False)
         else:
             print(__doc__)
             sys.exit(2)

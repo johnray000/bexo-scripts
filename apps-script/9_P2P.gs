@@ -474,7 +474,7 @@ function elegirAnuncioVes_(montoVes, traders, frases, saltados, forzar, metodos)
   for (i = 0; i < activos.length; i++) {   // en orden de prioridad
     r = elegirAnuncioVesMetodo_(montoVes, activos[i], traders, frases, saltados);
     descartados = descartados.concat(r.descartados);
-    if (r.anuncio) return { anuncio: r.anuncio, descartados: descartados };
+    if (r.anuncio) return { anuncio: r.anuncio, descartados: descartados, alternativas: r.alternativas || [] };
   }
   return { anuncio: null, descartados: descartados };
 }
@@ -490,7 +490,7 @@ function elegirAnuncioVesMetodo_(montoVes, metodo, traders, frases, saltados, fo
     if (f) {
       f.ordenesConVos = traders[f.apodo] || 0;
       f.descripcion = leerDescripcion_(f.adNo);
-      return { anuncio: f, descartados: descartados };
+      return conAlternativas_({ anuncio: f, descartados: descartados }, ads, traders, frases);
     }
   }
   if (soloForzar) return { anuncio: null, descartados: descartados };
@@ -500,14 +500,14 @@ function elegirAnuncioVesMetodo_(montoVes, metodo, traders, frases, saltados, fo
   }).sort(function (x, y) { return traders[y.apodo] - traders[x.apodo]; });
   if (conocidos.length) {
     conocidos[0].ordenesConVos = traders[conocidos[0].apodo];
-    return { anuncio: conocidos[0], descartados: descartados };
+    return conAlternativas_({ anuncio: conocidos[0], descartados: descartados }, ads, traders, frases);
   }
   var memoria = leerMemoriaDescartes_();
   var revisados = 0;
   for (var i = 0; i < ads.length && revisados < MAX_DESCRIPCIONES; i++) {
     var a = ads[i];
     a.ordenesConVos = traders[a.apodo] || 0;
-    if (a.ordenesConVos) return { anuncio: a, descartados: descartados };
+    if (a.ordenesConVos) return conAlternativas_({ anuncio: a, descartados: descartados }, ads, traders, frases);
     var m = memoria[a.adNo];
     if (m) {   // este mismo anuncio ya se descartó antes: se salta sin volver a leerlo
       m.veces++;
@@ -520,12 +520,72 @@ function elegirAnuncioVesMetodo_(montoVes, metodo, traders, frases, saltados, fo
     a.descripcion = leerDescripcion_(a.adNo);
     var motivo = motivoDescarte_(a.descripcion, frases);
     registrarFiltro_(a, motivo);
-    if (!motivo) { guardarMemoriaDescartes_(memoria); return { anuncio: a, descartados: descartados }; }
+    if (!motivo) {
+      guardarMemoriaDescartes_(memoria);
+      return conAlternativas_({ anuncio: a, descartados: descartados }, ads, traders, frases);
+    }
     memoria[a.adNo] = { apodo: a.apodo, motivo: String(motivo).slice(0, 60), fecha: Date.now(), veces: 1 };
     descartados.push({ apodo: a.apodo, motivo: motivo, descripcion: String(a.descripcion).slice(0, 400) });
   }
   guardarMemoriaDescartes_(memoria);
   return { anuncio: null, descartados: descartados };
+}
+
+// ---- Reservas para el teléfono (binance_orden.py): si el anuncio elegido ya no está cuando la app llega a la lista
+// (pasa: tarda ~1 min), el teléfono arma la orden con una reserva y avisa. Mismos filtros que el elegido.
+var MAX_ALTERNATIVAS = 2;        // cuántas reservas van en el link (&alt=adNo,adNo)
+var MAX_DESCRIPCIONES_ALT = 4;   // descripciones extra que puede leer para encontrarlas
+
+/**
+ * Agrega a r.alternativas hasta MAX_ALTERNATIVAS anuncios de reserva: los siguientes de la lista (orden de Binance)
+ * de OTRO trader que pasan los mismos filtros que el elegido: trader conocido, o descripción sin frases de alerta.
+ * Los ya descartados (memoria) se saltan; las descripciones ya leídas en la búsqueda principal se reusan.
+ */
+function conAlternativas_(r, ads, traders, frases) {
+  r.alternativas = [];
+  var memoria = leerMemoriaDescartes_();
+  var leidas = 0, cambio = false;
+  var apodos = [r.anuncio.apodo];
+  for (var i = 0; i < ads.length && r.alternativas.length < MAX_ALTERNATIVAS; i++) {
+    var a = ads[i];
+    if (apodos.indexOf(a.apodo) !== -1) continue;
+    if (!traders[a.apodo]) {
+      if (memoria[a.adNo]) continue;
+      if (a.descripcion === undefined) {
+        if (leidas >= MAX_DESCRIPCIONES_ALT) continue;
+        leidas++;
+        a.descripcion = leerDescripcion_(a.adNo);
+        var motivo = motivoDescarte_(a.descripcion, frases);
+        registrarFiltro_(a, motivo);
+        if (motivo) {
+          memoria[a.adNo] = { apodo: a.apodo, motivo: String(motivo).slice(0, 60), fecha: Date.now(), veces: 1 };
+          cambio = true;
+          continue;
+        }
+      } else if (motivoDescarte_(a.descripcion, frases)) {
+        continue;
+      }
+    }
+    apodos.push(a.apodo);
+    r.alternativas.push(a);
+  }
+  if (cambio) guardarMemoriaDescartes_(memoria);
+  return r;
+}
+
+/** Lo que va al final del link para el teléfono: "&alt=adNo,adNo" ('' si no hay reservas). */
+function linkAlternativas_(r) {
+  return (r.alternativas || []).length ? '&alt=' + r.alternativas.map(function (x) { return x.adNo; }).join(',') : '';
+}
+
+/** Línea del mensaje con las reservas y cuánto peor es su precio. '' si no hay. */
+function lineaAlternativas_(r) {
+  var a = r.anuncio;
+  if (!a || !(r.alternativas || []).length) return '';
+  return '🔁 Reservas: ' + r.alternativas.map(function (x) {
+    var dif = (a.precio - x.precio) / a.precio * 100;
+    return x.apodo + ' ' + fmtW_(Math.round(x.precio), 0) + (dif > 0.05 ? ' (−' + dif.toFixed(1) + '%)' : '');
+  }).join(' · ');
 }
 
 // ---- Memoria de anuncios descartados: cada anuncio tiene su número (adNo). Si un anuncio ya se descartó,
@@ -607,8 +667,10 @@ function prepararOrdenP2P_(montoArs, nombre, saltados, forzar, metodos) {
              a.pagos.join(', ')].join(' · '),
     // monto y pago van en el link para que el teléfono (binance_orden.py) arme la orden en la app; la web los ignora
     LINK_ANUNCIO + a.adNo + '&monto=' + Math.round(montoVes) + '&pago=' + encodeURIComponent(
-      (metodos || metodosOrdenActivos_()).filter(function (m) { return a.pagos.indexOf(m) !== -1; })[0] || a.pagos[0] || '')
+      (metodos || metodosOrdenActivos_()).filter(function (m) { return a.pagos.indexOf(m) !== -1; })[0] || a.pagos[0] || '') +
+      linkAlternativas_(r)
   ];
+  if (lineaAlternativas_(r)) lineas.push(lineaAlternativas_(r));
   if (!a.ordenesConVos) {
     lineas.push('', '📝 ' + (String(a.descripcion || '').trim().slice(0, 500) || 'sin descripción'));
   }
@@ -636,12 +698,14 @@ function preOrdenDePrueba() {
   } else {
     var metodo = metodosOrdenActivos_().filter(function (m) { return a.pagos.indexOf(m) !== -1; })[0] ||
                  a.pagos[0] || '';
-    var link = LINK_ANUNCIO + a.adNo + '&monto=' + MONTO_PRUEBA_VES + '&pago=' + encodeURIComponent(metodo);
+    var link = LINK_ANUNCIO + a.adNo + '&monto=' + MONTO_PRUEBA_VES + '&pago=' + encodeURIComponent(metodo) +
+               linkAlternativas_(r);
     texto = [
       '🧪 *PRE-ORDEN DE PRUEBA* (no es de un cliente, no colocar)',
       'Usuario: *' + a.apodo + '*',
       'Monto: *' + MONTO_PRUEBA_VES + ' Bs* · Método: *' + metodo + '* · precio ' + a.precio,
       'Límites: ' + a.min + ' - ' + a.max + ' Bs · acepta ' + a.pagos.join(', '),
+      lineaAlternativas_(r) || 'Sin reservas',
       '',
       'Para el teléfono (copiá la línea entera en Termux):',
       'python ~/bexo-scripts/binance_orden.py "' + link + '"'

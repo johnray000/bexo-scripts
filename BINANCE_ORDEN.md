@@ -96,6 +96,15 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 1d. Corrida 16:40 (`--prueba 5000`, risteran29 a 1070,30): embudo y método perfectos (chips 5,000 · Pago Movil),
    pero no lo encontró: la lista terminó en 1058–1055, o sea que el gesto rápido (0,5 s) se salteó tarjetas por inercia.
    Ahora baja despacio (1,5 s, media pantalla), anota quién vio en cada pantalla y se frena si ya pasó su precio.
+1e. Corrida 16:55: todo bien (la lista ya se recorre bien), pero el anuncio elegido ya no estaba al llegar (~80 s).
+   **Reservas**: el Apps Script (`conAlternativas_` en 9_P2P.gs) agrega hasta 2 anuncios de OTRO trader que pasan
+   los mismos filtros (conocido o descripción sin frases), en el link como `&alt=adNo,adNo` y en el mensaje
+   ("🔁 Reservas: …"). El teléfono (`armar_candidatos`, `buscar_en_lista`) toma el elegido o, si no está, la mejor
+   reserva que vea; si su precio es más de 1 % peor (o no sabe el del original) avisa con ⚠️ y vibra largo.
+   Prueba sin Google: `node pruebas/probar_reservas_appscript.js apps-script/9_P2P.gs`.
+1f. **Velocidad** (pendiente): hoy ~75 s hasta la lista. Ideas medidas en las corridas: abrir Binance donde quedó
+   (sin volver al inicio, ~15 s), probar "Guardar filtro para el próximo uso" (evitaría la 1ª vuelta y parte de la
+   2ª, ~30 s), esperas más cortas después de cada toque.
 1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
    `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
    el comando para Termux. No toca Movimientos ni NEXT.

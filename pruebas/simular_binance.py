@@ -255,8 +255,8 @@ def correr(nombre, espera, **kw):
     preparar(t)
     print('==== %s' % nombre)
     try:
-        ns = b.llegar_a_la_orden(t.apodo, METODO, 5000.0)
-        res = 'orden %s %s' % b.completar_orden(ns, t.apodo, METODO, 5000.0)
+        ns = b.llegar_a_la_orden([{'apodo': t.apodo, 'precio': None, 'reserva': False}], METODO, 5000.0)
+        res = 'orden %s %s' % b.completar_orden(ns, b.ELEGIDO['apodo'], METODO, 5000.0)
         if t.s['tocado_apodo'] != t.apodo:
             t.malos.append('abrió la orden de otro')
     except b.Frenado as e:
@@ -335,7 +335,7 @@ print('==== el apodo no está en la lista')
 t = Telefono()
 preparar(t)
 try:
-    b.llegar_a_la_orden('NoExiste', METODO, 5000.0)
+    b.llegar_a_la_orden([{'apodo': 'NoExiste', 'precio': None, 'reserva': False}], METODO, 5000.0)
     print('  MAL: no se frenó')
     bien -= 1
 except b.Frenado as e:
@@ -344,7 +344,7 @@ print('==== el apodo no está y la lista ya pasó su precio (como 16:42): se fre
 t = Telefono(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES}, embudo_falla=0, descarta_primera=False)
 preparar(t)
 try:
-    b.llegar_a_la_orden('NoExiste', METODO, 5000.0, precio=1080.0)
+    b.llegar_a_la_orden([{'apodo': 'NoExiste', 'precio': 1080.0, 'reserva': False}], METODO, 5000.0)
     print('  MAL: no se frenó')
     bien -= 1
 except b.Frenado as e:
@@ -352,5 +352,58 @@ except b.Frenado as e:
     print('  %s: %s' % ('BIEN' if ok_precio else 'MAL', e))
     if not ok_precio:
         bien -= 1
+print('==== reservas (lista grabada con wen2 a 1068)')
+
+
+def reserva(nombre, cands, espera_apodo, espera_alerta=None):
+    t = Telefono(monto=5000, pago='Pago Movil', llaves={r: False for r in LLAVES}, embudo_falla=0,
+                 descarta_primera=False)
+    preparar(t)
+    b.ELEGIDO = None
+    try:
+        b.llegar_a_la_orden(cands, METODO, 5000.0)
+        el = b.ELEGIDO['apodo']
+        texto, alerta = b.resumen(cands[0], b.ELEGIDO, 5000.0, METODO, [], 'x')
+    except b.Frenado as e:
+        el, texto, alerta = None, 'frenado: %s' % e, None
+    ok = el == espera_apodo and (espera_alerta is None or alerta == espera_alerta) and not t.malos
+    print('  %s %s -> %s · alerta=%s · %s' % ('BIEN' if ok else 'MAL', nombre, el, alerta, texto[:150]))
+    return ok
+
+
+c = lambda ap, pr, res=False: {'apodo': ap, 'precio': pr, 'reserva': res}
+ok_res = all([
+    reserva('el elegido no está, reserva -0,2 %', [c('Ataraxia0104', 1070.105), c('wen2', 1068.0, True)], 'wen2', False),
+    reserva('el elegido no está, reserva -2 %: avisa', [c('Caro', 1090.0), c('wen2', 1068.0, True)], 'wen2', True),
+    reserva('el elegido sí está', [c('wen2', 1068.0), c('keka26', 1066.7, True)], 'wen2', False),
+    reserva('reserva visible pero el elegido podría estar más abajo: sigue y no la toma',
+            [c('Barato', 1000.0), c('wen2', 1068.0, True)], None),
+])
+if not ok_res:
+    bien -= 1
+
+print('==== armar_candidatos: el anuncio ya no existe en Binance, la reserva sí')
+DET = {'1': None, '2': {'apodo': 'wen2', 'precio': 1068.0, 'min': 300.0, 'max': 81600.0,
+                        'metodos': [{'id': 'PagoMovil', 'nombre': 'Pago Movil'}]},
+       '3': {'apodo': 'chico', 'precio': 1067.0, 'min': 6000.0, 'max': 9000.0,
+             'metodos': [{'id': 'PagoMovil', 'nombre': 'Pago Movil'}]}}
+
+
+def det_falso(ad):
+    if DET[ad] is None:
+        raise b.Frenado('Binance no devolvió el anuncio %s: puede que ya no exista' % ad)
+    return DET[ad]
+
+
+b.detalle_anuncio = det_falso
+ad, monto, pago, alts = b.leer_link('https://c2c.binance.com/es-LA/adv?code=1&monto=5000&pago=PagoMovil&alt=2,3')
+cands, met, princ = b.armar_candidatos(ad, alts, monto, pago)
+texto, alerta = b.resumen(princ, dict(cands[0]), 5000.0, met, [], 'x')
+ok_arm = [x['apodo'] for x in cands] == ['wen2'] and cands[0]['reserva'] and met['nombre'] == 'Pago Movil' and \
+    alerta and 'no estaba el anuncio 1' in texto
+print('  %s: %s · alerta=%s · %s' % ('BIEN' if ok_arm else 'MAL', [(x['apodo'], x['reserva']) for x in cands], alerta,
+                                     texto[:110]))
+if not ok_arm:
+    bien -= 1
 print('\n%d de %d casos bien%s' % (bien, len(casos), '' if not mal_que_es else ' · que_es MAL'))
 sys.exit(0 if bien == len(casos) and not mal_que_es else 1)
