@@ -83,9 +83,15 @@ def _conectar():
     if '\tdevice' in adb('devices'):
         return True
     # Puerto fijo 5555 (se activa una vez con "adb tcpip 5555" y dura hasta reiniciar el teléfono):
-    # no depende de que la Depuración inalámbrica siga prendida ni del wifi.
-    if 'connected' in adb('connect', '127.0.0.1:5555') and '\tdevice' in adb('devices'):
-        return True
+    # no depende de que la Depuración inalámbrica siga prendida ni del wifi. Al pasar de wifi a datos (o al revés)
+    # el ADB del teléfono se reinicia y por unos segundos rechaza la conexión ("refused"): se reintenta 30 s.
+    for _ in range(10):
+        adb('disconnect', '127.0.0.1:5555')   # la conexión vieja queda "offline" y estorba
+        if 'connected' in adb('connect', '127.0.0.1:5555'):
+            time.sleep(1)
+            if '\tdevice' in adb('devices'):
+                return True
+        time.sleep(3)
     for linea in adb('mdns', 'services').splitlines():
         m = re.search(r'_adb-tls-connect\._tcp\.?\s+([\d.]+:\d+)', linea)
         if m and 'connected' in adb('connect', m.group(1)):

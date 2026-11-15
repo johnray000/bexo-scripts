@@ -10,8 +10,14 @@ LOG=~/adb_reconectar.log
 
 hay_adb() {
   adb devices 2>/dev/null | grep -q "device$" && return 0
-  adb connect 127.0.0.1:5555 >/dev/null 2>&1
-  adb devices 2>/dev/null | grep -q "device$"
+  # al cambiar de wifi a datos el ADB se reinicia y rechaza unos segundos: se reintenta durante ~30 s
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    adb disconnect 127.0.0.1:5555 >/dev/null 2>&1
+    adb connect 127.0.0.1:5555 >/dev/null 2>&1
+    adb devices 2>/dev/null | grep -q "device$" && return 0
+    sleep 3
+  done
+  return 1
 }
 
 if [ "$1" = vigilar ]; then
