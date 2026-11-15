@@ -41,14 +41,17 @@ DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
 
 # Enlaces directos a probar, en orden. {ad} = número del anuncio. El que funciona queda en ~/.binance_enlace.
 ENLACES = [
-    'https://c2c.binance.com/es-LA/adv?code={ad}',
-    'https://p2p.binance.com/es-LA/adv?code={ad}',
+    # app.binance.com es el dominio que la app acepta (15/11: con /es-LA/adv?code= abre pero dice "Este enlace no funciona")
+    'https://app.binance.com/es-LA/p2p/adv?code={ad}',
+    'https://app.binance.com/en/p2p/adv?code={ad}',
+    'https://app.binance.com/p2p/adv?code={ad}',
+    'https://app.binance.com/es-LA/c2c/adv?code={ad}',
+    'https://app.binance.com/en/adv?code={ad}',
     'https://app.binance.com/es-LA/adv?code={ad}',
-    'https://www.binance.com/es-LA/adv?code={ad}',
-    'bnc://app.binance.com/c2c/adv?code={ad}',
     'bnc://app.binance.com/p2p/adv?code={ad}',
-    'bnc://app.binance.com/c2c/adDetail?advNo={ad}',
+    'bnc://app.binance.com/c2c/adv?code={ad}',
     'bnc://app.binance.com/p2p/adDetail?advNo={ad}',
+    'bnc://app.binance.com/c2c/adDetail?advNo={ad}',
 ]
 
 # Textos de la app (en español). Se comparan sin acentos ni mayúsculas. Ajustar con lo que muestre --pantalla.
@@ -268,6 +271,13 @@ def esperar_anuncio(apodo, segundos=30):
         time.sleep(3)
         if PAQ not in al_frente():
             continue
+        ns = nodos()
+        if any('enlace no funciona' in norm(t) for t, _, _, _, _ in ns):   # la app no conoce ese enlace
+            for t, x, y, _, _ in ns:
+                if norm(t) == 'ok':
+                    adb('shell', 'input', 'tap', str(x), str(y))
+            paso('la app dice "Este enlace no funciona"')
+            return False
         cerrar_carteles()
         if en_pantalla(apodo):
             return True
