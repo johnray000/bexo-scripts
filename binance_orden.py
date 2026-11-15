@@ -147,13 +147,18 @@ def elegir_metodo(det, pago):
 
 # ---------- Pantalla ----------
 
+PAQ = ''   # paquete de Binance: solo se miran sus textos (si no, el apodo que imprime Termux cuenta como "visto")
+
+
 def nodos():
-    """[(texto, x, y, clase, clickeable)] de la pantalla, con EditText aunque estén vacíos."""
+    """[(texto, x, y, clase, clickeable)] de la pantalla de Binance, con EditText aunque estén vacíos."""
     _, xml = textos()
     if not xml:
         return []
     lista = []
     for n in ET.fromstring(xml).iter('node'):
+        if PAQ and n.get('package') != PAQ:
+            continue
         b = re.findall(r'\d+', n.get('bounds') or '')
         if len(b) != 4:
             continue
@@ -229,17 +234,46 @@ def fmt_monto(m):
 # ---------- 2. Llegar al anuncio ----------
 
 def paquete_binance():
+    global PAQ
     for linea in adb('shell', 'pm', 'list', 'packages').splitlines():
         p = linea.replace('package:', '').strip()
         if p in ('com.binance.dev', 'com.binance.android', 'com.binance.app'):
+            PAQ = p
             return p
     raise Frenado('No encuentro la app de Binance instalada')
 
 
+def al_frente():
+    """La app que está en pantalla (la ventana con el foco)."""
+    for l in adb('shell', 'dumpsys', 'window').splitlines():
+        if 'mCurrentFocus' in l or 'mFocusedApp' in l:
+            return l.strip()
+    return ''
+
+
+def que_veo():
+    return ' | '.join(t for t, _, _, _, _ in nodos()[:15])
+
+
 def abrir_enlace(paquete, url):
-    adb('shell', 'am', 'force-stop', paquete)
-    r = adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', "'%s'" % url, paquete)
+    r = adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', "'%s'" % url, paquete)
+    paso('am start: ' + ' '.join(r.split())[:200])
     return 'Error' not in r and 'unable to resolve' not in r.lower()
+
+
+def esperar_anuncio(apodo, segundos=30):
+    """Espera a que Binance quede al frente mostrando el apodo. Cierra carteles mientras tanto."""
+    fin = time.time() + segundos
+    while time.time() < fin:
+        time.sleep(3)
+        if PAQ not in al_frente():
+            continue
+        cerrar_carteles()
+        if en_pantalla(apodo):
+            return True
+    paso('al frente: %s' % al_frente())
+    paso('veo: %s' % que_veo())
+    return False
 
 
 def por_enlace(paquete, ad, apodo):
@@ -250,14 +284,12 @@ def por_enlace(paquete, ad, apodo):
     for plantilla in lista:
         if not abrir_enlace(paquete, plantilla.format(ad=ad)):
             continue
-        for _ in range(4):
-            time.sleep(4)
-            cerrar_carteles()
-            if en_pantalla(apodo):
-                paso('abrió con %s' % plantilla)
-                with open(ENLACE_BUENO, 'w') as f:
-                    f.write(plantilla)
-                return True
+        if esperar_anuncio(apodo):
+            paso('abrió con %s' % plantilla)
+            with open(ENLACE_BUENO, 'w') as f:
+                f.write(plantilla)
+            return True
+        guardar('enlace_no_abrio')
     return False
 
 
@@ -314,6 +346,7 @@ def completar_orden(det, metodo, monto):
     ns = nodos()
     campos = [n for n in ns if n[3] == 'EditText']
     if not campos:
+        paso('veo: %s' % que_veo())
         frenar('Estoy en el anuncio pero no veo dónde escribir el monto', 'orden')
     # Si hay pestañas USDT / VES, pasar a VES (el monto de la pre-orden es en Bs)
     ves = [n for n in ns if n[0] == 'VES' and n[4]]
@@ -391,9 +424,7 @@ def probar_enlaces(link):
         if not abrir_enlace(paquete, url):
             print('  ✗ la app no lo acepta: ' + url)
             continue
-        time.sleep(8)
-        cerrar_carteles()
-        ok = en_pantalla(det['apodo'])
+        ok = esperar_anuncio(det['apodo'], 25)
         print('  %s %s' % ('✓ ABRE EL ANUNCIO:' if ok else '· abre la app pero no el anuncio:', url))
         guardar('enlace%d' % ENLACES.index(plantilla))
         if ok:
