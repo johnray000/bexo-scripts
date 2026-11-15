@@ -127,6 +127,7 @@ def detalle_anuncio(ad):
     metodos = buscar(datos, ['tradeMethods']) or []
     return {
         'apodo': buscar(datos, ['nickName']) or '',
+        'usuario': str(buscar(datos, ['userNo', 'advertiserNo']) or ''),   # para abrir su perfil en la app
         'precio': float(buscar(datos, ['price']) or 0),
         'min': float(buscar(datos, ['minSingleTransAmount']) or 0),
         'max': float(buscar(datos, ['dynamicMaxSingleTransAmount', 'maxSingleTransAmount']) or 0),
@@ -351,35 +352,55 @@ def por_lista(paquete, apodo, metodo, monto):
 # ---------- 3. Completar la orden (sin colocarla) ----------
 
 def completar_orden(det, metodo, monto):
+    """Pantalla "Vender USDT" (vista el 15/11/2026): pestaña "En VES", el monto (0), "VES Todo", Límite, Vendes,
+    la fila de TU método de pago (ej. "Banesco 0000000 >"), Info. del anunciante, la casilla de términos y el botón
+    "Realizar Orden". Se completa monto y método. La casilla y "Realizar Orden" quedan para vos."""
     T.en_orden = True
     time.sleep(3)
     ns = nodos()
+    if not any(norm(n[0]) in ('vendes', 'vender usdt') for n in ns):
+        paso('veo: %s' % que_veo())
+        frenar('No llegué a la pantalla "Vender USDT"', 'orden')
+    for n in ns:                       # monto en Bs: pestaña "En VES" (si hay otra en USDT)
+        if norm(n[0]) == 'en ves':
+            T.xy(n[0], n[1], n[2])
+            ns = nodos()
+            break
     campos = [n for n in ns if n[3] == 'EditText']
+    if not campos:                     # sin EditText: el "0" grande debajo de "En VES"
+        y_ves = min([n[2] for n in ns if norm(n[0]) == 'en ves'] or [0])
+        campos = sorted([n for n in ns if re.fullmatch(r'[\d.,]+', n[0]) and n[2] > y_ves], key=lambda n: n[2])
     if not campos:
         paso('veo: %s' % que_veo())
-        frenar('Estoy en el anuncio pero no veo dónde escribir el monto', 'orden')
-    # Si hay pestañas USDT / VES, pasar a VES (el monto de la pre-orden es en Bs)
-    ves = [n for n in ns if n[0] == 'VES' and n[4]]
-    if ves:
-        cerca = min(ves, key=lambda n: abs(n[2] - campos[0][2]))
-        T.xy(cerca[0], cerca[1], cerca[2])
-        campos = [n for n in nodos() if n[3] == 'EditText'] or campos
-    T.xy(campos[0][0] or 'campo de monto', campos[0][1], campos[0][2])
+        frenar('No encontré dónde escribir el monto', 'monto')
+    T.xy('campo de monto', campos[0][1], campos[0][2])
+    adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END')
+    for _ in range(12):                # borra el 0 (o lo que hubiera)
+        adb('shell', 'input', 'keyevent', 'KEYCODE_DEL')
     escribir(fmt_monto(monto))
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')   # baja el teclado
     time.sleep(2)
-    if not en_pantalla(det['apodo']) and not any(n[3] == 'EditText' for n in nodos()):
+    ns = nodos()
+    if not any(norm(n[0]) == 'vendes' for n in ns):
         frenar('Al bajar el teclado se cerró la orden', 'teclado')
-    # Método de pago: el tuyo que coincide con el del anuncio
-    if T.texto((), regex=SELECTOR_PAGO, intentos=2):
+    # Método: la fila entre "Vendes" y "Info. del anunciante". Si ya muestra el tuyo, no se toca.
+    y_desde = max(n[2] for n in ns if norm(n[0]) == 'vendes')
+    y_hasta = min([n[2] for n in ns if norm(n[0]).startswith('info del anunciante')] or [10 ** 5])
+    fila = [n for n in ns if y_desde + 40 < n[2] < y_hasta and n[0]]
+    paso('fila de método: %s' % ' | '.join(n[0] for n in fila))
+    elegido = lambda: any(compacto(metodo['nombre']) in compacto(n[0]) or compacto(metodo['id']) in compacto(n[0])
+                          for n in fila)
+    if fila and not elegido():
+        T.xy(fila[0][0], fila[0][1], fila[0][2])
         time.sleep(2)
         if not T.texto((metodo['nombre'], metodo['id']), intentos=3, parcial=True):
             frenar('No tenés "%s" entre tus métodos de pago (o se llama distinto)' % metodo['nombre'], 'metodos')
-    else:
-        paso('no vi el selector de método: reviso si ya está elegido')
+        time.sleep(2)
+        ns = nodos()
+        fila = [n for n in ns if y_desde + 40 < n[2] < y_hasta and n[0]]
+    metodo_ok = bool(fila) and elegido()
     digitos = re.sub(r'\D', '', fmt_monto(monto).split('.')[0])
-    monto_ok = any(digitos and digitos in re.sub(r'\D', '', t) for t, _, _, _, _ in nodos())
-    metodo_ok = en_pantalla(metodo['nombre']) or en_pantalla(metodo['id'])
+    monto_ok = any(digitos and digitos == re.sub(r'\D', '', t.split('.')[0]) for t, _, _, _, _ in nodos())
     return monto_ok, metodo_ok
 
 
