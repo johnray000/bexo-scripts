@@ -46,6 +46,9 @@ CERRAR = ('cerrar', 'omitir', 'ahora no', 'mas tarde', 'entendido', 'saltar', 'n
 PROHIBIDO = re.compile(r'vender|sell|confirm|colocar|realizar|crear|pagar|enviar|continuar|siguiente|aceptar|'
                        r'haz clic|place|todo')
 MAX_VUELTAS = 40
+# Espera después de cada toque/tecla. Cada paso igual se comprueba releyendo la pantalla, así que no hace falta más
+# (antes 1,5 s: el recorrido tardaba ~75 s y los anuncios se iban; 15/11 18:04).
+ESPERA = 0.8
 # Panel "Filtrar" (embudo): cómo tienen que quedar los interruptores (john, 15/11: los tres apagados, para que la
 # lista muestre los mismos anuncios que la API de la pre-orden).
 INTERRUPTORES = {'Solo anuncios comerciables': False, 'Solo comerciantes Pro': False,
@@ -296,13 +299,13 @@ def tocar(que, x, y, en_orden_ok=False):
         raise Frenado('Por seguridad no toqué "%s"' % que)
     paso('toco %s' % que)
     adb('shell', 'input', 'tap', str(x), str(y))
-    time.sleep(1.5)
+    time.sleep(ESPERA)
 
 
 def tecla(nombre):
     paso('tecla %s' % nombre)
     adb('shell', 'input', 'keyevent', 'KEYCODE_' + nombre)
-    time.sleep(1.5)
+    time.sleep(ESPERA)
 
 
 def teclado_visible():
@@ -312,22 +315,21 @@ def teclado_visible():
 def escribir(campo, valor, en_orden_ok=False):
     """Toca el campo, borra lo que tenga y escribe el valor."""
     tocar('el campo del monto (%s)' % (campo.t or 'vacío'), campo.x, campo.y, en_orden_ok)
-    adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END')
-    for _ in range(14):
-        adb('shell', 'input', 'keyevent', 'KEYCODE_DEL')
+    adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END', *(['KEYCODE_DEL'] * 14))   # una sola llamada: más rápido
     paso('escribo %s' % valor)
     adb('shell', 'input', 'text', valor)
-    time.sleep(1.5)
+    time.sleep(ESPERA)
 
 
 # ---------- 3. Traer Binance ----------
 
 def traer_binance():
-    """Pone Binance al frente: actividad de inicio, monkey y, si nada anduvo, el link de app.binance.com (el 15/11
-    abrió la app las 25 veces, con un cartel "Este enlace no funciona" que se cierra con OK)."""
+    """Pone Binance al frente. Primero monkey: retoma la app DONDE QUEDÓ (si quedó en P2P, se ahorra el inicio
+    animado, ~15 s). Después la actividad de inicio (vuelve al inicio) y, si nada anduvo, el link de app.binance.com
+    (el 15/11 abrió la app las 25 veces, con un cartel "Este enlace no funciona" que se cierra con OK)."""
     formas = (
+        ('retomar donde quedó', ('shell', 'monkey', '-p', PAQ, '-c', 'android.intent.category.LAUNCHER', '1')),
         ('actividad de inicio', ('shell', 'am', 'start', '-n', '%s/%s' % (PAQ, INICIO_ACT))),
-        ('monkey', ('shell', 'monkey', '-p', PAQ, '-c', 'android.intent.category.LAUNCHER', '1')),
         ('link app.binance.com', ('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
                                   '-d', 'https://app.binance.com/es-LA', PAQ)),
     )
@@ -335,8 +337,8 @@ def traer_binance():
         adb('shell', 'cmd', 'statusbar', 'collapse')     # si corrió desde la notificación, la cortina está abierta
         salida = ' '.join(adb(*cmd).split())
         paso('abro Binance (%s): %s' % (nombre, salida[-100:] or 'sin salida'))
-        for _ in range(6):
-            time.sleep(2)
+        for _ in range(12):
+            time.sleep(1)
             f = al_frente()
             if PAQ in f:
                 return True
@@ -573,7 +575,7 @@ def llegar_a_la_orden(candidatos, metodo, monto):
             veces['traer'] += 1
             if veces['traer'] > 2 or not traer_binance():
                 frenar('Binance no se abrió', 'inicio')
-            time.sleep(3)
+            time.sleep(1.5)
             continue
         ns = nodos(espera=8, intentos=1)   # corto: el inicio es animado y uiautomator se cuelga ahí
         p = que_es(ns)
@@ -637,7 +639,7 @@ def llegar_a_la_orden(candidatos, metodo, monto):
             else:
                 paso('no leo el inicio (animado): toco P2P por posición')
                 adb('shell', 'input', 'tap', str(int(ancho * BOTON_P2P[0])), str(int(alto * BOTON_P2P[1])))
-                time.sleep(4)
+                time.sleep(2.5)
             hecho = 'P2P'
         elif p == 'cartel':
             n = [n for n in ns if norm(n.t) in CERRAR][0]

@@ -237,7 +237,8 @@ class Telefono:
             if s['foco']:
                 s['campo'] += a[3]
         elif a[:3] == ('shell', 'input', 'keyevent'):
-            self.key(a[3])
+            for k in a[3:]:                       # input keyevent acepta varias teclas seguidas
+                self.key(k)
         elif a[:3] == ('shell', 'input', 'swipe') and s['pantalla'] == 'filtrar':
             s['vista'], s['foco'] = 'metodos', False
         elif a[:3] == ('shell', 'input', 'swipe') and s['pantalla'] == 'p2p' and int(a[4]) < int(a[6]):

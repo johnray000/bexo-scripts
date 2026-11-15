@@ -104,9 +104,12 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    ("🔁 Reservas: …"). El teléfono (`armar_candidatos`, `buscar_en_lista`) toma el elegido o, si no está, la mejor
    reserva que vea; si su precio es más de 1 % peor (o no sabe el del original) avisa con ⚠️ y vibra largo.
    Prueba sin Google: `node pruebas/probar_reservas_appscript.js apps-script/9_P2P.gs`.
-1f. **Velocidad** (pendiente): hoy ~75 s hasta la lista. Ideas medidas en las corridas: abrir Binance donde quedó
-   (sin volver al inicio, ~15 s), probar "Guardar filtro para el próximo uso" (evitaría la 1ª vuelta y parte de la
-   2ª, ~30 s), esperas más cortas después de cada toque.
+1f. **Velocidad**: 18:01 `preOrdenDePrueba` OK por WhatsApp (Luis_Perez + reservas MERIDIUSS, CARI7), pero al llegar a
+   la lista (18:04) ninguno de los tres estaba: el recorrido tarda ~75 s (abrir ~20, 1ª vuelta ~10, 2ª ~25, lista ~5)
+   más lo que tarda john en copiar el link. Hecho: retomar Binance donde quedó (monkey primero), esperas de 0,8 s
+   (antes 1,5), borrar el campo en una sola llamada. Pendiente: probar "Guardar filtro para el próximo uso" (si guarda
+   interruptores y método, alcanzaría con cambiar el monto: ~30 s menos) y lanzar sin copiar (Compartir → Termux, o
+   que el teléfono lea la notificación de WhatsApp y arranque solo).
 1g. **Corrida 17:10 (`--prueba 5000`): recorrido completo OK** (IbelsExchange, 5000, Pago Movil) en ~80 s. Después:
    la casilla la tilda el recorrido.
 1h. Corrida 17:45: al tocar Vender de una reserva salió el cartel "El precio del anuncio se ha actualizado… Entendido"
