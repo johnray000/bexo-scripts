@@ -87,9 +87,12 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
 1. ~~Grabar el embudo~~ (hecho 15:27). Corrida 15:56: llegó a la lista con todo bien, pero no encontró a
    CloudMoneySolutions (anuncio de la madrugada) bajando 10 pantallas.
-1b. ~~Métodos en el panel Filtrar~~: grabación 16:14 → **el panel no tiene métodos de pago** (termina en "Tiempo
-   límite de pago"). El método se elige con el chip "Pago" de la lista; john lo dejó en Pago Movil y el recorrido lo
-   acepta. La hoja que abre ese chip **no quedó grabada** (si hace falta tocarlo, grabarla quedándose quieto en ella).
+1b. **Grabar la sección "Método de Pago" del panel Filtrar**: está ABAJO de todo (bajando: Monto, Tiempo límite,
+   Método de Pago con botones Todo / Pago Movil / Banco de Venezuela / Banesco / Mercantil / Provincial, captura de john
+   16:26). La grabación 16:14 solo tomó la parte de arriba. Hace falta el xml para saber cómo se marca el elegido.
+1c. **Pre-orden de prueba**: `preOrdenDePrueba()` en `apps-script/9_P2P.gs` (correr a mano desde el editor, después de
+   `subir.sh`). Busca como una pre-orden real para `MONTO_PRUEBA_VES` y manda por WhatsApp usuario, monto, método y
+   el comando para Termux. No toca Movimientos ni NEXT.
 2. Probar en el teléfono el recorrido completo con un adNo vigente:
    `python ~/bexo-scripts/binance_orden.py "https://c2c.binance.com/es-LA/adv?code=<adNo>&monto=<Bs>&pago=PagoMovil"`.
    Si se frena: deja `binance_*.png` y `.xml` en Descargas.

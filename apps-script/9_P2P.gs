@@ -617,6 +617,40 @@ function prepararOrdenP2P_(montoArs, nombre, saltados, forzar, metodos) {
   return lineas.join('\n');
 }
 
+// ---- Pre-orden de PRUEBA para el teléfono (binance_orden.py) ----
+var MONTO_PRUEBA_VES = 5000;   // Bs de la prueba
+
+/**
+ * Corré esto a mano desde el editor (elegí preOrdenDePrueba arriba y tocá Ejecutar).
+ * Busca el anuncio igual que una pre-orden real (relay, métodos activos, traders, frases de terceros) para
+ * MONTO_PRUEBA_VES Bs y te manda por WhatsApp un mensaje 🧪 con usuario, monto, método y el comando para Termux.
+ * No toca Movimientos ni la "última orden" de NEXT. El texto también queda en el registro de ejecución.
+ */
+function preOrdenDePrueba() {
+  var r = elegirAnuncioVes_(MONTO_PRUEBA_VES, leerTradersVes_(), leerFrasesAlerta_(), []);
+  var a = r.anuncio;
+  var texto;
+  if (!a) {
+    texto = '🧪 Pre-orden de PRUEBA: sin anuncios VES para ' + MONTO_PRUEBA_VES + ' Bs por ' +
+            metodosOrdenActivos_().join(', ') + '.';
+  } else {
+    var metodo = metodosOrdenActivos_().filter(function (m) { return a.pagos.indexOf(m) !== -1; })[0] ||
+                 a.pagos[0] || '';
+    var link = LINK_ANUNCIO + a.adNo + '&monto=' + MONTO_PRUEBA_VES + '&pago=' + encodeURIComponent(metodo);
+    texto = [
+      '🧪 *PRE-ORDEN DE PRUEBA* (no es de un cliente, no colocar)',
+      'Usuario: *' + a.apodo + '*',
+      'Monto: *' + MONTO_PRUEBA_VES + ' Bs* · Método: *' + metodo + '* · precio ' + a.precio,
+      'Límites: ' + a.min + ' - ' + a.max + ' Bs · acepta ' + a.pagos.join(', '),
+      '',
+      'Para el teléfono (copiá la línea entera en Termux):',
+      'python ~/bexo-scripts/binance_orden.py "' + link + '"'
+    ].join('\n');
+  }
+  Logger.log(texto);
+  Logger.log(whatsAppConfirmado_(texto) ? 'Enviado por WhatsApp.' : 'WhatsApp NO lo aceptó: mirá Errores.');
+}
+
 /** Guarda una frase en la hoja. tipo: 'BLOQUEAR' o 'PERMITIR'. */
 function guardarFrase_(frase, apodo, tipo) {
   var sh = hojaFiltro_();
