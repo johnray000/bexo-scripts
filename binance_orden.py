@@ -16,6 +16,7 @@ y maneja el teléfono por ADB (como okx_ordenes.py):
 
   python binance_orden.py "LINK"              # el recorrido completo (lo corre telefono/binance_orden.sh)
   python binance_orden.py --enlaces "LINK"    # prueba qué enlaces directos abre la app y guarda lo que acepta
+  python binance_orden.py --rastrear LINK     # abre un link en la app y busca en el registro a dónde lo llevó
   python binance_orden.py --pantalla NOMBRE   # en 8 s guarda la pantalla en Descargas (para ajustar los textos)
 
 Lo que guarda (capturas y pantallas) queda en Descargas, con nombres binance_*.
@@ -492,6 +493,27 @@ def probar_enlaces(link):
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
 
 
+def rastrear(url):
+    """Abre un link en la app (ej. el link corto de un perfil compartido) y busca en el registro de Android
+    la dirección interna a la que la app lo convirtió. Guarda todo en Descargas/binance_rastreo.txt."""
+    if not conectar():
+        raise Frenado('No hay ADB')
+    paquete = paquete_binance()
+    adb('logcat', '-c')
+    abrir_enlace(paquete, url)
+    time.sleep(12)
+    registro = adb('logcat', '-d', '-v', 'brief', espera=60)
+    pistas = [l for l in registro.splitlines()
+              if re.search(r'bnc://|app\.binance\.com|binance\.com/|dplk|advertiser|userNo|deeplink|DeepLink|schema|router',
+                           l, re.I)]
+    with open(os.path.join(LOG_DIR, 'binance_rastreo.txt'), 'w') as f:
+        f.write('\n'.join(pistas))
+    print('%d líneas con pistas (todas en Descargas/binance_rastreo.txt). Las primeras:' % len(pistas))
+    for l in pistas[:40]:
+        print('  ' + l[:300])
+    print('Pantalla: %s.png' % guardar('rastreo'))
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
     try:
@@ -500,6 +522,8 @@ if __name__ == '__main__':
                 raise Frenado('No hay ADB')
             time.sleep(8)
             print('Guardé %s.png y .xml en Descargas' % guardar(args[1] if len(args) > 1 else 'pantalla'))
+        elif args[:1] == ['--rastrear'] and len(args) > 1:
+            rastrear(args[1])
         elif args[:1] == ['--enlaces'] and len(args) > 1:
             probar_enlaces(args[1])
         elif len(args) == 1:
