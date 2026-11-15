@@ -2,7 +2,7 @@
 """Arma la orden P2P de la pre-orden en la app de Binance y se frena UN PASO ANTES de colocarla.
 
   python binance_orden.py "LINK"            # el recorrido completo (lo corre telefono/binance_orden.sh)
-  python binance_orden.py --grabar          # 150 s guardando cada pantalla mientras hacés el camino a mano
+  python binance_orden.py --grabar [SEG]    # (60 s) guarda cada pantalla mientras hacés el camino a mano
   python binance_orden.py --pantalla NOMBRE # en 8 s guarda la pantalla en Descargas
 
 LINK es el del anuncio que eligió la pre-orden (Apps Script, 9_P2P.gs):
@@ -143,7 +143,7 @@ def es_metodo(texto, metodo):
 # ---------- 2. Leer la pantalla ----------
 
 PAQ = ''   # paquete de Binance: solo se miran sus nodos (si no, lo que imprime Termux da falsos positivos)
-N = collections.namedtuple('N', 't x y clase rid')
+N = collections.namedtuple('N', 't x y clase rid clic prendido')   # prendido: True/False en interruptores
 
 
 def paquete_binance():
@@ -181,9 +181,12 @@ def leer_nodos(xml):
             continue
         t = (n.get('text') or n.get('content-desc') or '').strip()
         clase = (n.get('class') or '').split('.')[-1]
-        if t or clase == 'EditText':
+        clic = n.get('clickable') == 'true'
+        # con texto, campos, interruptores y botones-ícono (el embudo no tiene texto)
+        if t or clase in ('EditText', 'Switch') or (clic and clase == 'ImageView'):
             lista.append(N(t, (b[0] + b[2]) // 2, (b[1] + b[3]) // 2, clase,
-                           (n.get('resource-id') or '').split('/')[-1]))
+                           (n.get('resource-id') or '').split('/')[-1], clic,
+                           n.get('checked') == 'true' if n.get('checkable') == 'true' else None))
     return lista
 
 
@@ -199,6 +202,11 @@ def con(ns, *textos):
 
 def que_veo(ns):
     return ' | '.join(n.t for n in ns if n.t)[:300]
+
+
+def firma(ns):
+    """Lo que distingue una pantalla de otra: textos + estado de los interruptores (prender uno no cambia textos)."""
+    return que_veo(ns) + ' ' + ''.join('1' if n.prendido else '0' for n in ns if n.clase == 'Switch')
 
 
 def al_frente():
@@ -226,7 +234,8 @@ def frenar(motivo, nombre='fallo', ns=None):
 # Las pantallas que se conocen (todas grabadas). Lo demás es "desconocida" y frena.
 PANTALLAS = {
     'orden':   'Vender USDT: monto, "Vendes", tu método, términos y Realizar Orden (grabación 05/06)',
-    'monto':   'hoja "Quiero vender" (chip Monto, 15/11 02:13) o panel "Filtrar" (embudo, grabación 02/03)',
+    'filtrar': 'panel "Filtrar" del embudo: interruptores (Solo comerciantes Pro…), Monto, Confirmar (grabación 02/03)',
+    'monto':   'hoja "Quiero vender" (la abre el chip Monto, 15/11 02:13)',
     'divisa':  'Seleccionar divisa (grabación 01)',
     'activo':  'Seleccionar activo (se abrió por error el 15/11 02:08)',
     'p2p':     'lista de P2P: Comprar / Vender arriba, barra P2P · Órdenes · Anuncios (grabación 04)',
@@ -240,7 +249,7 @@ def que_es(ns):
                                                                  for n in ns)):
         return 'orden'
     if con(ns, 'Confirmar') and con(ns, 'Restablecer') and any(n.clase == 'EditText' for n in ns):
-        return 'monto'
+        return 'filtrar' if con(ns, 'Filtrar') else 'monto'
     if con(ns, 'Seleccionar divisa'):
         return 'divisa'
     if con(ns, 'Seleccionar activo'):
@@ -342,9 +351,16 @@ def en_p2p(ns, metodo, monto, estado):
     if moneda.t != 'VES':
         tocar('la moneda (%s)' % moneda.t, moneda.x, moneda.y)
         return 'moneda'
-    if numero(chip_monto.t) != monto:
-        tocar('el filtro de monto (%s)' % chip_monto.t, chip_monto.x, chip_monto.y)
-        return 'filtro de monto'
+    if not estado.get('filtro general') or numero(chip_monto.t) != monto:
+        # Siempre por el embudo: ahí está "Solo comerciantes Pro" (viene prendido) y el monto. A veces no abre a la
+        # primera: si en la vuelta siguiente seguimos en la lista, se toca de nuevo (hasta 3 veces).
+        embudo = [n for n in ns if n.clase == 'ImageView' and n.clic and not n.t and abs(n.y - activo.y) < 45
+                  and n.x > 900]
+        if not embudo:
+            frenar('No encontré el embudo (filtro general) a la derecha de los filtros', 'filtros', ns)
+        estado['filtro general'] = False
+        tocar('el embudo (filtro general)', embudo[0].x, embudo[0].y)
+        return 'embudo'
     if not es_metodo(chip_pago.t, metodo):
         tocar('el filtro de método (%s)' % chip_pago.t, chip_pago.x, chip_pago.y)
         return 'filtro de método'
@@ -352,8 +368,26 @@ def en_p2p(ns, metodo, monto, estado):
     return 'listo'
 
 
-def en_monto(ns, monto):
-    """Hoja "Quiero vender" / panel "Filtrar": escribe el monto y toca Confirmar."""
+def en_filtrar(ns, monto, estado):
+    """Panel "Filtrar" (embudo): primero apaga "Solo comerciantes Pro" si está prendido, después el monto y Confirmar.
+    Un cambio por vuelta: así cada toque se comprueba leyendo la pantalla de nuevo."""
+    if not estado.get('pro apagado'):
+        pro = con(ns, 'Solo comerciantes Pro')
+        llave = [n for n in ns if n.clase == 'Switch' and pro and abs(n.y - pro[0].y) < 40]
+        if not llave:
+            frenar('En el panel Filtrar no veo el interruptor "Solo comerciantes Pro"', 'filtrar', ns)
+        if llave[0].prendido:
+            tocar('apagar "Solo comerciantes Pro"', llave[0].x, llave[0].y)
+            return 'apagar Solo comerciantes Pro'
+        paso('"Solo comerciantes Pro" está apagado')
+        estado['pro apagado'] = True
+    en_monto(ns, monto, 'filtrar')
+    estado['filtro general'] = True
+    return 'monto y Confirmar'
+
+
+def en_monto(ns, monto, tipo='monto'):
+    """Panel "Filtrar" u hoja "Quiero vender": escribe el monto y toca Confirmar."""
     campo = [n for n in ns if n.clase == 'EditText'][0]
     if numero(campo.t) != monto:
         escribir(campo, fmt_monto(monto))
@@ -361,7 +395,7 @@ def en_monto(ns, monto):
         if not con(ns, 'Confirmar') and teclado_visible():   # el teclado tapa Confirmar: se baja
             tecla('BACK')
             ns = nodos()
-        if que_es(ns) != 'monto':
+        if que_es(ns) != tipo:
             frenar('Se cerró el panel del monto antes de confirmar', 'panel_monto', ns)
         campo = [n for n in ns if n.clase == 'EditText'][0]
         if numero(campo.t) != monto:
@@ -418,9 +452,12 @@ def llegar_a_la_orden(apodo, metodo, monto):
             if hecho == 'listo':
                 buscar_en_lista(apodo)
                 hecho = 'buscar a %s' % apodo
-        elif p == 'monto':
+        elif p == 'filtrar':
+            hecho = en_filtrar(ns, monto, estado)
+        elif p == 'monto':               # la hoja del chip Monto: no debería abrirse (se va por el embudo)
             en_monto(ns, monto)
-            hecho = 'monto'
+            estado['filtro general'] = False
+            hecho = 'monto (hoja Quiero vender)'
         elif p == 'divisa':
             ves = sorted(con(ns, 'VES'), key=lambda n: n.y)
             if not ves:
@@ -523,9 +560,16 @@ def recorrido(link):
 
 # ---------- Herramientas ----------
 
-def grabar(segundos=150):
+def vibrar(ms):
+    """Vibración corta sin esperar a que termine (-f: aunque el teléfono esté en silencio)."""
+    subprocess.Popen(['termux-vibrate', '-f', '-d', str(ms)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def grabar(segundos=60):
     """Mientras hacés el camino A MANO, guarda cada pantalla nueva de Binance (xml + captura) en
-    Descargas/binance_grabacion_HHMMSS/ (carpeta nueva cada vez: no pisa grabaciones anteriores)."""
+    Descargas/binance_grabacion_HHMMSS/ (carpeta nueva cada vez: no pisa grabaciones anteriores).
+    Vibra largo al empezar, cortito con cada pantalla guardada y dos veces al terminar.
+    Esperá la vibración cortita (2-3 s) antes del toque siguiente."""
     if not conectar():
         raise Frenado('No hay ADB')
     paquete_binance()
@@ -533,20 +577,31 @@ def grabar(segundos=150):
     carpeta = os.path.join(LOG_DIR, nombre)
     os.makedirs(carpeta, exist_ok=True)
     adb('shell', 'mkdir', '-p', '/sdcard/Download/' + nombre)
-    ultima, n, fin = None, 0, time.time() + segundos
-    print('Grabando %d s en Descargas/%s. Hacé el camino a mano, despacio, sin tocar Realizar Orden.' %
+    print('Grabando %d s en Descargas/%s. Andá a Binance; después de cada toque esperá la vibración cortita.' %
           (segundos, nombre), flush=True)
+    for i in range(5, 0, -1):         # tiempo para pasar a Binance
+        print('  empiezo en %d…' % i, flush=True)
+        time.sleep(1)
+    vibrar(400)
+    ultima, n, fin = None, 0, time.time() + segundos
     while time.time() < fin:
         xml = volcar(10, 1)
         ns = leer_nodos(xml)
-        firma = que_veo(ns)
-        if ns and firma != ultima:
-            ultima, n = firma, n + 1
-            with open(os.path.join(carpeta, '%02d.xml' % n), 'w') as f:
-                f.write(xml)
+        f = firma(ns)
+        if ns and f != ultima:
+            ultima, n = f, n + 1
+            with open(os.path.join(carpeta, '%02d.xml' % n), 'w') as fx:
+                fx.write(xml)
             adb('shell', 'screencap', '-p', '/sdcard/Download/%s/%02d.png' % (nombre, n))
-            print('  pantalla %d (%s): %s' % (n, que_es(ns), firma[:80]), flush=True)
-        time.sleep(1)
+            vibrar(60)
+            resto = int(fin - time.time())
+            avisar('Grabando Binance: %d pantallas' % n, 'Quedan %d s. Última: %s' % (max(resto, 0), que_es(ns)))
+            print('  pantalla %d (%s): %s' % (n, que_es(ns), que_veo(ns)[:80]), flush=True)
+        time.sleep(0.5)
+    vibrar(300)
+    time.sleep(0.6)
+    vibrar(300)
+    avisar('Grabación terminada', '%d pantallas en Descargas/%s' % (n, nombre))
     print('Listo: %d pantallas en Descargas/%s' % (n, nombre))
 
 
@@ -560,7 +615,7 @@ if __name__ == '__main__':
             time.sleep(8)
             print('Guardé %s.png y .xml en Descargas' % guardar(args[1] if len(args) > 1 else 'pantalla'))
         elif args[:1] == ['--grabar']:
-            grabar()
+            grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):
             r = recorrido(args[0])
             print(r)

@@ -12,12 +12,12 @@ hasta **un paso antes de colocar la orden**: john tilda la casilla de términos 
 
 | Archivo | Qué hace |
 |---|---|
-| `binance_orden.py` | El recorrido. `python binance_orden.py "LINK"`. Modos: `--grabar` (graba pantallas mientras john hace el camino a mano, en una carpeta nueva `binance_grabacion_HHMMSS`), `--pantalla NOMBRE`. |
+| `binance_orden.py` | El recorrido. `python binance_orden.py "LINK"`. Modos: `--grabar [SEG]` (60 s por defecto; graba mientras john hace el camino a mano, en una carpeta nueva `binance_grabacion_HHMMSS`; vibra largo al empezar, cortito por cada pantalla guardada y dos veces al terminar), `--pantalla NOMBRE`. |
 | `okx_ordenes.py` | Funciones compartidas de ADB: `adb()`, `conectar()` (reintenta el 5555 ~30 s), `bloqueado()`, `tamano_pantalla()`. |
 | `apps-script/9_P2P.gs` | El link del anuncio trae `&monto=<Bs>&pago=<método>` (línea con `LINK_ANUNCIO`). **Falta subirlo** (`sh ~/bexo-scripts/apps-script/subir.sh`). |
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
 | `telefono/termux-url-opener` | Compartir el link "Abrir en Binance" → Termux → corre el recorrido. **Falta instalarlo** en `~/bin/`. |
-| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (9 casos + apodo ausente). Tiene que dar "9 de 9 casos bien". |
+| `pruebas/simular_binance.py` | Prueba sin teléfono contra las pantallas grabadas (11 casos + apodo ausente). Tiene que dar "11 de 11 casos bien". |
 
 Pantallas grabadas (no en el repo: muestran saldos), en los archivos del proyecto `p2p/binance_app/grabacion/`:
 `01` Seleccionar divisa · `02`/`03` panel Filtrar (embudo) · `04` lista P2P con filtros · `05`/`06` "Vender USDT" ·
@@ -32,8 +32,9 @@ pantalla, `que_es()` dice cuál de las conocidas es (`PANTALLAS`) y hace **una**
 |---|---|
 | Binance no está al frente | cierra la cortina; actividad de inicio → monkey → link `app.binance.com` |
 | inicio (animado, no se lee) | toca P2P (por texto o por posición `BOTON_P2P`) |
-| p2p | en orden: pestaña Vender (una vez) · moneda si no es VES · chip de monto si no dice el monto · chip de método si no es el método · todo listo → busca el apodo (hasta 10 pantallas) y toca SU Vender |
-| monto ("Quiero vender" o "Filtrar") | escribe el monto, Confirmar (si el teclado tapa Confirmar, lo baja) |
+| p2p | en orden: pestaña Vender (una vez) · moneda si no es VES · **embudo** (siempre una vez por corrida; si no abre a la primera, lo toca de nuevo) · chip de método si no es el método · todo listo → busca el apodo (hasta 10 pantallas) y toca SU Vender |
+| filtrar (panel del embudo) | apaga "Solo comerciantes Pro" si está prendido (viene prendido por defecto) · escribe el monto · Confirmar (si el teclado tapa Confirmar, lo baja) |
+| monto (hoja "Quiero vender" del chip Monto) | no se usa: si quedó abierta, pone el monto y confirma, y después igual pasa por el embudo |
 | divisa | toca VES |
 | activo | BACK (no se elige nada: USDT ya está). Si el chip de activo no dice USDT, se frena y pide ponerlo a mano |
 | cartel | Cerrar / Omitir / OK |
@@ -54,6 +55,7 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
   `p2p/adv`, `adDetail`, `advertiserDetail`, `bnc://…`): solo `app.binance.com` y `bnc://app.binance.com` abren la app,
   y todos muestran "Este enlace no funciona". **Ir siempre por la lista.**
 - El chip **Monto** de la lista abre la hoja **"Quiero vender"** (no "Filtrar"). Es lo que frenaba la corrida de las 02:13.
+- **Ruta elegida por john: el filtro general (embudo)**, no el chip Monto: ahí se apaga "Solo comerciantes Pro". El embudo a veces no abre a la primera. Los interruptores traen `checked` en el xml (se leen bien). Ojo: en la grabación 02 Pro estaba apagado y "Solo comerciantes Verificados" prendido: confirmar con la grabación nueva.
 - Con el método sin elegir, el chip dice **"Pago"**. La lista de métodos que abre **no está grabada**.
 - Paquete `com.binance.dev`; actividad de inicio `com.eaas.launcher.activities.main.MainActivity`; P2P es
   `com.binance.c2c.main.FiatMainActivity`. `am start -a MAIN -c LAUNCHER <paquete>` NO la abre.
@@ -66,9 +68,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
 
 ## Pendiente, en orden
 
-1. **Grabar la lista de métodos de pago**: `python ~/bexo-scripts/binance_orden.py --grabar`, y a mano: P2P → Vender →
-   chip "Pago" → elegir Pago Movil (y confirmar si lo pide) → volver a la lista. Con eso se agrega la pantalla
-   `metodos` y su caso al simulador.
+1. **Grabar embudo + lista de métodos**: `python ~/bexo-scripts/binance_orden.py --grabar 90`, y a mano: P2P → Vender →
+   embudo → apagar "Solo comerciantes Pro" → Confirmar → chip "Pago" → elegir Pago Movil (y confirmar si lo pide) →
+   volver a la lista. Con eso se agrega la pantalla `metodos` y su caso al simulador.
 2. Probar en el teléfono el recorrido completo con un adNo vigente:
    `python ~/bexo-scripts/binance_orden.py "https://c2c.binance.com/es-LA/adv?code=<adNo>&monto=<Bs>&pago=PagoMovil"`.
    Si se frena: deja `binance_*.png` y `.xml` en Descargas.
