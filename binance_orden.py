@@ -39,19 +39,17 @@ LOG_DIR = DESCARGAS if os.path.isdir(DESCARGAS) else '.'
 ENLACE_BUENO = os.path.expanduser('~/.binance_enlace')   # el enlace directo que funcionó la última vez
 DETALLE = 'https://p2p.binance.com/bapi/c2c/v2/public/c2c/adv/selected-adv/'
 
-# Enlaces directos a probar, en orden. {ad} = número del anuncio. El que funciona queda en ~/.binance_enlace.
+# 15/11/2026: la app acepta https://app.binance.com y bnc://app.binance.com, pero NINGUNA dirección de anuncio
+# (adv?code=, p2p/adv, c2c/adv, adDetail: todas "Este enlace no funciona") y ya no deja compartir anuncios.
+# Se entra por el PERFIL del trader (eso sí se comparte) → pestaña Anuncios → su Vender. {u} = número de usuario.
+# El que funciona queda en ~/.binance_enlace.
 ENLACES = [
-    # app.binance.com es el dominio que la app acepta (15/11: con /es-LA/adv?code= abre pero dice "Este enlace no funciona")
-    'https://app.binance.com/es-LA/p2p/adv?code={ad}',
-    'https://app.binance.com/en/p2p/adv?code={ad}',
-    'https://app.binance.com/p2p/adv?code={ad}',
-    'https://app.binance.com/es-LA/c2c/adv?code={ad}',
-    'https://app.binance.com/en/adv?code={ad}',
-    'https://app.binance.com/es-LA/adv?code={ad}',
-    'bnc://app.binance.com/p2p/adv?code={ad}',
-    'bnc://app.binance.com/c2c/adv?code={ad}',
-    'bnc://app.binance.com/p2p/adDetail?advNo={ad}',
-    'bnc://app.binance.com/c2c/adDetail?advNo={ad}',
+    'https://app.binance.com/es-LA/advertiserDetail?advertiserNo={u}',
+    'https://app.binance.com/en/advertiserDetail?advertiserNo={u}',
+    'https://app.binance.com/es-LA/p2p/advertiserDetail?advertiserNo={u}',
+    'bnc://app.binance.com/c2c/advertiserDetail?advertiserNo={u}',
+    'bnc://app.binance.com/p2p/advertiserDetail?advertiserNo={u}',
+    'bnc://app.binance.com/c2c/userCenter?userNo={u}',
 ]
 
 # Textos de la app (en español). Se comparan sin acentos ni mayúsculas. Ajustar con lo que muestre --pantalla.
@@ -287,20 +285,41 @@ def esperar_anuncio(apodo, segundos=30):
     return False
 
 
-def por_enlace(paquete, ad, apodo):
+def entrar_a_anuncios():
+    """En el perfil: pestaña "Anuncios (n)" y el Vender de su anuncio. Desde ahí ya es la orden."""
+    if not T.texto(('Anuncios',), intentos=3, parcial=True):
+        frenar('Abrí el perfil pero no encontré la pestaña Anuncios', 'perfil')
+    time.sleep(2)
+    botones = sorted((n for n in nodos() if norm(n[0]) in ('vender', 'vender usdt')), key=lambda n: n[2])
+    if not botones:
+        paso('veo: %s' % que_veo())
+        frenar('En sus anuncios no hay uno para venderle USDT', 'anuncios')
+    T.xy(botones[0][0], botones[0][1], botones[0][2])
+    T.en_orden = True
+
+
+def plantillas():
     lista = ENLACES[:]
     if os.path.exists(ENLACE_BUENO):
         bueno = open(ENLACE_BUENO).read().strip()
-        lista = [bueno] + [e for e in lista if e != bueno]
-    for plantilla in lista:
-        if not abrir_enlace(paquete, plantilla.format(ad=ad)):
+        if bueno in lista:
+            lista = [bueno] + [e for e in lista if e != bueno]
+    return lista
+
+
+def por_perfil(paquete, det):
+    if not det['usuario']:
+        paso('el anuncio no trae el número de usuario del trader')
+        return False
+    for plantilla in plantillas():
+        if not abrir_enlace(paquete, plantilla.format(u=det['usuario'])):
             continue
-        if esperar_anuncio(apodo):
-            paso('abrió con %s' % plantilla)
+        if esperar_anuncio(det['apodo']):
+            paso('abrió el perfil con %s' % plantilla)
             with open(ENLACE_BUENO, 'w') as f:
                 f.write(plantilla)
+            entrar_a_anuncios()
             return True
-        guardar('enlace_no_abrio')
     return False
 
 
@@ -422,8 +441,8 @@ def recorrido(link):
     avisar('Binance: armando la orden…', '%s · %s Bs · %s. No toques la pantalla' %
            (det['apodo'], fmt_monto(monto), metodo['nombre']))
     paquete = paquete_binance()
-    if not por_enlace(paquete, ad, det['apodo']):
-        paso('ningún enlace directo abrió el anuncio: voy por la lista')
+    if not por_perfil(paquete, det):
+        paso('ningún enlace abrió el perfil: voy por la lista')
         por_lista(paquete, det['apodo'], metodo, monto)
     monto_ok, metodo_ok = completar_orden(det, metodo, monto)
     base = guardar('listo')
@@ -449,18 +468,26 @@ def probar_enlaces(link):
     for l in sorted(set(filtros)):
         if 'binance' in l or 'Scheme' in l:
             print('  ' + l)
-    print('\nAnuncio %s de %s. Probando enlaces:' % (ad, det['apodo']))
-    for plantilla in ENLACES:
-        url = plantilla.format(ad=ad)
+    print('\nAnuncio %s de %s (usuario %s). Probando enlaces al perfil:' % (ad, det['apodo'], det['usuario'] or '?'))
+    if not det['usuario']:
+        print('  El detalle del anuncio no trae el número de usuario. Lo guardé en binance_detalle.json')
+        req = urllib.request.Request(DETALLE + ad, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as r, open(os.path.join(LOG_DIR, 'binance_detalle.json'), 'wb') as f:
+            f.write(r.read())
+        return
+    for n, plantilla in enumerate(ENLACES):
+        url = plantilla.format(u=det['usuario'])
         if not abrir_enlace(paquete, url):
             print('  ✗ la app no lo acepta: ' + url)
             continue
         ok = esperar_anuncio(det['apodo'], 25)
-        print('  %s %s' % ('✓ ABRE EL ANUNCIO:' if ok else '· abre la app pero no el anuncio:', url))
-        guardar('enlace%d' % ENLACES.index(plantilla))
+        print('  %s %s' % ('✓ ABRE EL PERFIL:' if ok else '· no abre el perfil:', url))
         if ok:
             with open(ENLACE_BUENO, 'w') as f:
                 f.write(plantilla)
+            T.texto(('Anuncios',), intentos=3, parcial=True)
+            time.sleep(2)
+            print('  Guardé la pestaña Anuncios: %s.png' % guardar('anuncios'))
             break
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
 
