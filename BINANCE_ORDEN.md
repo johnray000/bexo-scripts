@@ -12,7 +12,7 @@ hasta **un paso antes de colocar la orden**: john tilda la casilla de términos 
 
 | Archivo | Qué hace |
 |---|---|
-| `binance_orden.py` | El recorrido. `python binance_orden.py "LINK"`. Modos: `--grabar [SEG]` (60 s por defecto; graba mientras john hace el camino a mano, en una carpeta nueva `binance_grabacion_HHMMSS`; vibra largo al empezar, cortito por cada pantalla guardada y dos veces al terminar), `--pantalla NOMBRE`. |
+| `binance_orden.py` | El recorrido. `python binance_orden.py "LINK"`. `--buscar [MONTO] [MÉTODO]` lista anuncios como la pre-orden; `--prueba [MONTO] [MÉTODO] [PUESTO]` elige uno y corre el recorrido (para probar sin pre-orden). Modos: `--grabar [SEG]` (60 s por defecto; graba mientras john hace el camino a mano, en una carpeta nueva `binance_grabacion_HHMMSS`; vibra largo al empezar, cortito por cada pantalla guardada y dos veces al terminar), `--pantalla NOMBRE`. |
 | `okx_ordenes.py` | Funciones compartidas de ADB: `adb()`, `conectar()` (reintenta el 5555 ~30 s), `bloqueado()`, `tamano_pantalla()`. |
 | `apps-script/9_P2P.gs` | El link del anuncio trae `&monto=<Bs>&pago=<método>` (línea con `LINK_ANUNCIO`). **Falta subirlo** (`sh ~/bexo-scripts/apps-script/subir.sh`). |
 | `telefono/binance_orden.sh` | Lo que corre el botón: notificación + log en `~/binance_orden.log`. |
@@ -61,7 +61,11 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
   comerciables" y "Solo comerciantes Verificados"; "Pro" viene apagado. john apaga **los tres** (15/11 15:27). Con
   comerciables apagado aparecen anuncios "Restringido" (no se pueden tomar).
 - El embudo **a veces no abre al primer toque**, y **la primera vez que se confirma el filtro la app lo descarta**: hay
-  que volver a entrar y confirmar de nuevo. Por eso el recorrido abre el embudo hasta una apertura sin cambios.
+  que volver a entrar y confirmar de nuevo. Por eso: 1ª apertura solo apaga "comerciables" y confirma; después se
+  carga todo, y se abre hasta una apertura sin cambios (verificación).
+- **Corrida 15/11 15:56**: llegó sola hasta la lista (VES, 5,000, interruptores verificados) pero no encontró a
+  CloudMoneySolutions en 10 pantallas: **sin filtro de método la lista es muy larga**. Falta elegir el método (john: se
+  elige en la segunda apertura, "el o los métodos"): pantalla no grabada.
 - Los interruptores traen `checked` en el xml. La barra de abajo (P2P · Órdenes · Anuncios) **no siempre sale** en el
   xml: la lista se reconoce por Comprar + Vender + Rápido / Comercio por bloques.
 - En ARS la fila de filtros trae además casillas "Pro" y "Nuevo usuario"; en VES no.
