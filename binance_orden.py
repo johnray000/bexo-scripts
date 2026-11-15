@@ -269,12 +269,15 @@ def en_p2p(ns):
 
 def abrir_p2p(paquete):
     """Abre Binance (donde haya quedado) y llega a la portada de P2P."""
+    adb('shell', 'cmd', 'statusbar', 'collapse')   # si quedó abierta la cortina de notificaciones, tapa la app
     adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER',
         paquete)
     for _ in range(10):
         time.sleep(2)
         if PAQ in al_frente():
             break
+        if 'NotificationShade' in al_frente():
+            adb('shell', 'cmd', 'statusbar', 'collapse')
     else:
         frenar('Binance no se abrió (al frente: %s)' % al_frente(), 'inicio')
     time.sleep(3)
