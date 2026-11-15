@@ -364,8 +364,10 @@ def en_p2p(ns, metodo, monto, estado):
     tab, moneda, fila = fila_filtros(ns)
     if not estado.get('pestaña'):
         estado['pestaña'] = True
-        tocar('la pestaña Vender', tab.x, tab.y)
-        return 'pestaña'
+        if not [n for n in con(ns, 'Vender') if n.x > 700]:   # las tarjetas dicen Comprar (o no hay): pestaña Vender
+            tocar('la pestaña Vender', tab.x, tab.y)
+            return 'pestaña'
+        paso('ya está en Vender')
     if moneda is None:
         frenar('No encontré la moneda arriba a la derecha', 'moneda', ns)
     if len(fila) < 3:
@@ -399,6 +401,26 @@ def interruptor(ns, texto):
     return llave[0] if llave else None
 
 
+def poner_interruptores(ns, quiero):
+    """Deja varios interruptores como se quiere: toca los que estén mal y comprueba todo con UNA sola lectura."""
+    tocados = []
+    for texto, valor in quiero.items():
+        llave = interruptor(ns, texto)
+        if llave is None:
+            frenar('En el panel Filtrar no veo el interruptor "%s"' % texto, 'filtrar', ns)
+        if llave.prendido != valor:
+            tocar('%s "%s"' % ('prender' if valor else 'apagar', texto), llave.x, llave.y)
+            tocados.append(texto)
+    if not tocados:
+        return ns
+    ns = nodos()
+    for texto in tocados:
+        llave = interruptor(ns, texto)
+        if llave is None or llave.prendido != quiero[texto]:
+            frenar('Toqué "%s" y no cambió' % texto, 'filtrar', ns)
+    return ns
+
+
 def poner_interruptor(ns, texto, quiero):
     """Deja el interruptor como se quiere, comprobando el toque. Devuelve la pantalla leída de nuevo."""
     llave = interruptor(ns, texto)
@@ -423,8 +445,7 @@ def en_filtrar(ns, monto, metodo, estado):
         tocar('Confirmar (primera vuelta: la app la descarta)', ok.x, ok.y)
         estado['cebado'] = True
         return 'filtro (primera vuelta)'
-    for texto, quiero in INTERRUPTORES.items():
-        ns = poner_interruptor(ns, texto, quiero)
+    ns = poner_interruptores(ns, INTERRUPTORES)
     ns = poner_monto(ns, monto, 'filtrar')
     ns = poner_metodo(ns, metodo, estado)
     ok = con(ns, 'Confirmar')
@@ -493,10 +514,9 @@ def poner_monto(ns, monto, tipo):
     campo = [n for n in ns if n.clase == 'EditText'][0]
     if numero(campo.t) != monto:
         escribir(campo, fmt_monto(monto))
-        ns = nodos()
         if teclado_visible():              # se baja (tapa Confirmar y no deja bajar hasta los métodos)
             tecla('BACK')
-            ns = nodos()
+        ns = nodos()
         if que_es(ns) != tipo:
             frenar('Se cerró el panel del monto antes de confirmar', 'panel_monto', ns)
         campo = [n for n in ns if n.clase == 'EditText']
@@ -571,13 +591,16 @@ def llegar_a_la_orden(candidatos, metodo, monto):
     veces = collections.Counter()
     estado = {}
     for _ in range(MAX_VUELTAS):
-        if PAQ not in al_frente():
+        frente = al_frente()
+        if PAQ not in frente:
             veces['traer'] += 1
             if veces['traer'] > 2 or not traer_binance():
                 frenar('Binance no se abrió', 'inicio')
             time.sleep(1.5)
             continue
-        ns = nodos(espera=8, intentos=1)   # corto: el inicio es animado y uiautomator se cuelga ahí
+        # En la pantalla principal de Binance (MainActivity) el inicio es animado y la lectura se cuelga: 3 s y, si no
+        # se deja leer, se toca P2P por posición (siempre está en el mismo lugar). En P2P y en la orden, lectura normal.
+        ns = nodos(espera=3 if INICIO_ACT in frente else 8, intentos=1)
         p = que_es(ns)
         if EN_ORDEN and p == 'precio cambiado':
             # El anunciante cambió el precio: Entendido, atrás a la lista, refrescar y buscar de nuevo (como john).

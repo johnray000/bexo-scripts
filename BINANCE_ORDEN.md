@@ -110,6 +110,9 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    (antes 1,5), borrar el campo en una sola llamada. Pendiente: probar "Guardar filtro para el próximo uso" (si guarda
    interruptores y método, alcanzaría con cambiar el monto: ~30 s menos) y lanzar sin copiar (Compartir → Termux, o
    que el teléfono lea la notificación de WhatsApp y arranque solo).
+   18:12 (`--prueba`): OK pero 75 s; 12 s perdidos en el inicio animado (lectura colgada 8 s). Hecho: en la
+   pantalla principal (MainActivity) lectura de 3 s y P2P por posición; no toca la pestaña si las tarjetas ya dicen
+   Vender; interruptores con una sola lectura; teclado sin lectura intermedia.
 1g. **Corrida 17:10 (`--prueba 5000`): recorrido completo OK** (IbelsExchange, 5000, Pago Movil) en ~80 s. Después:
    la casilla la tilda el recorrido.
 1h. Corrida 17:45: al tocar Vender de una reserva salió el cartel "El precio del anuncio se ha actualizado… Entendido"
