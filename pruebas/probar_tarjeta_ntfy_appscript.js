@@ -20,14 +20,18 @@ function ver(nombre, ok, detalle) { n++; bien += ok ? 1 : 0; console.log((ok ? '
 const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovil&alt=11,22';
 { // la tarjeta
   const { ctx, pedidos } = cargar();
-  const ok = ctx.avisarComprobanteNtfy_({ id: 'MOV-77', nombre: 'Juan Pérez García', monto: 100000, institucion: 'Mercado Pago',
+  const ok = ctx.avisarComprobanteNtfy_({ id: 'MOV-77', nombre: 'BEXO Juan Pérez', monto: 100000, institucion: 'Mercado Pago',
     ref: '0123456789', confianza: 0.98, driveId: 'DRV1', hora: '14:32', telefono: '59899123456' }, 0.59);
   const c = JSON.parse(pedidos[0].o.payload), todo = JSON.stringify(c);
   ver('tarjeta enviada al tema, por el relay', ok && c.topic === 'bexo-prueba' && c.priority === 4 &&
       pedidos[0].url === 'http://vps:8082/ntfy?token=t', pedidos[0].url);
-  ver('título corto', c.title === '💸 Juan P. · 100.000 ARS → 59.000 Bs', c.title);
+  ver('título: nombre sin BEXO y un solo emoji (la etiqueta)', c.title === 'Juan Pérez · 100.000 ARS → 59.000 Bs' &&
+      JSON.stringify(c.tags) === '["moneybag"]', c.title);
+  const largo = ctx.nombreTarjeta_('BEXO - María Fernanda Gutiérrez Rodríguez');
+  ver('nombre largo: cortado con …', largo === 'María Fernanda Gutiér…' && largo.length <= 22, largo);
+  ver('sin prefijo BEXO queda igual', ctx.nombreTarjeta_('bexo:Ana') === 'Ana' && ctx.nombreTarjeta_('Pedro') === 'Pedro');
   ver('detalle recortado', c.message === 'Mercado Pago · 14:32 · ref …6789 · lectura 98 %', c.message);
-  ver('sin datos de más', !/Pérez|García|0123456|59899/.test(todo));
+  ver('sin datos de más', !/BEXO|0123456|59899/.test(todo));
   ver('botón Armar llama al Apps Script con id y clave', c.actions[0].action === 'http' && c.actions[0].method === 'GET' &&
       c.actions[0].url === 'https://script.google.com/macros/s/X/exec?p2p=armar&id=MOV-77&k=clave123', c.actions[0].url);
   ver('botón Comprobante abre Drive', c.actions[1].action === 'view' && /DRV1/.test(c.actions[1].url));

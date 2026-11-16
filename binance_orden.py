@@ -327,6 +327,33 @@ def escribir(campo, valor, en_orden_ok=False):
 
 # ---------- 3. Traer Binance ----------
 
+def cerrar_cortina():
+    """Cierra la cortina de notificaciones (queda abierta al tocar un botón de ntfy: 16/11 17:27). Primero
+    `cmd statusbar collapse`; si sigue abierta, Atrás, que con la cortina al frente solo la cierra. Atrás se aprieta
+    únicamente si lo que está al frente es la cortina, nunca sobre Binance. True si quedó cerrada."""
+    for intento in range(3):
+        if 'NotificationShade' not in al_frente():
+            return True
+        if intento == 0:
+            paso('cierro la cortina de notificaciones')
+            adb('shell', 'cmd', 'statusbar', 'collapse')
+        else:
+            paso('la cortina sigue abierta: Atrás')
+            adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+        time.sleep(0.7)
+    return 'NotificationShade' not in al_frente()
+
+
+def reiniciar_binance():
+    """Cierra Binance y lo abre de nuevo: siempre arranca en el inicio, desde donde se sabe llegar a P2P. Para cuando
+    quedó en una pantalla que no está grabada (el libro de órdenes, 16/11). Nunca con una orden a medio armar."""
+    paso('Binance está en una pantalla que no conozco: lo cierro y lo abro de nuevo')
+    adb('shell', 'am', 'force-stop', PAQ)
+    time.sleep(1)
+    adb('shell', 'am', 'start', '-n', '%s/%s' % (PAQ, INICIO_ACT))
+    time.sleep(3)
+
+
 def traer_binance():
     """Pone Binance al frente. Primero monkey: retoma la app DONDE QUEDÓ (si quedó en P2P, se ahorra el inicio
     animado, ~15 s). Después la actividad de inicio (vuelve al inicio) y, si nada anduvo, el link de app.binance.com
@@ -338,7 +365,7 @@ def traer_binance():
                                   '-d', 'https://app.binance.com/es-LA', PAQ)),
     )
     for nombre, cmd in formas:
-        adb('shell', 'cmd', 'statusbar', 'collapse')     # si corrió desde la notificación, la cortina está abierta
+        cerrar_cortina()                                   # si corrió desde la notificación, la cortina está abierta
         salida = ' '.join(adb(*cmd).split())
         paso('abro Binance (%s): %s' % (nombre, salida[-100:] or 'sin salida'))
         for _ in range(12):
@@ -347,7 +374,7 @@ def traer_binance():
             if PAQ in f:
                 return True
             if 'NotificationShade' in f:
-                adb('shell', 'cmd', 'statusbar', 'collapse')
+                cerrar_cortina()
         paso('al frente sigue: %s' % al_frente())
     return False
 
@@ -596,6 +623,11 @@ def llegar_a_la_orden(candidatos, metodo, monto):
     estado = {}
     for _ in range(MAX_VUELTAS):
         frente = al_frente()
+        if 'NotificationShade' in frente:
+            veces['cortina'] += 1
+            if veces['cortina'] > 3 or not cerrar_cortina():
+                frenar('No pude cerrar la cortina de notificaciones', 'cortina')
+            continue
         if PAQ not in frente:
             veces['traer'] += 1
             if veces['traer'] > 2 or not traer_binance():
@@ -673,6 +705,11 @@ def llegar_a_la_orden(candidatos, metodo, monto):
             tocar('"%s" del cartel' % n.t, n.x, n.y)
             hecho = 'cartel'
         else:
+            if estado.get('esperé') and not EN_ORDEN and not estado.get('reinicié'):
+                reiniciar_binance()         # una sola vez: vuelve al inicio, que sí se conoce
+                estado.clear()
+                estado['reinicié'] = True
+                continue
             if estado.get('esperé') or EN_ORDEN:
                 frenar('Pantalla que no conozco (no está grabada): grabala con --grabar', 'desconocida', ns)
             estado['esperé'] = True         # una vuelta de gracia: puede que estuviera cargando

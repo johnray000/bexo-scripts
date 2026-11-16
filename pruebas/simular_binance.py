@@ -65,7 +65,7 @@ def llave(xml, rid, prendida):
 class Telefono:
     def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
                  frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000',
-                 recuerda_metodo=False, precio_cambia=False):
+                 recuerda_metodo=False, precio_cambia=False, cortina_terca=False, reinicio_desconocido=False):
         self.lista = lista
         self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
@@ -73,7 +73,8 @@ class Telefono:
                       orden_monto=orden_monto, tocado_apodo=None,
                       aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
                       recuerda=recuerda_metodo, panel_metodo=None, casilla=False,
-                      precio_cambia=precio_cambia, refrescado=False)
+                      precio_cambia=precio_cambia, refrescado=False, cortina_terca=cortina_terca,
+                      reinicio_desconocido=reinicio_desconocido, reinicios=0)
         self.malos = []
 
     def xml(self):
@@ -223,6 +224,8 @@ class Telefono:
         s = self.s
         if k == 'KEYCODE_DEL' and s['foco']:
             s['campo'] = s['campo'][:-1]
+        elif k == 'KEYCODE_BACK' and s['frente'] == 'cortina':
+            s['frente'] = 'termux'                # Atrás con la cortina abierta: solo la cierra
         elif k == 'KEYCODE_BACK':
             if s['pantalla'] in ('activo', 'metodos', 'monto', 'filtrar', 'divisa', 'orden'):
                 s['pantalla'] = 'p2p'
@@ -248,8 +251,11 @@ class Telefono:
                     'cortina': 'mCurrentFocus=Window{88b51fd u0 NotificationShade}',
                     'termux': 'mCurrentFocus=Window{2 u0 com.termux/x}'}[s['frente']]
         elif a[:4] == ('shell', 'cmd', 'statusbar', 'collapse'):
-            if s['frente'] == 'cortina':
+            if s['frente'] == 'cortina' and not s['cortina_terca']:
                 s['frente'] = 'termux'
+        elif a[:3] == ('shell', 'am', 'force-stop'):
+            s['frente'], s['reinicios'] = 'termux', s['reinicios'] + 1
+            s['pantalla'] = 'libro' if s['reinicio_desconocido'] else 'inicio'
         elif a[:3] == ('shell', 'am', 'start') or a[:2] == ('shell', 'monkey'):
             if s['frente'] == 'termux':
                 s['frente'] = 'binance'
@@ -319,6 +325,12 @@ casos = [
     ('la orden trae otro monto: lo corrige', 'orden True True True', dict(orden_monto='1234')),
     ('el precio cambió al abrir la orden: Entendido, atrás, refrescar y de nuevo', 'orden True True True',
      dict(precio_cambia=True)),
+    ('cortina terca (collapse no anda, como 17:27): la cierra con Atrás', 'orden True True True',
+     dict(frente='cortina', cortina_terca=True)),
+    ('Binance en el libro de órdenes (pantalla no grabada): lo reinicia', 'orden True True True',
+     dict(pantalla='libro')),
+    ('después de reiniciar sigue sin conocer la pantalla: se frena (no reinicia en bucle)', 'Pantalla que no conozco',
+     dict(pantalla='libro', reinicio_desconocido=True)),
     ('quedó abierta una orden vieja', 'orden True True True', dict(pantalla='orden')),
 ]
 bien = sum(correr(*c[:2], **c[2]) for c in casos)

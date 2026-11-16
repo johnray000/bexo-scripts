@@ -70,7 +70,7 @@ function parametroLink_(link, nombre) {
  */
 function avisarPreOrdenNtfy_(link, a, lineaReservas, prueba) {
   if (!link || !a) return false;
-  var titulo = (prueba ? '🧪 PRUEBA · ' : '💸 ') + a.apodo + ' · ' + parametroLink_(link, 'monto') + ' Bs · ' +
+  var titulo = (prueba ? 'PRUEBA · ' : '') + a.apodo + ' · ' + parametroLink_(link, 'monto') + ' Bs · ' +
                parametroLink_(link, 'pago');
   var texto = ['Precio ' + a.precio, lineaReservas || 'Sin reservas',
                'Tocá "Armar en Binance": el teléfono arma la orden y tilda la casilla; Realizar Orden lo tocás vos.']
@@ -93,11 +93,12 @@ function probarNtfy() {
 // y manda el link al teléfono (tema -cmd). Así el anuncio está fresco cuando aprobás.
 var ARMAR_BLOQUEO_S = 90;   // un segundo toque del mismo botón dentro de este tiempo no busca otra vez
 
-/** "Juan Pérez García" → "Juan P." */
-function nombreCorto_(nombre) {
-  var p = String(nombre || '').trim().split(/\s+/).filter(String);
-  if (!p.length) return '?';
-  return p[0] + (p.length > 1 ? ' ' + p[1].charAt(0).toUpperCase() + '.' : '');
+var MAX_NOMBRE_TARJETA = 22;   // más largo rompe el título de la notificación
+
+/** El nombre del contacto sin el prefijo "BEXO" ("BEXO Juan Pérez García" → "Juan Pérez García"), cortado con "…". */
+function nombreTarjeta_(nombre) {
+  var t = String(nombre || '').replace(/^\s*bexo\b[\s\-_:.·|]*/i, '').replace(/\s+/g, ' ').trim() || '?';
+  return t.length > MAX_NOMBRE_TARJETA ? t.slice(0, MAX_NOMBRE_TARJETA - 1).trim() + '…' : t;
 }
 
 /** Últimos 4 caracteres de la referencia ("…1234"), o '' si no hay. */
@@ -122,7 +123,7 @@ function urlArmar_(id) {
  */
 function avisarComprobanteNtfy_(n, tasa, prueba) {
   if (!ntfyActivo_() || !n || !n.id) return false;
-  var titulo = (prueba ? '🧪 ' : '💸 ') + nombreCorto_(n.nombre) + ' · ' + fmtEntero_(n.monto) + ' ARS → ' +
+  var titulo = (prueba ? 'PRUEBA · ' : '') + nombreTarjeta_(n.nombre) + ' · ' + fmtEntero_(n.monto) + ' ARS → ' +
                fmtEntero_(n.monto * tasa) + ' Bs';
   var conf = Number(n.confianza);
   var detalle = [n.institucion, n.hora, finReferencia_(n.ref) && 'ref ' + finReferencia_(n.ref),
@@ -132,7 +133,9 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
   if (n.driveId) {
     acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
   }
-  return avisarNtfy_(titulo, detalle || 'Comprobante leído', { prioridad: 4, tags: ['moneybag'], acciones: acciones });
+  // un solo emoji: el de la etiqueta (ntfy lo pone delante del título)
+  return avisarNtfy_(titulo, detalle || 'Comprobante leído',
+                     { prioridad: 4, tags: [prueba ? 'test_tube' : 'moneybag'], acciones: acciones });
 }
 
 /**
@@ -178,13 +181,13 @@ function armarDesdeNtfy_(id) {
     var d = f.datos;
     var nombre = String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto = Number(d[C.MONTO - 1]) || 0;
     if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(monto > 0)) {
-      avisarNtfy_('No es un comprobante en ARS', nombreCorto_(nombre), { prioridad: 4, tags: ['warning'] });
+      avisarNtfy_('No es un comprobante en ARS', nombreTarjeta_(nombre), { prioridad: 4, tags: ['warning'] });
       return 'no ARS';
     }
     var texto = textoAnuncio_(monto, nombre, d[C.CUENTA - 1], false);
     var link = linkAnuncioDe_(texto);
     if (!link) {
-      avisarNtfy_('Sin anuncio · ' + nombreCorto_(nombre), String(texto).slice(0, 300), { prioridad: 4, tags: ['warning'] });
+      avisarNtfy_('Sin anuncio · ' + nombreTarjeta_(nombre), String(texto).slice(0, 300), { prioridad: 4, tags: ['warning'] });
       return 'sin anuncio';
     }
     if (!mandarAlTelefono_(link)) {
