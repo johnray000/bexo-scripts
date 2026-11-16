@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Alarma en el teléfono cuando alguien abre una orden en TU anuncio de compra (Binance P2P).
+"""Alarma en el teléfono por las órdenes de TUS anuncios de Binance P2P (compra y venta).
 
-Binance no avisa bien de estas órdenes y, si no pagás a tiempo, se cancelan y te bloquean el anuncio.
-Cada 30 s mira tus compras de las últimas 2 horas (key de solo lectura, la de ~/.subir-ordenes.env).
-Si hay una orden en tu anuncio esperando tu pago: notificación + pitidos agudos + voz, cada 5 minutos.
-El botón "YA ME ENTERÉ" la calla 30 minutos; si después sigue sin pagar, vuelve con más pitidos.
+La app de Binance no avisa bien y, si no atendés a tiempo, las órdenes se cancelan y te cierran el anuncio
+(16/11: 9 ventas canceladas por compradores entre 12:23 y 14:46 → anuncios de venta cerrados por 1 día).
+Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y suena con notificación +
+pitidos agudos + voz cuando:
+  - COMPRA abierta en tu anuncio, esperando que pagues            → repite cada 5 min
+  - VENTA nueva en tu anuncio: el comprador entró y escribe en el chat → repite cada 2 min
+  - VENTA pagada por el comprador: revisá la plata y liberá        → repite cada 3 min
+  - VENTA cancelada: aviso con cuántas van en las últimas 6 h (Binance castiga las cancelaciones seguidas)
+El botón "YA ME ENTERÉ" la calla un rato; si la orden sigue igual después, vuelve con más pitidos.
+Cuando la orden cambia de estado (por ejemplo la venta pasa a pagada) suena enseguida aunque la hayas callado.
 
   python alerta_compras.py            # queda corriendo (lo arranca telefono/alerta.sh)
   python alerta_compras.py --probar   # una sola vuelta, muestra lo que ve y suena una alarma de prueba
@@ -23,20 +29,38 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from subir_ordenes import firmar_y_pedir, hora_binance_ms, leer_env  # noqa: E402
 
 CADA_S = 30
-REPETIR_S = 5 * 60
-SILENCIO_S = 30 * 60                      # lo que calla el botón "YA ME ENTERÉ"
-ESPERANDO_PAGO = ('PENDING', 'TRADING')   # después de "Pagado" pasa a BUYER_PAYED y deja de sonar
+HORA_MS = 3600 * 1000
+VENTANA_VENTAS_H = 6                      # para contar canceladas y no perder ventas largas
 HOME = os.path.expanduser('~')
 PITIDOS = {False: 3, True: 10}            # alarma normal / alarma después de "YA ME ENTERÉ"
+CANCELADAS = ('CANCELLED', 'CANCELLED_BY_SYSTEM')
+
+# (tipo, estado de Binance) → qué decir. repetir/silencio en segundos.
+AVISOS = {
+    ('BUY', 'PENDING'): 'compra', ('BUY', 'TRADING'): 'compra',
+    ('SELL', 'PENDING'): 'venta', ('SELL', 'TRADING'): 'venta',
+    ('SELL', 'BUYER_PAYED'): 'liberar',
+}
+TEXTOS = {
+    'compra': dict(repetir=5 * 60, silencio=30 * 60,
+                   titulo='🚨 COMPRA ABIERTA: pagá %s', insiste='🚨🚨 SIGUE SIN PAGAR: %s',
+                   voz='Orden de compra abierta. Pagá %s', voz_insiste='Todavía no pagaste la compra de %s'),
+    'venta': dict(repetir=2 * 60, silencio=10 * 60,
+                  titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='💰💰 VENTA ESPERANDO: %s · mirá el chat',
+                  voz='Venta nueva de %s. Abrí el chat de Binance',
+                  voz_insiste='La venta de %s sigue esperando. Mirá el chat'),
+    'liberar': dict(repetir=3 * 60, silencio=15 * 60,
+                    titulo='✅ TE PAGARON %s: revisá y liberá', insiste='✅✅ FALTA LIBERAR: %s',
+                    voz='Te pagaron %s. Revisá la cuenta y liberá', voz_insiste='Falta liberar la venta de %s'),
+}
 
 
-def compras_abiertas(cfg):
-    """Órdenes de compra en tus propios anuncios (MAKER) que esperan tu pago."""
+def mis_ordenes(cfg, tipo, horas):
+    """Órdenes de tus propios anuncios (MAKER) de las últimas `horas`, de compra (BUY) o venta (SELL)."""
     ahora = hora_binance_ms()
-    r = firmar_y_pedir(cfg, {'tradeType': 'BUY', 'startTimestamp': ahora - 2 * 3600 * 1000,
+    r = firmar_y_pedir(cfg, {'tradeType': tipo, 'startTimestamp': ahora - horas * HORA_MS,
                              'endTimestamp': ahora, 'page': 1, 'rows': 50})
-    return [o for o in (r.get('data') or [])
-            if o.get('orderStatus') in ESPERANDO_PAGO and o.get('advertisementRole') != 'TAKER']
+    return [dict(o, tradeType=tipo) for o in (r.get('data') or []) if o.get('advertisementRole') != 'TAKER']
 
 
 def archivo_pitido(n):
@@ -73,55 +97,125 @@ def pitar(n):
         subprocess.run(['termux-volume', 'music', str(antes)], check=False)
 
 
-def marca_ya(n):
-    return os.path.join(HOME, '.alerta_ya_' + n[-9:])
+def marca_ya(n, clase):
+    """Archivo que toca el botón YA ME ENTERÉ. Va por orden Y estado: callar 'venta nueva' no calla 'te pagaron'."""
+    return os.path.join(HOME, '.alerta_ya_%s_%s' % (n[-9:], clase))
 
 
-def sonar(o, insiste=False):
-    n = str(o.get('orderNumber'))
+def montos(o):
     try:
         monto = '{:,}'.format(int(float(o.get('totalPrice')))).replace(',', '.')
         hablado = str(int(float(o.get('totalPrice'))))
     except (TypeError, ValueError):
         monto = hablado = str(o.get('totalPrice'))
-    fiat = o.get('fiat') or ''
-    cant = '%s %s' % (o.get('amount'), o.get('asset'))
-    minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
-    titulo = ('🚨🚨 SIGUE SIN PAGAR: ' if insiste else '🚨 COMPRA ABIERTA: pagá ') + '%s %s' % (monto, fiat)
-    subprocess.run(['termux-notification', '--id', n[-9:],
-                    '--title', titulo,
-                    '--content', '%s · abierta hace %d min · orden …%s' % (cant, minutos, n[-6:]),
-                    '--icon', 'warning', '--led-color', 'ff0000',
-                    '--priority', 'max', '--vibrate', '1000,500,1000,500,1000',
-                    '--button1', 'YA ME ENTERÉ',
-                    '--button1-action', 'touch %s; termux-notification-remove %s' % (marca_ya(n), n[-9:])],
-                   check=False)
-    pitar(PITIDOS[insiste])
-    frase = ('Todavía no pagaste la compra de %s' if insiste else 'Orden de compra abierta. Pagá %s') % hablado
+    return '%s %s' % (monto, o.get('fiat') or ''), hablado
+
+
+def notificar(id_, titulo, contenido, pitidos, frase, boton=None):
+    cmd = ['termux-notification', '--id', id_, '--title', titulo, '--content', contenido,
+           '--icon', 'warning', '--led-color', 'ff0000',
+           '--priority', 'max', '--vibrate', '1000,500,1000,500,1000']
+    if boton:
+        cmd += ['--button1', 'YA ME ENTERÉ', '--button1-action', 'touch %s; termux-notification-remove %s' % (boton, id_)]
+    subprocess.run(cmd, check=False)
+    pitar(pitidos)
     subprocess.run(['termux-tts-speak', '-s', 'ALARM', frase], check=False)
 
 
-def vuelta(cfg, avisadas):
-    abiertas = compras_abiertas(cfg)
-    ahora = time.time()
-    for o in abiertas:
+def sonar(o, clase, insiste=False):
+    n = str(o.get('orderNumber'))
+    t = TEXTOS[clase]
+    monto, hablado = montos(o)
+    cant = '%s %s' % (o.get('amount'), o.get('asset'))
+    minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
+    notificar(n[-9:], t['insiste' if insiste else 'titulo'] % monto,
+              '%s · abierta hace %d min · orden …%s' % (cant, minutos, n[-6:]),
+              PITIDOS[insiste], t['voz_insiste' if insiste else 'voz'] % hablado, boton=marca_ya(n, clase))
+    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'alarma', clase, 'insiste' if insiste else '', monto, '…' + n[-6:],
+          flush=True)
+
+
+def avisar_cancelada(o, cuantas):
+    monto, hablado = montos(o)
+    titulo = '⚠️ SE CANCELÓ UNA VENTA de %s · %d en %d h' % (monto, cuantas, VENTANA_VENTAS_H)
+    contenido = 'Orden …%s' % str(o.get('orderNumber'))[-6:]
+    frase = 'Se canceló una venta de %s.' % hablado
+    if cuantas >= 2:
+        contenido += ' · Binance cierra los anuncios de venta si se cancelan seguido: si no podés atender, pausalo'
+        frase += ' Van %d canceladas. Si no podés atender, pausá el anuncio.' % cuantas
+    notificar('cancelada', titulo, contenido, PITIDOS[cuantas >= 2], frase)
+    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'cancelada', monto, '…' + str(o.get('orderNumber'))[-6:],
+          'van', cuantas, flush=True)
+
+
+class Estado:
+    def __init__(self):
+        self.avisadas = {}          # orden → (clase, cuándo sonó la última vez)
+        self.canceladas = None      # números de ventas canceladas ya vistas (None = primera vuelta, no avisa)
+
+
+def revisar_activas(activas, est, ahora, limpiar=True):
+    for o, clase in activas:
         n = str(o.get('orderNumber'))
-        ya = os.path.getmtime(marca_ya(n)) if os.path.exists(marca_ya(n)) else 0
-        if ya and ahora - ya < SILENCIO_S:
+        marca = marca_ya(n, clase)
+        ya = os.path.getmtime(marca) if os.path.exists(marca) else 0
+        t = TEXTOS[clase]
+        if ya and ahora - ya < t['silencio']:
             continue
-        ultimo = avisadas.get(n, 0)
-        # Al terminar los 30 min de silencio suena enseguida; después, cada 5 min hasta otro "YA ME ENTERÉ".
-        if ahora - ultimo >= REPETIR_S or (ya and ultimo < ya + SILENCIO_S):
-            sonar(o, insiste=bool(ya))
-            avisadas[n] = ahora
-    vivas = {str(o.get('orderNumber')) for o in abiertas}
-    for n in list(avisadas):
+        clase_antes, ultimo = est.avisadas.get(n, (None, 0))
+        if clase_antes != clase:
+            ultimo = 0              # cambió de estado (p. ej. de venta nueva a pagada): suena ya
+        # Al terminar el silencio suena enseguida; después, cada `repetir` hasta otro "YA ME ENTERÉ".
+        if ahora - ultimo >= t['repetir'] or (ya and ultimo < ya + t['silencio']):
+            sonar(o, clase, insiste=bool(ya))
+            est.avisadas[n] = (clase, ahora)
+    if not limpiar:                         # Binance falló en una mitad: no borrar lo que no se pudo ver
+        return
+    vivas = {str(o.get('orderNumber')): clase for o, clase in activas}
+    for n in list(est.avisadas):
         if n not in vivas:
-            del avisadas[n]
+            del est.avisadas[n]
             subprocess.run(['termux-notification-remove', n[-9:]], check=False)
-            if os.path.exists(marca_ya(n)):
-                os.remove(marca_ya(n))
-    return abiertas
+    for archivo in os.listdir(HOME):        # borra las marcas de órdenes que ya no esperan nada
+        if archivo.startswith('.alerta_ya_'):
+            partes = archivo[len('.alerta_ya_'):].split('_', 1)
+            if not any(n[-9:] == partes[0] and vivas[n] == (partes[1] if len(partes) > 1 else '') for n in vivas):
+                try:
+                    os.remove(os.path.join(HOME, archivo))
+                except OSError:
+                    pass
+
+
+def revisar_canceladas(ventas, est):
+    canc = [o for o in ventas if o.get('orderStatus') in CANCELADAS]
+    numeros = {str(o.get('orderNumber')) for o in canc}
+    if est.canceladas is not None:
+        nuevas = [o for o in canc if str(o.get('orderNumber')) not in est.canceladas]
+        if nuevas:
+            avisar_cancelada(max(nuevas, key=lambda o: int(o.get('createTime') or 0)), len(canc))
+    est.canceladas = numeros if est.canceladas is None else est.canceladas | numeros
+
+
+def vuelta(cfg, est):
+    """Una revisión. Si Binance falla en compras o en ventas, la otra mitad igual se revisa."""
+    activas, error = [], None
+    ventas = None
+    for tipo, horas in (('BUY', 2), ('SELL', VENTANA_VENTAS_H)):
+        try:
+            lista = mis_ordenes(cfg, tipo, horas)
+        except (Exception, SystemExit) as e:
+            error = e
+            continue
+        if tipo == 'SELL':
+            ventas = lista
+        activas += [(o, AVISOS[(tipo, o.get('orderStatus'))]) for o in lista
+                    if (tipo, o.get('orderStatus')) in AVISOS]
+    revisar_activas(activas, est, time.time(), limpiar=error is None)
+    if ventas is not None:
+        revisar_canceladas(ventas, est)
+    if error:
+        raise error
+    return activas, ventas or []
 
 
 if __name__ == '__main__':
@@ -130,16 +224,20 @@ if __name__ == '__main__':
     args = ap.parse_args()
     cfg = leer_env()
     if args.probar:
-        abiertas = vuelta(cfg, {})
-        print('Compras en tus anuncios esperando pago:', len(abiertas))
-        sonar({'orderNumber': '000000000', 'totalPrice': '34200.75', 'fiat': 'ARS', 'amount': '0',
-               'asset': 'USDC', 'createTime': hora_binance_ms()})
+        est = Estado()
+        activas, ventas = vuelta(cfg, est)
+        for clase in ('compra', 'venta', 'liberar'):
+            print('%-8s' % clase, sum(1 for _, c in activas if c == clase))
+        print('Ventas de tus anuncios en las últimas %d h: %d (canceladas: %d)' % (
+            VENTANA_VENTAS_H, len(ventas), sum(1 for o in ventas if o.get('orderStatus') in CANCELADAS)))
+        sonar({'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
+               'asset': 'USDT', 'createTime': hora_binance_ms()}, 'venta')
         sys.exit(0)
-    avisadas = {}
-    print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras arrancada', flush=True)
+    est = Estado()
+    print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras y ventas arrancada', flush=True)
     while True:
         try:
-            vuelta(cfg, avisadas)
+            vuelta(cfg, est)
         except (Exception, SystemExit) as e:   # sin internet o Binance caído: sigue intentando
             print(time.strftime('%Y-%m-%d %H:%M'), 'error:', e, flush=True)
         time.sleep(CADA_S)
