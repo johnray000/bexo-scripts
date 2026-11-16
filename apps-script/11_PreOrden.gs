@@ -185,6 +185,7 @@ function enviarPreOrdenes(siempre) {
         var msj = mensajePreOrden_(n, tasa, agenda);
         ok = whatsAppConfirmado_(msj.orden);
         if (ok && msj.datos) whatsAppConfirmado_(msj.datos);
+        if (ok) avisarPreOrdenTelefono_(msj.orden);   // ntfy con botón "Armar en Binance" (o el link solo)
       }
       if (ok) marcarEnviada_(n.id);   // si no, queda ENVIANDO y se reintenta sola
     } catch (e) {
@@ -219,6 +220,35 @@ function whatsAppConfirmado_(texto) {
     logError_('PREORDEN_WHATSAPP', e.message || e);
   }
   return false;
+}
+
+/**
+ * Manda el link del anuncio SOLO, en un mensaje aparte (el último): mantenerlo apretado → Compartir → Termux y el
+ * teléfono arma la orden en la app de Binance (telefono/termux-url-opener → binance_orden.py). Termux lo manda directo
+ * al recorrido solo si lo compartido es un link y nada más; con el mensaje entero abre otro diálogo.
+ */
+function enviarLinkSolo_(texto) {
+  var link = linkAnuncioDe_(texto);
+  if (link) whatsAppConfirmado_(link);
+}
+
+/**
+ * Avisa la pre-orden al teléfono: por ntfy con el botón "Armar en Binance" (21_Ntfy.gs) si NTFY_TOPIC está cargada;
+ * si no, o si ntfy falla, el WhatsApp con el link solo. Usa el anuncio que acaba de elegir prepararOrdenP2P_
+ * (P2P_ULTIMA) y la línea "🔁 Reservas" del texto.
+ */
+function avisarPreOrdenTelefono_(texto) {
+  var link = linkAnuncioDe_(texto);
+  if (!link) return;
+  var u = JSON.parse(PropertiesService.getScriptProperties().getProperty('P2P_ULTIMA') || '{}');
+  var reservas = String(texto).split('\n').filter(function (l) { return l.indexOf('🔁') === 0; })[0] || '';
+  if (!(ntfyActivo_() && u.apodo && avisarPreOrdenNtfy_(link, u, reservas))) enviarLinkSolo_(texto);
+}
+
+/** El link del anuncio (con &monto, &pago y &alt) dentro de un texto, sin comillas ni asteriscos al final. '' si no hay. */
+function linkAnuncioDe_(texto) {
+  var m = String(texto || '').match(new RegExp(LINK_ANUNCIO.replace(/[.?]/g, '\\$&') + '\\S+'));
+  return m ? m[0].replace(/["'*)\].,]+$/, '') : '';
 }
 
 /** Pasa la fila de ENVIANDO a ENVIADA. Busca por ID porque las filas nuevas entran arriba y corren las demás. */
