@@ -835,7 +835,8 @@ def recorrido(link):
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
-    avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto, 4 if alerta else 3)
+    # urgente (5): es el momento de tocar Realizar Orden, el anuncio puede durar menos de un minuto
+    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 5)
     subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
     return texto
 

@@ -794,6 +794,9 @@ function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.dash === '1') return dashboardP2PRespuesta_(p);   // 20_DashboardP2P.gs
   if (p.p2p === 'pre' && p.k === claveNext_()) return paginaPreOrden_(p);   // 11_PreOrden.gs
+  if (p.p2p === 'armar' && p.k === claveNext_()) {                           // botón de ntfy (21_Ntfy.gs)
+    return ContentService.createTextOutput(armarDesdeNtfy_(String(p.id || '')));
+  }
   if (p.p2p !== 'next' || p.k !== claveNext_()) {
     return HtmlService.createHtmlOutput('No autorizado');
   }
