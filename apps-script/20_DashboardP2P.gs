@@ -277,11 +277,29 @@ function dashboardP2P_(vivos) {
   var avisos = [];
   var okxSinMoneda = ords.filter(function (o) { return o.ex === 'OKX' && !o.mon && o.f >= hace7; }).length;
   if (okxSinMoneda) avisos.push({ nivel: 'warn', texto: okxSinMoneda + ' órdenes OKX de esta semana sin moneda. Corré el historial P2P en el teléfono.' });
-  ['Binance', 'OKX', 'Bybit'].forEach(function (ex) {
+  // Hasta cuándo hay órdenes cargadas de cada exchange: lo que pasó después todavía no entra en las cuentas.
+  var cargadas = ['Binance', 'OKX', 'Bybit'].map(function (ex) {
     var u = ords.filter(function (o) { return o.ex === ex; }).reduce(function (mx, o) { return !mx || o.f > mx ? o.f : mx; }, null);
-    var hs = u ? Math.round((ahora - u) / 36e5) : null;
-    if (hs === null || hs >= 24) avisos.push({ nivel: 'warn', texto: ex + ': ' + (hs === null ? 'sin órdenes cargadas.' : 'la última orden cargada es de hace ' + hs + ' h.') });
+    var hs = u ? (ahora - u) / 36e5 : null;
+    return { ex: ex, hasta: u ? Utilities.formatDate(u, zona, 'dd/MM HH:mm') : '', horas: hs === null ? null : Math.round(hs) };
   });
+  cargadas.forEach(function (c) {
+    if (c.horas === null || c.horas >= 24) avisos.push({ nivel: 'warn', texto: c.ex + ': ' + (c.horas === null ? 'sin órdenes cargadas.' : 'la última orden cargada es de hace ' + c.horas + ' h.') });
+  });
+
+  // Balance de toda la rueda desde el inicio del ciclo: USDT/USDC que entraron y salieron por cada moneda.
+  var rueda = {};
+  ok.filter(function (o) { return o.f >= desde && o.mon; }).forEach(function (o) {
+    var m = rueda[o.mon] || (rueda[o.mon] = { mon: o.mon, entro: 0, salio: 0, fiatPagado: 0, fiatCobrado: 0, n: 0 });
+    if (o.tipo === 'Compra') { m.entro += o.cant; m.fiatPagado += o.monto; } else { m.salio += o.cant; m.fiatCobrado += o.monto; }
+    m.n++;
+  });
+  var ruedaLista = Object.keys(rueda).map(function (k) {
+    var m = rueda[k];
+    return { mon: m.mon, entro: dashR_(m.entro), salio: dashR_(m.salio), neto: dashR_(m.entro - m.salio), ordenes: m.n,
+             pCompra: m.entro ? dashR_(m.fiatPagado / m.entro, 2) : null, pVenta: m.salio ? dashR_(m.fiatCobrado / m.salio, 2) : null };
+  }).sort(function (a, b) { return (b.entro + b.salio) - (a.entro + a.salio); });
+  var sinMoneda = ok.filter(function (o) { return o.f >= desde && !o.mon; });
   if (errMovs) avisos.push({ nivel: 'bad', texto: 'No pude leer Movs UY: ' + errMovs });
   else if (ultMov) {
     var dm = Math.round((ahora - ultMov) / 864e5);
@@ -316,6 +334,9 @@ function dashboardP2P_(vivos) {
     calor: calor,
     cupo: { limite: DASH_CUPO_CUENTA, cuentas: cupo },
     sinDeposito: sinDeposito.slice(-8).reverse(),
+    cargadas: cargadas,
+    rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
+             sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },
     movsHasta: ultMov ? Utilities.formatDate(ultMov, zona, 'dd/MM') : '',
     avisos: avisos
   };

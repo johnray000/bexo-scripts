@@ -49,10 +49,15 @@ def pagina_binance(asset, tipo_taker, pagina):
 def anuncios_binance_vivos():
     """Busca tus anuncios de Binance (los n° que mandó el Apps Script la vez anterior) en el listado público UYU.
     Devuelve {n°: {tipo, cripto, precio, puesto, total, mejor, visible}}. Si Binance falla, devuelve {}."""
+    global ESTADO_BINANCE
     try:
         with open(DATOS, encoding='utf-8') as f:
             mios = json.load(f).get('misAnunciosBinance') or {}
     except Exception:  # noqa: BLE001
+        mios = {}
+    ESTADO_BINANCE = {'buscados': len(mios), 'encontrados': 0, 'error': ''}
+    if not mios:
+        ESTADO_BINANCE['error'] = 'todavía no sé cuáles son tus anuncios (la planilla no mandó la lista)'
         return {}
     vivos = {}
     grupos = {}
@@ -79,13 +84,19 @@ def anuncios_binance_vivos():
                     break
         except Exception as e:  # noqa: BLE001
             log(f'Binance {asset} {taker}: {e}')
+            ESTADO_BINANCE['error'] = f'Binance no respondió: {e}'[:160]
             continue
         for n in ads:
             if n in vivos:
                 vivos[n].update(total=puesto, mejor=mejor)
             else:
                 vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'visible': False}
+    ESTADO_BINANCE['encontrados'] = sum(1 for v in vivos.values() if v.get('visible'))
+    log(f"Binance en vivo: {ESTADO_BINANCE['encontrados']} de {len(mios)} anuncios encontrados")
     return vivos
+
+
+ESTADO_BINANCE = {}
 
 
 def actualizar():
@@ -99,7 +110,7 @@ def actualizar():
             datos = json.loads(r.read().decode('utf-8'))
         if 'error' in datos:
             raise ValueError(datos['error'])
-        datos['servidor'] = {'ok': True, 'hora': int(time.time())}
+        datos['servidor'] = {'ok': True, 'hora': int(time.time()), 'binance': ESTADO_BINANCE}
     except Exception as e:  # noqa: BLE001
         log(f'No pude actualizar: {e}')
         try:
