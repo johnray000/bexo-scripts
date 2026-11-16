@@ -7,8 +7,29 @@
 //   NTFY_TOPIC + -cmd  → comandos para el teléfono: lo escucha telefono/escuchar_ntfy.py. El botón
 //                        "Armar en Binance" manda ahí el link del anuncio y el teléfono arma la orden (nunca la coloca).
 // ntfy.sh es un servidor público: el nombre del tema es la única protección. Nunca va un dato del cliente.
+// Google NO publica directo en ntfy.sh: sus IPs son compartidas y ntfy.sh corta por cupo diario (429, 16/11). Va por
+// el relay del VPS (POST /ntfy, vps/relay_binance.py), que publica con la IP propia del VPS.
 // ==========================================
 var NTFY_URL = 'https://ntfy.sh';
+
+/** Publica un JSON de ntfy (topic, title, message, …) por el relay del VPS; si el relay no anda, directo. */
+function publicarNtfy_(cuerpo) {
+  var payload = JSON.stringify(cuerpo), r;
+  try {
+    var token = PropertiesService.getScriptProperties().getProperty('RELAY_TOKEN');
+    r = UrlFetchApp.fetch(RELAY_URL + '/ntfy?token=' + encodeURIComponent(token),
+                          { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
+    if (r.getResponseCode() === 200) return true;
+    logError_('NTFY', 'relay ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  } catch (e) {
+    logError_('NTFY', 'relay ' + (e.message || e));
+  }
+  r = UrlFetchApp.fetch(NTFY_URL, { method: 'post', contentType: 'application/json', payload: payload,
+                                    muteHttpExceptions: true });   // último recurso (puede dar 429)
+  if (r.getResponseCode() < 300) return true;
+  logError_('NTFY', r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  return false;
+}
 
 function ntfyActivo_() {
   return !!CONFIG.NTFY_TOPIC;
@@ -22,19 +43,13 @@ function avisarNtfy_(titulo, texto, opciones) {
   if (!ntfyActivo_()) return false;
   opciones = opciones || {};
   try {
-    var r = UrlFetchApp.fetch(NTFY_URL, {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
-                                priority: opciones.prioridad || 3, tags: opciones.tags || [],
-                                actions: opciones.acciones || [] })
-    });
-    var c = r.getResponseCode();
-    if (c >= 200 && c < 300) return true;
-    logError_('NTFY', c + ' ' + r.getContentText().slice(0, 200));
+    return publicarNtfy_({ topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
+                           priority: opciones.prioridad || 3, tags: opciones.tags || [],
+                           actions: opciones.acciones || [] });
   } catch (e) {
     logError_('NTFY', e.message || e);
+    return false;
   }
-  return false;
 }
 
 /** Botón "Armar en Binance": manda el link al tema de comandos; el teléfono lo escucha y arma la orden. */
@@ -143,9 +158,7 @@ function probarTarjetaNtfy() {
 
 /** Manda un link al tema de comandos (lo escucha telefono/escuchar_ntfy.py). */
 function mandarAlTelefono_(link) {
-  var r = UrlFetchApp.fetch(NTFY_URL + '/' + CONFIG.NTFY_TOPIC + '-cmd',
-                            { method: 'post', payload: link, contentType: 'text/plain', muteHttpExceptions: true });
-  return r.getResponseCode() < 300;
+  return publicarNtfy_({ topic: CONFIG.NTFY_TOPIC + '-cmd', message: link });
 }
 
 /**

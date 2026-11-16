@@ -1,7 +1,7 @@
 // Prueba sin Google el aviso de pre-orden por ntfy: node pruebas/probar_ntfy_appscript.js (desde la raíz del repo)
 const fs = require('fs'), vm = require('vm');
 function cargar(conTopic) {
-  const props = { P2P_ULTIMA: JSON.stringify({ apodo: 'CARI7', precio: 1069 }) };
+  const props = { P2P_ULTIMA: JSON.stringify({ apodo: 'CARI7', precio: 1069 }), RELAY_URL: 'http://vps:8082', RELAY_TOKEN: 't' };
   if (conTopic) props.NTFY_TOPIC = 'bexo-prueba';
   const enviados = { ntfy: [], wa: [] };
   const ctx = { console, Logger: { log: () => {} },
