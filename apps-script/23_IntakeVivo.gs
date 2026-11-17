@@ -164,16 +164,20 @@ function enviarSugerenciaIntake_(id) {
   return 'enviado';
 }
 
-/** Botón "💬 Ok fino" de la tarjeta del comprobante. id = ID de Movimientos. No se repite en la misma operación. */
-function okFinoIntake_(id) {
+/** Botón "💬 Ok fino" de la tarjeta del comprobante. id = ID de Movimientos. No se repite en la misma operación.
+ *  pedirCuenta: botón "💬 Pedir cuenta" (sin datos en la Agenda): además manda "Confírmame a qué cuenta", una vez. */
+function okFinoIntake_(id, pedirCuenta) {
   var f = filaPorId_(hojaMovimientos_(), id);
   if (!f) return 'no encontrado';
   var tel = String(f.datos[C.TELEFONO - 1] || '').replace(/\D/g, '');
   if (!tel) return 'sin teléfono';
-  var est = estadoChat_(tel);
-  if (Date.now() - (est.enProceso || 0) < 12 * 3600e3) return 'ya estaba dicho';
-  sendWhatsAppMessage_(tel, FRASES_JOHN.en_proceso);
-  est.enProceso = est.ultJohn = Date.now(); est.foto = 0;
+  var est = estadoChat_(tel), ahora = Date.now(), dicho = ahora - (est.enProceso || 0) < 12 * 3600e3;
+  var pedir = pedirCuenta && !(ahora - (est.pidioCuenta || 0) < 12 * 3600e3);
+  if (dicho && !pedir) return 'ya estaba dicho';
+  if (!dicho) sendWhatsAppMessage_(tel, FRASES_JOHN.en_proceso);
+  if (pedir) { if (!dicho) Utilities.sleep(700); sendWhatsAppMessage_(tel, FRASES_JOHN.confirma_cuenta); est.pidioCuenta = ahora; }
+  if (!dicho) { est.enProceso = ahora; est.foto = 0; }
+  est.ultJohn = est.ultRespuesta = ahora;
   guardarEstadoChat_(tel, est);
   return 'enviado';
 }
@@ -181,6 +185,8 @@ function okFinoIntake_(id) {
 /** Ruta del doGet (9_P2P): ?intake=enviar|okfino&id=…&k=… */
 function rutaIntake_(p) {
   var id = String(p.id || '');
-  var r = p.intake === 'enviar' ? enviarSugerenciaIntake_(id) : (p.intake === 'okfino' ? okFinoIntake_(id) : 'acción desconocida');
+  var r = p.intake === 'enviar' ? enviarSugerenciaIntake_(id)
+        : p.intake === 'okfino' ? okFinoIntake_(id, false)
+        : p.intake === 'cuenta' ? okFinoIntake_(id, true) : 'acción desconocida';
   return ContentService.createTextOutput(r);
 }

@@ -65,7 +65,8 @@ def llave(xml, rid, prendida):
 class Telefono:
     def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
                  frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000',
-                 recuerda_metodo=False, precio_cambia=False, cortina_terca=False, reinicio_desconocido=False):
+                 recuerda_metodo=False, precio_cambia=False, cortina_terca=False, reinicio_desconocido=False,
+                 marca='contador'):
         self.lista = lista
         self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
@@ -74,7 +75,7 @@ class Telefono:
                       aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
                       recuerda=recuerda_metodo, panel_metodo=None, casilla=False,
                       precio_cambia=precio_cambia, refrescado=False, cortina_terca=cortina_terca,
-                      reinicio_desconocido=reinicio_desconocido, reinicios=0)
+                      reinicio_desconocido=reinicio_desconocido, reinicios=0, marca=marca)
         self.malos = []
 
     def xml(self):
@@ -95,7 +96,13 @@ class Telefono:
                            s['campo'] or 'Ingresa el monto total')
         if p == 'filtrar':
             if s['vista'] == 'metodos':   # bajado hasta "Método de Pago" (16:34): el xml no dice cuál, solo cuántos
-                return X['filtrar_metodos_elegido' if s['panel_metodo'] else 'filtrar_metodos']
+                # marca: cómo avisa el panel que hay uno elegido. 'contador' = "(1 seleccionado/s)" (16:34);
+                # 'nombre' = el nombre del método y 'oculta' = sigue diciendo "Todo" (NO grabadas: 17:21 se frenó
+                # con Pago Movil recordado sin que el script lo notara)
+                if not s['panel_metodo'] or s['marca'] == 'oculta':
+                    return X['filtrar_metodos']
+                x = X['filtrar_metodos_elegido']
+                return x.replace('(1 seleccionado/s)', s['panel_metodo']) if s['marca'] == 'nombre' else x
             if s['foco']:                 # con el teclado el panel se desplaza (grabación 03)
                 return cambiar(X['03'], '5000', '2131432527', s['campo'] or 'Ingresa el monto total')
             x = X['filtrar']
@@ -192,6 +199,8 @@ class Telefono:
         elif p == 'filtrar':
             if s['vista'] == 'metodos' and t in METODOS_PANEL:
                 s['panel_metodo'] = None if s['panel_metodo'] == t else t
+                if s['marca'] == 'oculta':
+                    s['marca'] = 'contador'   # la marca vieja se ve recién después de tocar
             elif s['vista'] == 'metodos' and t == 'Todo' and 900 < y < 1400:
                 s['panel_metodo'] = None
             elif clase == 'Switch':
@@ -316,6 +325,10 @@ casos = [
     ('la lista venía con Banesco (el panel lo olvida): elige Pago Movil', 'orden True True True', dict(pago='Banesco')),
     ('el panel recuerda Pago Movil: no lo toca (si lo tocara, lo desmarcaría)', 'orden True True True',
      dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False)),
+    ('17:21: el panel recuerda Pago Movil y lo muestra con el nombre: no lo toca', 'orden True True True',
+     dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False, marca='nombre')),
+    ('17:21: el panel recuerda Pago Movil sin marca: lo desmarca, ve "Todo" y lo vuelve a tocar', 'orden True True True',
+     dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False, marca='oculta')),
     ('el panel recuerda Banesco: se frena y pide dejarlo en Todo', 'dejalo en Todo',
      dict(pago='Banesco', recuerda_metodo=True)),
     ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True True', dict(pantalla='activo')),

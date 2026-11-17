@@ -28,6 +28,13 @@ const AGENDA = [
     veces: 3, msj: new Date(ahora - 30 * 864e5), de: 'BEXO Ana' }];
 let bien = 0, n = 0;
 function ver(nombre, ok, detalle) { n++; bien += ok ? 1 : 0; console.log((ok ? 'BIEN ' : 'MAL  ') + nombre + (detalle ? ' · ' + detalle : '')); }
+{ // sin datos en la Agenda: el segundo botón pide la cuenta
+  const { ctx, pedidos } = cargar();
+  ctx.avisarComprobanteNtfy_({ id: 'MOV-88', nombre: 'BEXO Nadie', monto: 70000, hora: '12:00' }, 0.585);
+  const c = JSON.parse(pedidos[0].o.payload);
+  ver('sin cuenta: avisa y el botón es "Pedir cuenta"', /Sin datos de cuenta/.test(c.message) && c.actions[1].label === '💬 Pedir cuenta' &&
+      /\?intake=cuenta&id=MOV-88/.test(c.actions[1].url), c.actions[1].label);
+}
 const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovil&alt=11,22';
 { // la tarjeta
   const { ctx, pedidos } = cargar();

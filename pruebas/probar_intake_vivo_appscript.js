@@ -106,6 +106,9 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('no se repite en la misma operación', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'ya estaba dicho' && waha.length === 1);
   ctx.registrarMensajeTuyo_(tuyo('5491155550002', 'Listo mí pana 👍🏼'));
   ver('después de tu "Listo" se puede de nuevo', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'enviado' && waha.length === 2);
+  ver('Pedir cuenta con Ok fino ya dicho: solo la pregunta', ctx.rutaIntake_({ intake: 'cuenta', id: 'MOV-1' }).texto === 'enviado' &&
+      waha.length === 3 && waha[2].text === 'Confírmame a qué cuenta', JSON.stringify(waha.map(w => w.text)));
+  ver('Pedir cuenta no se repite', ctx.rutaIntake_({ intake: 'cuenta', id: 'MOV-1' }).texto === 'ya estaba dicho' && waha.length === 3);
   ver('id desconocido', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-9' }).texto === 'no encontrado');
 }
 { // 6. datos en ntfy tapados; tu número no cuenta como chat

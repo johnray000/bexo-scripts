@@ -44,7 +44,7 @@ pantalla, `que_es()` dice cuál de las conocidas es (`PANTALLAS`) y hace **una**
 | Binance no está al frente | cierra la cortina; actividad de inicio → monkey → link `app.binance.com` |
 | inicio (animado, no se lee) | toca P2P (por texto o por posición `BOTON_P2P`) |
 | p2p | en orden: pestaña Vender (una vez) · moneda si no es VES · si el chip de método dice otro método (no "Pago" ni el tuyo) se frena · **embudo** hasta que el filtro quede verificado · todo listo → busca el apodo (hasta 10 pantallas) y toca SU Vender |
-| filtrar (panel del embudo) | 1ª apertura: solo apaga "Solo anuncios comerciables" y confirma (la app descarta ese Confirmar). 2ª: deja `INTERRUPTORES` como deben (los tres apagados), comprobando cada toque, escribe el monto, baja hasta "Método de Pago" y elige el de la pre-orden, y confirma. Si después los chips Monto y Pago no los muestran, se vuelve a abrir |
+| filtrar (panel del embudo) | 1ª apertura: solo apaga "Solo anuncios comerciables" y confirma (la app descarta ese Confirmar). 2ª: deja `INTERRUPTORES` como deben (los tres apagados), comprobando cada toque, escribe el monto, baja hasta "Método de Pago" y elige el de la pre-orden (lee la etiqueta junto al título: "Todo", "(1 seleccionado/s)" o el nombre; si ya está ese método no lo toca, y si el toque lo desmarca —quedó en "Todo", 17/11 17:21— lo toca otra vez), y confirma. Si después los chips Monto y Pago no los muestran, se vuelve a abrir |
 | monto (hoja "Quiero vender" del chip Monto) | no se usa: si quedó abierta, pone el monto y confirma, y después igual pasa por el embudo |
 | divisa | toca VES |
 | activo | BACK (no se elige nada: USDT ya está). Si el chip de activo no dice USDT, se frena y pide ponerlo a mano |

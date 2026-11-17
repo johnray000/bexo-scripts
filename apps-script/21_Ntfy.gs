@@ -153,13 +153,18 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
   var detalle = [n.institucion, n.hora, finReferencia_(n.ref) && 'ref ' + finReferencia_(n.ref),
                  conf > 0 ? 'lectura ' + Math.round(conf <= 1 ? conf * 100 : conf) + ' %' : '']
                 .filter(String).join(' · ');
+  var sinCuenta = false;
   try {
-    detalle = (detalle ? detalle + '\n' : '') + lineaDestino_(destinoDelCliente_(n.nombre));
+    var sug = destinoDelCliente_(n.nombre);
+    sinCuenta = !sug.cuenta;
+    detalle = (detalle ? detalle + '\n' : '') + lineaDestino_(sug);
   } catch (e) {
     logError_('NTFY_DESTINO', e.message || e);
   }
   var acciones = [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: true }];
-  acciones.push({ action: 'http', label: '💬 Ok fino', url: urlIntake_('okfino', n.id), method: 'GET', clear: false });   // 23_IntakeVivo.gs
+  // 23_IntakeVivo.gs: sin datos de cuenta, el botón además pregunta "Confírmame a qué cuenta" (lo que hacés vos)
+  acciones.push(sinCuenta ? { action: 'http', label: '💬 Pedir cuenta', url: urlIntake_('cuenta', n.id), method: 'GET', clear: false }
+                          : { action: 'http', label: '💬 Ok fino', url: urlIntake_('okfino', n.id), method: 'GET', clear: false });
   if (n.driveId) {
     acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
   }

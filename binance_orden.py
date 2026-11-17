@@ -487,14 +487,26 @@ def en_filtrar(ns, monto, metodo, estado):
     return 'filtro (completo)'
 
 
+def etiqueta_metodo(ns):
+    """El texto chico a la derecha del título "Método de Pago" ("Todo", "(1 seleccionado/s)" o el nombre elegido).
+    Grabación 17:21: con ninguno elegido dice "Todo"."""
+    tit = con(ns, 'Método de Pago')
+    if not tit:
+        return None
+    fila = [n for n in ns if n.t and abs(n.y - tit[0].y) < 40 and n.x > tit[0].x + 300 and n.t != 'Método de Pago']
+    return fila[0].t if fila else None
+
+
 def seleccionados(ns):
-    """El texto "(1 seleccionado/s)" junto a "Método de Pago": la única marca en el xml de que hay uno elegido
-    (grabación 16:34; los botones no traen selected/checked). None si no hay ninguno elegido."""
+    """Cuántos métodos hay elegidos. El xml no marca los botones (ni selected ni checked): la única señal es la
+    etiqueta junto a "Método de Pago": "(1 seleccionado/s)" (16:34), "Todo" (17:21) u otro texto = hay uno elegido.
+    None si no hay ninguno."""
     for n in ns:
         m = re.search(r'\((\d+) seleccionado', n.t)
         if m:
             return int(m.group(1))
-    return None
+    e = etiqueta_metodo(ns)
+    return 1 if e and e != 'Todo' else None
 
 
 def botones_metodo(ns):
@@ -518,19 +530,24 @@ def poner_metodo(ns, metodo, estado):
         ns = nodos()
     else:
         frenar('No encontré "%s" en la sección Método de Pago del filtro' % metodo['nombre'], 'filtrar', ns)
-    elegidos = seleccionados(ns)
+    elegidos, etiqueta = seleccionados(ns), etiqueta_metodo(ns)
     if elegidos:
-        if elegidos == 1 and es_metodo(estado.get('pago antes', ''), metodo):
+        if elegidos == 1 and (es_metodo(etiqueta or '', metodo) or es_metodo(estado.get('pago antes', ''), metodo)):
             paso('método: %s ya está elegido' % metodo['nombre'])
             return ns
-        frenar('En el filtro hay %d método(s) elegido(s) y la lista decía "%s": dejalo en Todo a mano' %
-               (elegidos, estado.get('pago antes', '')), 'filtrar', ns)
-    boton = [n for n in botones_metodo(ns) if es_metodo(n.t, metodo)][0]
-    tocar('el método %s' % boton.t, boton.x, boton.y)
-    ns = nodos()
-    if seleccionados(ns) != 1:
-        frenar('Toqué %s y no quedó elegido' % boton.t, 'filtrar', ns)
-    return ns
+        frenar('En el filtro hay %d método(s) elegido(s) ("%s") y la lista decía "%s": dejalo en Todo a mano' %
+               (elegidos, etiqueta, estado.get('pago antes', '')), 'filtrar', ns)
+    for vez in range(2):
+        boton = [n for n in botones_metodo(ns) if es_metodo(n.t, metodo)][0]
+        tocar('el método %s' % boton.t, boton.x, boton.y)
+        ns = nodos()
+        if seleccionados(ns) == 1:
+            return ns
+        # 17:21: estaba elegido sin que se notara y el toque lo desmarcó (volvió a "Todo"): se toca otra vez
+        if etiqueta_metodo(ns) != 'Todo' or vez:
+            break
+        paso('el toque desmarcó %s (estaba elegido): lo toco de nuevo' % boton.t)
+    frenar('Toqué %s y no quedó elegido' % boton.t, 'filtrar', ns)
 
 
 def en_monto(ns, monto):
