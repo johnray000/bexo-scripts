@@ -80,21 +80,74 @@ def archivo_pitido(n):
     return ruta, n * 0.37
 
 
-def pitar(n):
-    """Sube el volumen multimedia al máximo mientras pita y después lo deja como estaba."""
-    ruta, dura = archivo_pitido(n)
+# Sonidos para elegir el de las ventas (python alerta_compras.py --sonidos los toca uno por uno).
+# Cada nota: (Hz al empezar, Hz al terminar, segundos, silencio después, campana). campana=True: golpe y se apaga.
+DO, MI, SOL, DO2, MI2 = 1047, 1319, 1568, 2093, 2637
+SONIDOS = {
+    1: ('caja registradora: ding-ding agudo, como plata que entra',
+        [(MI2, MI2, 0.35, 0.05, True), (DO2 * 2, DO2 * 2, 0.6, 0.5, True)] * 2),
+    2: ('escalera: cuatro notas que suben rápido, dos veces',
+        [(DO, DO, 0.11, 0.02, False), (MI, MI, 0.11, 0.02, False), (SOL, SOL, 0.11, 0.02, False),
+         (DO2, DO2, 0.3, 0.35, False)] * 2),
+    3: ('sirena corta: tres barridos de grave a agudo',
+        [(700, 1800, 0.45, 0.12, False)] * 3),
+}
+
+
+def archivo_sonido(n):
+    """WAV de la opción n de SONIDOS (se arma una vez y queda en ~)."""
+    ruta = os.path.join(HOME, '.alerta_sonido_%d.wav' % n)
+    notas = SONIDOS[n][1]
+    if not os.path.exists(ruta):
+        tasa = 44100
+        muestras = []
+        for f0, f1, dura, pausa, campana in notas:
+            total, fase = int(tasa * dura), 0.0
+            for i in range(total):
+                fase += 2 * math.pi * (f0 + (f1 - f0) * i / total) / tasa
+                ataque = min(1.0, i / (tasa * 0.005))
+                cola = math.exp(-5 * i / total) if campana else min(1.0, (total - i) / (tasa * 0.01))
+                muestras.append(int(30000 * ataque * cola * math.sin(fase)))
+            muestras += [0] * int(tasa * pausa)
+        with wave.open(ruta, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(tasa)
+            w.writeframes(struct.pack('<%dh' % len(muestras), *muestras))
+    return ruta, sum(n_[2] + n_[3] for n_ in notas)
+
+
+def tocar(ruta, dura, volumen=1.0):
+    """Pone el volumen multimedia en `volumen` (fracción del máximo) mientras suena y después lo deja como estaba."""
     antes = None
     try:
         vols = json.loads(subprocess.run(['termux-volume'], capture_output=True, text=True).stdout or '[]')
         musica = next(v for v in vols if v.get('stream') == 'music')
         antes = musica['volume']
-        subprocess.run(['termux-volume', 'music', str(musica['max_volume'])], check=False)
+        subprocess.run(['termux-volume', 'music', str(max(1, round(musica['max_volume'] * volumen)))], check=False)
     except Exception:
         pass
     subprocess.run(['termux-media-player', 'play', ruta], check=False, capture_output=True)
     time.sleep(dura + 0.5)
     if antes is not None:
         subprocess.run(['termux-volume', 'music', str(antes)], check=False)
+
+
+def pitar(n):
+    tocar(*archivo_pitido(n))
+
+
+def probar_sonidos():
+    """Toca las opciones de venta al 75% del volumen, cada una dos veces y anunciada por voz."""
+    for n, (desc, _) in sorted(SONIDOS.items()):
+        print('Opción %d: %s' % (n, desc), flush=True)
+        subprocess.run(['termux-tts-speak', '-s', 'ALARM', 'Opción %d' % n], check=False)
+        time.sleep(0.5)
+        for _ in range(2):
+            tocar(*archivo_sonido(n), volumen=0.75)
+            time.sleep(0.8)
+        time.sleep(1.5)
+    print('Para escuchar una sola de nuevo: python ~/bexo-scripts/alerta_compras.py --sonidos 2')
 
 
 def marca_ya(n, clase):
@@ -221,7 +274,14 @@ def vuelta(cfg, est):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--probar', action='store_true')
+    ap.add_argument('--sonidos', nargs='?', type=int, const=0, help='prueba los sonidos de venta (o solo el número dado)')
     args = ap.parse_args()
+    if args.sonidos is not None:
+        if args.sonidos:
+            tocar(*archivo_sonido(args.sonidos), volumen=0.75)
+        else:
+            probar_sonidos()
+        sys.exit(0)
     cfg = leer_env()
     if args.probar:
         est = Estado()
