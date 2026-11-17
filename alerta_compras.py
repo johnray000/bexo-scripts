@@ -172,11 +172,26 @@ def notificar(id_, titulo, contenido, pitidos, frase, boton=None, sonido=None, v
     subprocess.run(['termux-tts-speak', '-s', 'ALARM', frase], check=False)
 
 
+# Cómo se dice cada método de pago (se busca el pedazo, sin mayúsculas ni acentos, en lo que manda Binance).
+BANCOS = (('prex', 'Prex'), ('itau', 'Itaú'), ('midinero', 'Mi Dinero'), ('redpagos', 'Mi Dinero'),
+          ('mercado', 'Mercado Pago'), ('oca', 'OCA'))
+CAMPOS_METODO = ('payMethodName', 'tradeMethodName', 'payMethod', 'payType')
+
+
+def banco(o):
+    """Método de pago de la orden dicho lindo ('Prex', 'Itaú'…), o '' si Binance no lo manda."""
+    crudo = next((str(o[k]) for k in CAMPOS_METODO if o.get(k)), '')
+    plano = crudo.lower().replace('ú', 'u').replace(' ', '').replace('_', '')
+    return next((lindo for clave, lindo in BANCOS if clave in plano), crudo)
+
+
 def sonar(o, clase, insiste=False, fuerte=True):
     """fuerte=False: las ventas suenan al 75% del volumen; si en 10 min no tocaste YA ME ENTERÉ, una vez más al máximo."""
     n = str(o.get('orderNumber'))
     t = TEXTOS[clase]
     monto, hablado = montos(o)
+    if clase == 'venta' and banco(o):
+        monto, hablado = '%s por %s' % (monto, banco(o)), '%s por %s' % (hablado, banco(o))
     cant = '%s %s' % (o.get('amount'), o.get('asset'))
     minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
     notificar(n[-9:], t['insiste' if insiste else 'titulo'] % monto,
@@ -265,8 +280,17 @@ if __name__ == '__main__':
             print('%-8s' % clase, sum(1 for _, c in activas if c == clase))
         print('Ventas de tus anuncios en las últimas %d h: %d (canceladas: %d)' % (
             VENTANA_VENTAS_H, len(ventas), sum(1 for o in ventas if o.get('orderStatus') in CANCELADAS)))
+        # Qué campos manda Binance en tus ventas (para confirmar de dónde sale el banco). No muestra apodos.
+        ultimas = mis_ordenes(cfg, 'SELL', 72)
+        if ultimas:
+            o = ultimas[0]
+            print('Campos de tu última venta:', ', '.join(sorted(o)))
+            print('Banco que se diría:', repr(banco(o)),
+                  {k: o.get(k) for k in o if any(x in k.lower() for x in ('pay', 'method', 'bank'))})
+        else:
+            print('No hay ventas en las últimas 72 h para ver los campos')
         sonar({'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
-               'asset': 'USDT', 'createTime': hora_binance_ms()}, 'venta')
+               'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'venta')
         sys.exit(0)
     est = Estado()
     print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras y ventas arrancada', flush=True)
