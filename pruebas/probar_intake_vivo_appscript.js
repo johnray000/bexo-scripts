@@ -72,6 +72,9 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
       r.mensajes.includes('Envía mitad y mitad') && r.mensajes.includes('John.ray.astro') && r.mensajes.includes('John.ray.naranja'),
       JSON.stringify(r.mensajes));
   ver('igual llega el borrador', ntfy.length === 1);
+  ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', 'A cómo la tasa?', false, true, hace(5 * 3600));
+  ver('tanda de hace 5 h (Buffer atrasado): se registra sin borrador', ntfy.length === 1 &&
+      hojas.Intake.filas[hojas.Intake.filas.length - 1][7] === '0.52');
 }
 { // 3. contestaste vos mientras la tanda esperaba: no hay borrador
   const { ctx, ntfy } = cargar();

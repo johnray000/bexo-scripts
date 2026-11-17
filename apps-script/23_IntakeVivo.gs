@@ -16,6 +16,7 @@ var INTAKE_HOJA = 'Intake';
 var INTAKE_ENCABEZADOS = ['Fecha', 'Teléfono', 'Nombre', 'Quién', 'Texto', 'Foto', 'Intenciones', 'Sugerido', 'Tipos', 'A mano'];
 var INTAKE_SUGERENCIA_SEG = 6 * 3600;            // el botón "Enviar" sirve 6 h
 var INTAKE_TIPOS_BORRADOR = ['tasa', 'calculo', 'alias', 'disponible'];
+var INTAKE_BORRADOR_MAX_MIN = 10;   // una tanda más vieja (p. ej. el Buffer atrasado) se registra pero no genera borrador
 
 function modoIntake_() {
   return String(PropertiesService.getScriptProperties().getProperty('INTAKE_MODO') || 'borrador').toLowerCase();
@@ -122,7 +123,8 @@ function registrarTandaIntake_(tel, nombre, texto, media, esCliente, fecha) {
                            r.mensajes.join(' | '), r.tipos.join(' '), r.manual ? (r.motivo || 'sí') : '']);
   // ¿ya contestaste vos (algo más que un saludo) mientras la tanda esperaba? entonces no hace falta borrador
   var yaContestaste = (est.ultRespuesta || 0) > new Date(fecha || 0).getTime();
-  if (modo === 'borrador' && !yaContestaste && r.tipos.some(function (t) { return INTAKE_TIPOS_BORRADOR.indexOf(t) !== -1; })) {
+  var vieja = fecha && ahora - new Date(fecha).getTime() > INTAKE_BORRADOR_MAX_MIN * 60e3;
+  if (modo === 'borrador' && !yaContestaste && !vieja && r.tipos.some(function (t) { return INTAKE_TIPOS_BORRADOR.indexOf(t) !== -1; })) {
     avisarBorradorIntake_(tel, nombre, texto, r);
   }
   return r;
