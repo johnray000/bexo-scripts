@@ -133,32 +133,78 @@ function calcularIntake_(p, tasas) {
   return { ars: ars, ves: Math.round(ves), texto: milesIntake_(ars) + ' pesos' };
 }
 
-/** Tasa neta de la hoja Tasas + BCV/euro de Yadio (o de la config TASA_BCV / TASA_EURO). */
-function tasasIntake_() {
-  var t = { neta: 0, usd: 0, eur: 0 };
-  try { t.neta = tasaNetaActual_(); } catch (e) {}
-  var cache = CacheService.getScriptCache(), c = cache.get('intake_tasas_usd');
-  if (c) { var o = JSON.parse(c); t.usd = o.usd; t.eur = o.eur; return t; }
+/**
+ * Tasa neta (hoja Tasas) + Bs por dólar y por euro oficiales (BCV). Fuentes en orden, la primera que dé un valor sano:
+ *   1. ve.dolarapi.com (/v1/dolares/oficial y /v1/euros/oficial)
+ *   2. Yadio (si su respuesta trae BCV)
+ *   3. TASA_BCV / TASA_EURO de la config (a mano)
+ *   4. la última buena guardada (hasta 72 h), por si todo lo anterior se cae
+ * Un valor más del triple o menos de un tercio del último bueno se descarta (falla de la API).
+ */
+var INTAKE_FUENTES_BCV = {
+  usd: ['https://ve.dolarapi.com/v1/dolares/oficial'],
+  eur: ['https://ve.dolarapi.com/v1/euros/oficial']
+};
+var INTAKE_ULTIMA_HORAS = 72;
+
+function jsonDe_(url) {
   try {
-    var r = UrlFetchApp.fetch(INTAKE_YADIO_URL, { muteHttpExceptions: true });
-    if (r.getResponseCode() === 200) {
-      var j = JSON.parse(r.getContentText()), b = j.BCV || j.bcv || {};
-      t.usd = Number(b.USD || b.usd || (j.USD && j.USD.BCV) || 0);
-      t.eur = Number(b.EUR || b.eur || 0);
-    }
-  } catch (e) {}
-  var cfg = (typeof CONFIG !== 'undefined') ? CONFIG : {};
-  if (!(t.usd > 0) && Number(cfg.TASA_BCV) > 0) t.usd = Number(cfg.TASA_BCV);
-  if (!(t.eur > 0) && Number(cfg.TASA_EURO) > 0) t.eur = Number(cfg.TASA_EURO);
-  if (t.usd > 0) cache.put('intake_tasas_usd', JSON.stringify({ usd: t.usd, eur: t.eur }), INTAKE_CACHE_TASAS_SEG);
+    var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { Accept: 'application/json' } });
+    return r.getResponseCode() === 200 ? JSON.parse(r.getContentText()) : null;
+  } catch (e) { return null; }
+}
+
+/** Saca un número de las formas conocidas: {promedio}, {venta}, {official}, {data:{official}}, [{fuente:'oficial',...}] */
+function valorOficial_(j) {
+  if (!j) return 0;
+  if (Array.isArray(j)) { var o = j.filter(function (x) { return /oficial|bcv/i.test(x.fuente || x.nombre || ''); })[0]; return valorOficial_(o); }
+  if (j.data) return valorOficial_(j.data);
+  return Number(j.promedio || j.official || j.venta || j.price || 0);
+}
+
+function sano_(v, anterior) {
+  return v > 0 && isFinite(v) && !(anterior > 0 && (v > anterior * 3 || v < anterior / 3));
+}
+
+function tasasIntake_() {
+  var t = { neta: 0, usd: 0, eur: 0, fuente: {} };
+  try { t.neta = tasaNetaActual_(); } catch (e) {}
+  var cache = CacheService.getScriptCache(), c = cache.get('intake_tasas_bcv');
+  if (c) { var o = JSON.parse(c); t.usd = o.usd; t.eur = o.eur; t.fuente = o.fuente; return t; }
+
+  var props = PropertiesService.getScriptProperties();
+  var ultima = JSON.parse(props.getProperty('INTAKE_ULTIMA_BCV') || '{}');
+  var yadio = null;
+  ['usd', 'eur'].forEach(function (k) {
+    var ant = ultima[k] || 0, v = 0;
+    INTAKE_FUENTES_BCV[k].some(function (url) { v = valorOficial_(jsonDe_(url)); return sano_(v, ant); });
+    if (sano_(v, ant)) { t[k] = v; t.fuente[k] = 'dolarapi'; return; }
+    if (yadio === null) yadio = jsonDe_(INTAKE_YADIO_URL) || {};
+    var b = yadio.BCV || yadio.bcv || {};
+    v = Number(b[k.toUpperCase()] || b[k] || 0);
+    if (sano_(v, ant)) { t[k] = v; t.fuente[k] = 'yadio'; return; }
+    var cfg = (typeof CONFIG !== 'undefined') ? CONFIG : {};
+    v = Number(cfg[k === 'usd' ? 'TASA_BCV' : 'TASA_EURO']) || 0;
+    if (v > 0) { t[k] = v; t.fuente[k] = 'config'; return; }
+    if (ant > 0 && Date.now() - (ultima.ts || 0) < INTAKE_ULTIMA_HORAS * 3600e3) { t[k] = ant; t.fuente[k] = 'última guardada'; }
+  });
+  if (t.fuente.usd === 'dolarapi' || t.fuente.usd === 'yadio') {
+    props.setProperty('INTAKE_ULTIMA_BCV', JSON.stringify({ usd: t.usd, eur: t.eur || ultima.eur || 0, ts: Date.now() }));
+  }
+  if (t.usd > 0) cache.put('intake_tasas_bcv', JSON.stringify({ usd: t.usd, eur: t.eur, fuente: t.fuente }), INTAKE_CACHE_TASAS_SEG);
   return t;
 }
 
-/** Para mirar qué devuelve Yadio (ejecutar en el editor). */
+/** Para mirar cada fuente (ejecutar en el editor). */
 function probarTasasIntake() {
-  var r = UrlFetchApp.fetch(INTAKE_YADIO_URL, { muteHttpExceptions: true });
-  Logger.log(r.getResponseCode() + ' ' + r.getContentText().slice(0, 1500));
-  Logger.log(JSON.stringify(tasasIntake_()));
+  ['usd', 'eur'].forEach(function (k) {
+    INTAKE_FUENTES_BCV[k].forEach(function (u) { Logger.log(k + ' ' + u + ' → ' + valorOficial_(jsonDe_(u))); });
+  });
+  var y = jsonDe_(INTAKE_YADIO_URL) || {};
+  Logger.log('Yadio: claves ' + Object.keys(y).join(', ') + ' · USD→VES ' + (y.USD && y.USD.VES) +
+    ' · BCV ' + JSON.stringify(y.BCV || y.bcv || null));
+  CacheService.getScriptCache().remove('intake_tasas_bcv');
+  Logger.log('Queda: ' + JSON.stringify(tasasIntake_()));
 }
 
 // ---------- alias ----------

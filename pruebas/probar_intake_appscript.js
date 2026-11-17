@@ -61,6 +61,28 @@ if (a2.alias.length !== 2 || !a2.mitad || a2.alias.some(x => /\.astro$/.test(x) 
 if (G.aliasParaCobrar_(100000, ['APB', 'NJ']).alias[0] !== 'John.ray.naranja') { fallas++; console.log('✗ APB pausada no se ofrece'); }
 console.log(`Unidades: ${unidad.length + 3} (fallas totales hasta acá: ${fallas})`);
 
+// fuentes de la tasa BCV: dolarapi, Yadio, config y última guardada
+{
+  const props = {}; let resp = {};
+  Object.assign(G, {
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) },
+    UrlFetchApp: { fetch: u => { const b = resp[u]; return { getResponseCode: () => b ? 200 : 503, getContentText: () => JSON.stringify(b || {}) }; } },
+    tasaNetaActual_: () => 0.52
+  });
+  const DU = 'https://ve.dolarapi.com/v1/dolares/oficial', DE = 'https://ve.dolarapi.com/v1/euros/oficial', Y = 'https://api.yadio.io/exrates/USD';
+  const prueba = (titulo, r, cfg, esperado) => {
+    resp = r; G.CONFIG = cfg || {};
+    const t = G.tasasIntake_(); const ok = t.usd === esperado.usd && t.fuente.usd === esperado.fuente;
+    if (!ok) { fallas++; console.log('✗ tasas:', titulo, JSON.stringify(t)); }
+  };
+  prueba('dolarapi', { [DU]: { fuente: 'oficial', promedio: 880 }, [DE]: { promedio: 990 } }, {}, { usd: 880, fuente: 'dolarapi' });
+  prueba('dolarapi caído, Yadio con BCV', { [Y]: { BCV: { USD: 881, EUR: 991 } } }, {}, { usd: 881, fuente: 'yadio' });
+  prueba('todo caído, config', {}, { TASA_BCV: 870 }, { usd: 870, fuente: 'config' });
+  prueba('todo caído, última guardada', {}, {}, { usd: 881, fuente: 'última guardada' });
+  prueba('salto absurdo se descarta', { [DU]: { promedio: 8800 } }, {}, { usd: 881, fuente: 'última guardada' });
+  console.log('Fuentes de tasa BCV: 5 casos');
+}
+
 // ---------- 2. repetición contra tus chats ----------
 const archivo = process.argv[2];
 if (archivo) {
