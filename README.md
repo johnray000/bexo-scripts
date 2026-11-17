@@ -11,8 +11,8 @@ Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive 
 
 Log en el teléfono: `tail -5 ~/subir.log`
 - `alerta_compras.py`: alarma (notificación + pitidos + voz) por las órdenes de tus anuncios de Binance: compra abierta
-  (pagá), venta nueva (abrí el chat), venta pagada (liberá) y venta cancelada (con cuántas van en 6 h);
-  revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
+  (pitidos cada 5 min hasta que pagues) y venta nueva (un ding-ding al 75%; si en 10 min no tocaste YA ME ENTERÉ,
+  uno más al máximo y nada más); revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
   Log: `tail -5 ~/alerta.log`
 - `facturacion/prex.py`: lee las entradas de plata de Prex (lista de Movimientos + detalle de cada una) por ADB.
   La huella la ponés vos; solo lee. `--probar` las muestra y las guarda en Descargas/prex_entradas.csv.

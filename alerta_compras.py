@@ -3,16 +3,11 @@
 
 La app de Binance no avisa bien y, si no atendés a tiempo, las órdenes se cancelan y te cierran el anuncio
 (16/11: 9 ventas canceladas por compradores entre 12:23 y 14:46 → anuncios de venta cerrados por 1 día).
-Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y suena con notificación +
-pitidos agudos + voz cuando:
-  - COMPRA abierta en tu anuncio, esperando que pagues            → repite cada 5 min
-  - VENTA nueva en tu anuncio: el comprador entró y escribe en el chat → repite cada 2 min
-  - VENTA pagada por el comprador: revisá la plata y liberá        → repite cada 3 min
-  - VENTA cancelada: aviso con cuántas van en las últimas 6 h (Binance castiga las cancelaciones seguidas)
-Las ventas suenan con la "caja registradora" (ding-ding) al 75% del volumen; si en 5 min no tocaste
-"YA ME ENTERÉ", al máximo. Las compras y las canceladas, con pitidos agudos al máximo.
-El botón "YA ME ENTERÉ" la calla un rato; si la orden sigue igual después, vuelve con más pitidos.
-Cuando la orden cambia de estado (por ejemplo la venta pasa a pagada) suena enseguida aunque la hayas callado.
+Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y avisa con notificación + sonido + voz:
+  - COMPRA abierta en tu anuncio, esperando que pagues: pitidos agudos al máximo, repite cada 5 min.
+    "YA ME ENTERÉ" la calla 30 min; si después sigue sin pagar, vuelve con más pitidos.
+  - VENTA nueva en tu anuncio: un ding-ding ("caja registradora") al 75% del volumen. Si en 10 min no tocaste
+    "YA ME ENTERÉ", suena UNA vez más al máximo y nada más. Pagada, liberada o cancelada: no suena.
 
   python alerta_compras.py            # queda corriendo (lo arranca telefono/alerta.sh)
   python alerta_compras.py --probar   # una sola vuelta, muestra lo que ve y suena una alarma de prueba
@@ -32,30 +27,25 @@ from subir_ordenes import firmar_y_pedir, hora_binance_ms, leer_env  # noqa: E40
 
 CADA_S = 30
 HORA_MS = 3600 * 1000
-VENTANA_VENTAS_H = 6                      # para contar canceladas y no perder ventas largas
+VENTANA_VENTAS_H = 6                      # ventana de ventas que se piden a Binance
 HOME = os.path.expanduser('~')
 PITIDOS = {False: 3, True: 10}            # alarma normal / alarma después de "YA ME ENTERÉ"
 CANCELADAS = ('CANCELLED', 'CANCELLED_BY_SYSTEM')
 VOLUMEN_SUAVE = 0.75                      # ventas: primero al 75% del volumen multimedia...
-SUBIR_VOLUMEN_S = 5 * 60                  # ...y si en 5 min no tocaste YA ME ENTERÉ, al máximo
+SUBIR_VOLUMEN_S = 10 * 60                 # ...y si en 10 min no tocaste YA ME ENTERÉ, una vez más al máximo
 
-# (tipo, estado de Binance) → qué decir. repetir/silencio en segundos.
+# (tipo, estado de Binance) → qué decir. repetir/silencio en segundos; veces: máximo de alarmas por orden.
 AVISOS = {
     ('BUY', 'PENDING'): 'compra', ('BUY', 'TRADING'): 'compra',
     ('SELL', 'PENDING'): 'venta', ('SELL', 'TRADING'): 'venta',
-    ('SELL', 'BUYER_PAYED'): 'liberar',
 }
 TEXTOS = {
     'compra': dict(repetir=5 * 60, silencio=30 * 60,
                    titulo='🚨 COMPRA ABIERTA: pagá %s', insiste='🚨🚨 SIGUE SIN PAGAR: %s',
                    voz='Orden de compra abierta. Pagá %s', voz_insiste='Todavía no pagaste la compra de %s'),
-    'venta': dict(repetir=2 * 60, sonido=1, silencio=10 * 60,
-                  titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='💰💰 VENTA ESPERANDO: %s · mirá el chat',
-                  voz='Venta nueva de %s. Abrí el chat de Binance',
-                  voz_insiste='La venta de %s sigue esperando. Mirá el chat'),
-    'liberar': dict(repetir=3 * 60, sonido=1, silencio=15 * 60,
-                    titulo='✅ TE PAGARON %s: revisá y liberá', insiste='✅✅ FALTA LIBERAR: %s',
-                    voz='Te pagaron %s. Revisá la cuenta y liberá', voz_insiste='Falta liberar la venta de %s'),
+    'venta': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=1, silencio=7 * 24 * 3600,
+                  titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='',
+                  voz='Venta nueva de %s. Abrí el chat de Binance', voz_insiste=''),
 }
 
 
@@ -183,7 +173,7 @@ def notificar(id_, titulo, contenido, pitidos, frase, boton=None, sonido=None, v
 
 
 def sonar(o, clase, insiste=False, fuerte=True):
-    """fuerte=False: las ventas suenan al 75% del volumen; si en 5 min no tocaste YA ME ENTERÉ, al máximo."""
+    """fuerte=False: las ventas suenan al 75% del volumen; si en 10 min no tocaste YA ME ENTERÉ, una vez más al máximo."""
     n = str(o.get('orderNumber'))
     t = TEXTOS[clase]
     monto, hablado = montos(o)
@@ -197,23 +187,9 @@ def sonar(o, clase, insiste=False, fuerte=True):
           flush=True)
 
 
-def avisar_cancelada(o, cuantas):
-    monto, hablado = montos(o)
-    titulo = '⚠️ SE CANCELÓ UNA VENTA de %s · %d en %d h' % (monto, cuantas, VENTANA_VENTAS_H)
-    contenido = 'Orden …%s' % str(o.get('orderNumber'))[-6:]
-    frase = 'Se canceló una venta de %s.' % hablado
-    if cuantas >= 2:
-        contenido += ' · Binance cierra los anuncios de venta si se cancelan seguido: si no podés atender, pausalo'
-        frase += ' Van %d canceladas. Si no podés atender, pausá el anuncio.' % cuantas
-    notificar('cancelada', titulo, contenido, PITIDOS[cuantas >= 2], frase)
-    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'cancelada', monto, '…' + str(o.get('orderNumber'))[-6:],
-          'van', cuantas, flush=True)
-
-
 class Estado:
     def __init__(self):
         self.avisadas = {}          # orden → (clase, cuándo sonó la última vez)
-        self.canceladas = None      # números de ventas canceladas ya vistas (None = primera vuelta, no avisa)
 
 
 def revisar_activas(activas, est, ahora, limpiar=True):
@@ -224,13 +200,15 @@ def revisar_activas(activas, est, ahora, limpiar=True):
         t = TEXTOS[clase]
         if ya and ahora - ya < t['silencio']:
             continue
-        clase_antes, ultimo, primera = est.avisadas.get(n, (None, 0, ahora))
+        clase_antes, ultimo, primera, veces = est.avisadas.get(n, (None, 0, ahora, 0))
         if clase_antes != clase:
-            ultimo, primera = 0, ahora   # cambió de estado (p. ej. de venta nueva a pagada): suena ya
+            ultimo, primera, veces = 0, ahora, 0
+        if veces >= t.get('veces', 10 ** 9):
+            continue
         # Al terminar el silencio suena enseguida; después, cada `repetir` hasta otro "YA ME ENTERÉ".
         if ahora - ultimo >= t['repetir'] or (ya and ultimo < ya + t['silencio']):
-            sonar(o, clase, insiste=bool(ya), fuerte=bool(ya) or ahora - primera >= SUBIR_VOLUMEN_S)
-            est.avisadas[n] = (clase, ahora, primera)
+            sonar(o, clase, insiste=bool(ya), fuerte=clase != 'venta' or ahora - primera >= SUBIR_VOLUMEN_S)
+            est.avisadas[n] = (clase, ahora, primera, veces + 1)
     if not limpiar:                         # Binance falló en una mitad: no borrar lo que no se pudo ver
         return
     vivas = {str(o.get('orderNumber')): clase for o, clase in activas}
@@ -248,16 +226,6 @@ def revisar_activas(activas, est, ahora, limpiar=True):
                     pass
 
 
-def revisar_canceladas(ventas, est):
-    canc = [o for o in ventas if o.get('orderStatus') in CANCELADAS]
-    numeros = {str(o.get('orderNumber')) for o in canc}
-    if est.canceladas is not None:
-        nuevas = [o for o in canc if str(o.get('orderNumber')) not in est.canceladas]
-        if nuevas:
-            avisar_cancelada(max(nuevas, key=lambda o: int(o.get('createTime') or 0)), len(canc))
-    est.canceladas = numeros if est.canceladas is None else est.canceladas | numeros
-
-
 def vuelta(cfg, est):
     """Una revisión. Si Binance falla en compras o en ventas, la otra mitad igual se revisa."""
     activas, error = [], None
@@ -273,8 +241,6 @@ def vuelta(cfg, est):
         activas += [(o, AVISOS[(tipo, o.get('orderStatus'))]) for o in lista
                     if (tipo, o.get('orderStatus')) in AVISOS]
     revisar_activas(activas, est, time.time(), limpiar=error is None)
-    if ventas is not None:
-        revisar_canceladas(ventas, est)
     if error:
         raise error
     return activas, ventas or []
@@ -295,7 +261,7 @@ if __name__ == '__main__':
     if args.probar:
         est = Estado()
         activas, ventas = vuelta(cfg, est)
-        for clase in ('compra', 'venta', 'liberar'):
+        for clase in ('compra', 'venta'):
             print('%-8s' % clase, sum(1 for _, c in activas if c == clase))
         print('Ventas de tus anuncios en las últimas %d h: %d (canceladas: %d)' % (
             VENTANA_VENTAS_H, len(ventas), sum(1 for o in ventas if o.get('orderStatus') in CANCELADAS)))
