@@ -72,6 +72,23 @@ var LIMITES = {
   ARQJ:  2000000
 };
 
+// Cuentas que no se recomiendan nunca (siguen en la tabla, marcadas PAUSADA). Sacarla de la lista para volver a usarla.
+var CUENTAS_PAUSADAS = ['APB'];
+// Cuentas que se recomiendan solo si ninguna otra tiene margen.
+var CUENTAS_AL_FINAL = ['BBJ'];
+
+/** La cuenta a recomendar: la de más margen, sin las pausadas y dejando las "al final" para cuando no queda otra. */
+function cuentaRecomendada_(disp) {
+  var mejor = null, ultima = null;
+  CUENTAS_DASH.forEach(function (c) {
+    if (disp[c] === null || disp[c] === undefined || CUENTAS_PAUSADAS.indexOf(c) !== -1) return;
+    if (CUENTAS_AL_FINAL.indexOf(c) !== -1) {
+      if (!ultima || disp[c] > disp[ultima]) ultima = c;
+    } else if (!mejor || disp[c] > disp[mejor]) mejor = c;
+  });
+  return (mejor && disp[mejor] > 0) || !ultima ? mejor : ultima;
+}
+
 // Solo se muestran en el dashboard los clientes cuyo nombre
 // (columna Nombre de Movimientos) empieza con este prefijo,
 // es decir los que vienen del Directorio.
@@ -220,11 +237,7 @@ function construirDashboard() {
   });
 
   // --- hero: la cuenta con más margen ---
-  var mejor = null;
-  CUENTAS_DASH.forEach(function (c) {
-    if (disp[c] === null) return;
-    if (!mejor || disp[c] > disp[mejor]) mejor = c;
-  });
+  var mejor = cuentaRecomendada_(disp);
 
   // Una sola celda combinada a todo lo ancho: la etiqueta y el dato no se pisan
   sh.setRowHeight(4, 26);
@@ -273,6 +286,11 @@ function construirDashboard() {
       var cs = colorSinLimite_(c);
       barras.push(null); colEstado.push(cs.txt); bgEstado.push(cs.est);
       fila[4] = 'SIN LÍMITE';
+    }
+    else if (CUENTAS_PAUSADAS.indexOf(c) !== -1) {   // pausada: se ve, pero no se recomienda
+      barras.push({ p: p, color: MUDO });
+      fila[4] = 'PAUSADA';
+      colEstado.push(MUDO); bgEstado.push(GRIS);
     }
     else {
       var col = p > 0.85 ? ROJO : (p > 0.6 ? AMBAR : VERDE);
