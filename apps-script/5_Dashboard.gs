@@ -77,16 +77,28 @@ var CUENTAS_PAUSADAS = ['APB'];
 // Cuentas que se recomiendan solo si ninguna otra tiene margen.
 var CUENTAS_AL_FINAL = ['BBJ'];
 
-/** La cuenta a recomendar: la de más margen, sin las pausadas y dejando las "al final" para cuando no queda otra. */
-function cuentaRecomendada_(disp) {
-  var mejor = null, ultima = null;
-  CUENTAS_DASH.forEach(function (c) {
-    if (disp[c] === null || disp[c] === undefined || CUENTAS_PAUSADAS.indexOf(c) !== -1) return;
-    if (CUENTAS_AL_FINAL.indexOf(c) !== -1) {
-      if (!ultima || disp[c] > disp[ultima]) ultima = c;
-    } else if (!mejor || disp[c] > disp[mejor]) mejor = c;
-  });
-  return (mejor && disp[mejor] > 0) || !ultima ? mejor : ultima;
+/** Cuentas en el orden en que conviene cobrar: más margen primero, sin las pausadas, las "al final" después
+ *  de las que tienen margen. La primera es la ★ RECOMENDADA. */
+function cuentasEnOrden_(disp) {
+  var con = function (c) { return disp[c] !== null && disp[c] !== undefined && CUENTAS_PAUSADAS.indexOf(c) === -1; };
+  var porMargen = function (a, b) { return disp[b] - disp[a]; };
+  var normales = CUENTAS_DASH.filter(function (c) { return con(c) && CUENTAS_AL_FINAL.indexOf(c) === -1; }).sort(porMargen);
+  var finales = CUENTAS_DASH.filter(function (c) { return con(c) && CUENTAS_AL_FINAL.indexOf(c) !== -1; }).sort(porMargen);
+  var conMargen = normales.filter(function (c) { return disp[c] > 0; });
+  var sinMargen = normales.filter(function (c) { return disp[c] <= 0; });
+  return conMargen.concat(finales, sinMargen);
+}
+function cuentaRecomendada_(disp) { return cuentasEnOrden_(disp)[0] || null; }
+
+/** El orden de cobro de este mes (para el intake). Se guarda 10 min. */
+function cuentasParaCobrar_() {
+  var cache = CacheService.getScriptCache(), c = cache.get('cuentas_para_cobrar');
+  if (c) return JSON.parse(c);
+  var lim = limites_(), ag = agregar_(), disp = {};
+  CUENTAS_DASH.forEach(function (k) { disp[k] = lim[k] ? lim[k] - ag.porCuenta[k].usado : null; });
+  var orden = cuentasEnOrden_(disp);
+  cache.put('cuentas_para_cobrar', JSON.stringify(orden), 600);
+  return orden;
 }
 
 // Solo se muestran en el dashboard los clientes cuyo nombre

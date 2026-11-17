@@ -33,6 +33,11 @@ Log en el teléfono: `tail -5 ~/subir.log`
   (para el acceso directo de Termux:Widget). Último informe: `cat ~/consumo_ultimo.txt`.
 - `telefono/liberar.sh`: notificación fija con el botón LIBERAR (la pone alerta.sh): cierra OKX, Instagram, Telegram y Abitab ID (más las de
   `~/.liberar_extra`) y avisa cuánta RAM liberó. A Abitab además le saca el permiso de correr en segundo plano. Usa ADB.
+- `apps-script/22_Intake.gs`: etapa 1 del intake (solo calcula, no manda nada): intenciones de cada tanda del cliente,
+  cálculo pesos ↔ Bs y dólares a tasa BCV/euro (Yadio, o TASA_BCV/TASA_EURO de la config), alias de cobro según el
+  dashboard (más de 250.000 pesos: dos alias, "mitad y mitad") y la respuesta que darías vos, con tus frases.
+  Pruebas: `node pruebas/probar_intake_appscript.js [chats_waha.json.gz]` — casos públicos inventados y, con el
+  archivo de WAHA, repetición contra lo que contestaste vos. `probarTasasIntake()` en el editor muestra qué devuelve Yadio.
 - `vps/exportar_chats_waha.py`: baja de WAHA los chats de clientes ("Bexo …") con tus mensajes, los de ellos y las citas,
   para armar las pruebas del intake. Solo lee. Se corre desde el teléfono y el archivo vuelve a Descargas:
   `ssh <vps> python3 - < ~/bexo-scripts/vps/exportar_chats_waha.py > ~/storage/downloads/chats_waha.json.gz`.
