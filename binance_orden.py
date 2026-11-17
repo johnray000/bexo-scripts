@@ -94,12 +94,16 @@ def paso(texto):
     print(time.strftime('%H:%M:%S ') + texto, flush=True)
 
 
-def avisar(titulo, texto, prioridad=3, ntfy=True):
-    """Notificación de Termux y, si ~/.bexo-ntfy está, también a la app ntfy (ver bexo_ntfy.py)."""
+LINK = None   # el link de la orden en curso: para los botones Rearmar y FIN del aviso final
+
+
+def avisar(titulo, texto, prioridad=3, ntfy=True, botones=False):
+    """Notificación de Termux y, si ~/.bexo-ntfy está, también a la app ntfy (ver bexo_ntfy.py).
+    botones=True: con "🔁 Rearmar" y "✅ FIN" (bexo_ntfy.botones_orden) si hay una orden en curso."""
     subprocess.run(['termux-notification', '--id', 'binance-orden', '--title', titulo, '--content', texto],
                    check=False)
     if ntfy:
-        bexo_ntfy.publicar(titulo, texto, prioridad)
+        bexo_ntfy.publicar(titulo, texto, prioridad, acciones=bexo_ntfy.botones_orden(LINK) if botones else ())
 
 
 # ---------- 1. El anuncio ----------
@@ -890,7 +894,8 @@ def recorrido(link):
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
     # urgente (5): es el momento de tocar Realizar Orden, el anuncio puede durar menos de un minuto
-    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 5)
+    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 5,
+           botones=True)
     subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
     return texto
 
@@ -1013,6 +1018,7 @@ if __name__ == '__main__':
         elif args[:1] == ['--grabar']:
             grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):
+            LINK = args[0]
             r = recorrido(args[0])
             print(r)
         else:
@@ -1020,5 +1026,5 @@ if __name__ == '__main__':
             sys.exit(2)
     except Frenado as e:
         print('FRENADO: %s' % e, flush=True)
-        avisar('Binance: me frené ⚠️', str(e), 4)
+        avisar('Binance: me frené ⚠️', str(e), 4, botones=True)
         sys.exit(1)

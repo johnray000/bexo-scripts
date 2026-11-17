@@ -53,6 +53,7 @@ const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovi
   ver('sin datos de más', !/BEXO|0123456|59899/.test(todo));
   ver('botón Armar llama al Apps Script con id y clave', c.actions[0].action === 'http' && c.actions[0].method === 'GET' &&
       c.actions[0].url === 'https://script.google.com/macros/s/X/exec?p2p=armar&id=MOV-77&k=clave123', c.actions[0].url);
+  ver('el botón Armar queda después de tocarlo (sirve para reintentar)', c.actions[0].clear === false);
   ver('botón Ok fino llama al intake con el id', c.actions[1].action === 'http' &&
       c.actions[1].url === 'https://script.google.com/macros/s/X/exec?intake=okfino&id=MOV-77&k=clave123', c.actions[1].url);
   ver('botón Comprobante abre Drive', c.actions[2].action === 'view' && /DRV1/.test(c.actions[2].url));
@@ -72,7 +73,9 @@ function armar(moneda, texto, id, nombre) {
 }
 { // el botón
   const r = armar('ARS', 'algo\n' + L + '\n🔁 Reservas: RonalditoP2P 1.069');
-  ver('Armar: manda el link al teléfono', r.resultado === 'ok' && r.cmd.length === 1 && r.cmd[0].message === L);
+  const FIN = 'https://script.google.com/macros/s/X/exec?p2p=fin&id=MOV-77&k=clave123';
+  ver('Armar: manda el link al teléfono, con el id y el botón FIN', r.resultado === 'ok' && r.cmd.length === 1 &&
+      r.cmd[0].message === L + '&mov=MOV-77&fin=' + encodeURIComponent(FIN), r.cmd[0] && r.cmd[0].message);
   ver('todo pasa por el relay del VPS', r.porRelay);
   ver('Armar: avisa qué eligió', r.avisos.length === 1 && r.avisos[0].title === 'Armando · CARI7 · 59000 Bs' &&
       /RonalditoP2P/.test(r.avisos[0].message), r.avisos[0] && r.avisos[0].title);
@@ -96,6 +99,22 @@ function armar(moneda, texto, id, nombre) {
       JSON.stringify(a2.ctx.metodosParaCuenta_(a2.cuentaUsada)) === '["Mercantil"]' && /la de siempre/.test(a2.avisos[0].message));
   const z = armar('ARS', 'x\n' + L, 'MOV-77', 'BEXO Nadie');
   ver('sin datos de cuenta: lo avisa', z.cuentaUsada === null && /Sin datos de cuenta/.test(z.avisos[0].message));
+}
+{ // FIN: lo mismo que Confirmar en la página, con la cuenta usada para armar
+  const r = cargar(), llamadas = [];
+  r.ctx.hojaMovimientos_ = () => ({});
+  r.ctx.filaPorId_ = (sh, i) => i === 'MOV-77' ? { fila: 5, datos: fila('ARS') } : null;
+  r.ctx.confirmarPreOrdenWeb = (k, id, monto, clave, texto) => {
+    llamadas.push([k, id, monto, clave]);
+    if (llamadas.length > 1) throw new Error('Ya estaba confirmada');
+    return {};
+  };
+  ver('FIN confirma con la cuenta del cliente', r.ctx.finDesdeNtfy_('MOV-77') === 'contado' &&
+      JSON.stringify(llamadas[0]) === '["clave123","MOV-77",100000,"a"]', JSON.stringify(llamadas[0]));
+  const aviso = JSON.parse(r.pedidos[r.pedidos.length - 1].o.payload);
+  ver('FIN avisa "Contado"', /^Contado · Juan Pérez · 100.000 ARS/.test(aviso.title), aviso.title);
+  ver('segundo FIN: ya estaba', r.ctx.finDesdeNtfy_('MOV-77') === 'ya estaba');
+  ver('FIN con id inexistente', r.ctx.finDesdeNtfy_('NO') === 'no encontrado');
 }
 { // el relay no responde: último recurso, directo a ntfy.sh
   const r = cargar();

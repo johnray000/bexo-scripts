@@ -143,3 +143,14 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    botón http de ntfy llega a Termux. Pruebas sin red: `node pruebas/probar_ntfy_appscript.js`,
    `python3 pruebas/probar_ntfy_telefono.py`.
 6. Merge de `recorrido-binance` a `main` y en el teléfono `git -C ~/bexo-scripts checkout main`.
+
+## Rearmar y FIN (17/11)
+
+- La tarjeta del comprobante deja el botón "✅ Armar en Binance" después de tocarlo (sirve para volver a armar; 90 s
+  de bloqueo contra el doble toque).
+- Al teléfono el link va con `mov=<ID de Movimientos>` y `fin=<dirección del Apps Script>`. El aviso final del
+  recorrido ("ORDEN LISTA" o "me frené") trae dos botones (`bexo_ntfy.botones_orden`):
+  - **🔁 Rearmar**: vuelve a mandar el mismo link al tema de comandos; el teléfono arma la orden otra vez.
+  - **✅ FIN**: lo mismo que Confirmar en la página de la pre-orden (`finDesdeNtfy_` → `confirmarPreOrdenWeb`):
+    CONTADO, APROBADA, cuenta en Destino y un uso más en la Agenda, con la cuenta usada para armar.
+- "Realizar Orden" sigue siendo tuyo.
