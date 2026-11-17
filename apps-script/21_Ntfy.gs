@@ -112,6 +112,30 @@ function fmtEntero_(n) {
   return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
+/**
+ * La cuenta de destino del cliente, IGUAL que la pre-orden (11_PreOrden.gs): la que mandó en las últimas
+ * HORAS_DATOS_RECIENTES, si no la del titular que nombró en el chat, si no la de siempre. De ella sale el método
+ * (metodosParaCuenta_). 17/11: el botón usaba la columna CUENTA del comprobante (tu cuenta de cobro) y caía casi
+ * siempre en Banco de Venezuela.
+ */
+function destinoDelCliente_(nombre) {
+  var ctas = cuentasDelCliente_(nombre, leerAgenda_());
+  var sug = cuentaSugerida_(nombre, ctas);
+  sug.otras = ctas.otras.length - (sug.cuenta && sug.motivo !== 'reciente' ? 1 : 0);
+  return sug;
+}
+
+/** "→ PM Banesco …4567 · la de siempre" (recortado: ntfy.sh es público). */
+function lineaDestino_(sug) {
+  var c = sug && sug.cuenta;
+  if (!c) return '⚠️ Sin datos de cuenta: busca con todos los métodos';
+  var motivo = { reciente: 'mandó ahora', siempre: 'la de siempre',
+                 nombre: 'pidió a ' + String(c.titular || '').split(/\s+/)[0] }[sug.motivo] || '';
+  var otras = sug.otras > 0 ? ' · +' + sug.otras + ' cuenta' + (sug.otras === 1 ? '' : 's') : '';
+  return '→ ' + (c.tipo === 'PM' ? 'PM' : 'Transf') + ' ' + (BANCOS_VE[c.banco] || c.banco || '') + ' …' +
+         String(c.numero || '').slice(-4) + (motivo ? ' · ' + motivo : '') + otras;
+}
+
 function urlArmar_(id) {
   var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
   return base + '?p2p=armar&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
@@ -129,6 +153,11 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
   var detalle = [n.institucion, n.hora, finReferencia_(n.ref) && 'ref ' + finReferencia_(n.ref),
                  conf > 0 ? 'lectura ' + Math.round(conf <= 1 ? conf * 100 : conf) + ' %' : '']
                 .filter(String).join(' · ');
+  try {
+    detalle = (detalle ? detalle + '\n' : '') + lineaDestino_(destinoDelCliente_(n.nombre));
+  } catch (e) {
+    logError_('NTFY_DESTINO', e.message || e);
+  }
   var acciones = [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: true }];
   if (n.driveId) {
     acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
@@ -184,7 +213,8 @@ function armarDesdeNtfy_(id) {
       avisarNtfy_('No es un comprobante en ARS', nombreTarjeta_(nombre), { prioridad: 4, tags: ['warning'] });
       return 'no ARS';
     }
-    var texto = textoAnuncio_(monto, nombre, d[C.CUENTA - 1], false);
+    var sug = destinoDelCliente_(nombre);                     // la cuenta del cliente, no tu cuenta de cobro
+    var texto = textoAnuncio_(monto, nombre, sug.cuenta, false);
     var link = linkAnuncioDe_(texto);
     if (!link) {
       avisarNtfy_('Sin anuncio · ' + nombreTarjeta_(nombre), String(texto).slice(0, 300), { prioridad: 4, tags: ['warning'] });
@@ -197,7 +227,8 @@ function armarDesdeNtfy_(id) {
     var u = JSON.parse(PropertiesService.getScriptProperties().getProperty('P2P_ULTIMA') || '{}');
     var reservas = String(texto).split('\n').filter(function (l) { return l.indexOf('🔁') === 0; })[0] || 'Sin reservas';
     avisarNtfy_('Armando · ' + (u.apodo || '?') + ' · ' + parametroLink_(link, 'monto') + ' Bs',
-                'Precio ' + (u.precio || '?') + '\n' + reservas, { prioridad: 2, tags: ['hourglass'] });
+                'Precio ' + (u.precio || '?') + ' · ' + parametroLink_(link, 'pago') + '\n' + lineaDestino_(sug) + '\n' + reservas,
+                { prioridad: 2, tags: ['hourglass'] });
     return 'ok';
   } catch (e) {
     logError_('NTFY_ARMAR', id + ' | ' + (e.message || e));

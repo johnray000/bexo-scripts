@@ -11,10 +11,21 @@ function cargar() {
     UrlFetchApp: { fetch: (url, o) => { pedidos.push({ url, o }); return { getResponseCode: () => 200, getContentText: () => '' }; } },
     logError_: (a, b) => console.log('logError_', a, b) };
   vm.createContext(ctx);
-  for (const f of ['0_Config', '4_LeerComprobantes', '9_P2P', '11_PreOrden', '21_Ntfy'])
+  for (const f of ['0_Config', '4_LeerComprobantes', '9_P2P', '10_AgendaCuentas', '11_PreOrden', '21_Ntfy'])
     vm.runInContext(fs.readFileSync('apps-script/' + f + '.gs', 'utf8'), ctx);
+  ctx.textoChatCliente_ = () => '';
+  // las fechas se crean dentro del contexto del Apps Script (si no, instanceof Date da false)
+  const FechaGs = vm.runInContext('Date', ctx);
+  ctx.leerAgenda_ = () => AGENDA.map(c => Object.assign({}, c, { msj: new FechaGs(c.msj.getTime()) }));
   return { ctx, pedidos, props };
 }
+const ahora = new Date();
+// Agenda de prueba: Juan mandó recién un Pago Móvil Banesco; Ana tiene una transferencia Mercantil de siempre.
+const AGENDA = [
+  { clave: 'a', tipo: 'PM', banco: '0134', numero: '04141234567', titular: 'Juan Perez', clientes: ['BEXO Juan Pérez'],
+    veces: 1, msj: ahora, de: 'BEXO Juan Pérez' },
+  { clave: 'b', tipo: 'TRANSF', banco: '0105', numero: '01050000000000009876', titular: 'Rosa Diaz', clientes: ['BEXO Ana'],
+    veces: 3, msj: new Date(ahora - 30 * 864e5), de: 'BEXO Ana' }];
 let bien = 0, n = 0;
 function ver(nombre, ok, detalle) { n++; bien += ok ? 1 : 0; console.log((ok ? 'BIEN ' : 'MAL  ') + nombre + (detalle ? ' · ' + detalle : '')); }
 const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovil&alt=11,22';
@@ -30,18 +41,19 @@ const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovi
   const largo = ctx.nombreTarjeta_('BEXO - María Fernanda Gutiérrez Rodríguez');
   ver('nombre largo: cortado con …', largo === 'María Fernanda Gutiér…' && largo.length <= 22, largo);
   ver('sin prefijo BEXO queda igual', ctx.nombreTarjeta_('bexo:Ana') === 'Ana' && ctx.nombreTarjeta_('Pedro') === 'Pedro');
-  ver('detalle recortado', c.message === 'Mercado Pago · 14:32 · ref …6789 · lectura 98 %', c.message);
+  ver('detalle recortado', c.message === 'Mercado Pago · 14:32 · ref …6789 · lectura 98 %\n→ PM Banesco …4567 · mandó ahora',
+      JSON.stringify(c.message));
   ver('sin datos de más', !/BEXO|0123456|59899/.test(todo));
   ver('botón Armar llama al Apps Script con id y clave', c.actions[0].action === 'http' && c.actions[0].method === 'GET' &&
       c.actions[0].url === 'https://script.google.com/macros/s/X/exec?p2p=armar&id=MOV-77&k=clave123', c.actions[0].url);
   ver('botón Comprobante abre Drive', c.actions[1].action === 'view' && /DRV1/.test(c.actions[1].url));
 }
-function fila(moneda) { const d = []; d[2] = 'Juan Pérez'; d[3] = 100000; d[4] = moneda; d[5] = 'cuenta'; return d; }
-function armar(moneda, texto, id) {
+function fila(moneda, nombre) { const d = []; d[2] = nombre || 'BEXO Juan Pérez'; d[3] = 100000; d[4] = moneda; d[5] = 'Mercado Pago'; return d; }
+function armar(moneda, texto, id, nombre) {
   const r = cargar();
   r.ctx.hojaMovimientos_ = () => ({});
-  r.ctx.filaPorId_ = (sh, i) => i === 'MOV-77' ? { fila: 5, datos: fila(moneda) } : null;
-  r.ctx.textoAnuncio_ = (monto, nombre) => { r.props.P2P_ULTIMA = JSON.stringify({ apodo: 'CARI7', precio: 1069 }); return texto; };
+  r.ctx.filaPorId_ = (sh, i) => i === 'MOV-77' ? { fila: 5, datos: fila(moneda, nombre) } : null;
+  r.ctx.textoAnuncio_ = (monto, nom, cuenta) => { r.cuentaUsada = cuenta; r.props.P2P_ULTIMA = JSON.stringify({ apodo: 'CARI7', precio: 1069 }); return texto; };
   r.resultado = r.ctx.armarDesdeNtfy_(id || 'MOV-77');
   const cuerpos = r.pedidos.map(p => JSON.parse(p.o.payload));
   r.cmd = cuerpos.filter(c => /-cmd$/.test(c.topic));
@@ -63,6 +75,18 @@ function armar(moneda, texto, id) {
   ver('comprobante en VES: no arma', v.resultado === 'no ARS' && !v.cmd.length);
   const x = armar('ARS', L, 'NO-EXISTE');
   ver('id inexistente: no arma', x.resultado === 'no encontrado' && !x.cmd.length);
+}
+{ // método: sale de la cuenta del cliente (17/11: caía en Banco de Venezuela)
+  const j = armar('ARS', 'x\n' + L);
+  ver('Juan: usa su Pago Móvil Banesco → método PagoMovil', j.cuentaUsada && j.cuentaUsada.clave === 'a' &&
+      JSON.stringify(j.ctx.metodosParaCuenta_(j.cuentaUsada)) === '["PagoMovil"]');
+  ver('nunca usa tu cuenta de cobro (columna CUENTA)', typeof j.cuentaUsada !== 'string');
+  ver('el aviso "Armando" dice a qué cuenta', /→ PM Banesco …4567/.test(j.avisos[0].message), j.avisos[0].message);
+  const a2 = armar('ARS', 'x\n' + L, 'MOV-77', 'BEXO Ana');
+  ver('Ana: la de siempre (transferencia Mercantil) → método Mercantil', a2.cuentaUsada && a2.cuentaUsada.clave === 'b' &&
+      JSON.stringify(a2.ctx.metodosParaCuenta_(a2.cuentaUsada)) === '["Mercantil"]' && /la de siempre/.test(a2.avisos[0].message));
+  const z = armar('ARS', 'x\n' + L, 'MOV-77', 'BEXO Nadie');
+  ver('sin datos de cuenta: lo avisa', z.cuentaUsada === null && /Sin datos de cuenta/.test(z.avisos[0].message));
 }
 { // el relay no responde: último recurso, directo a ntfy.sh
   const r = cargar();
