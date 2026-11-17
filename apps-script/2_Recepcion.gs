@@ -107,7 +107,8 @@ function doPost(e) {
       driveId = null;
     }
 
-    if (isClient) registrarDatosPago_(name, message);   // datos de pago a la Agenda (10_AgendaCuentas.gs)
+    if (isClient) registrarDatosPago_(name, message);
+    if (isClient) agendarIntake_();   // 23_IntakeVivo.gs: evalúa la tanda cuando se cierre (activador de una vez)   // datos de pago a la Agenda (10_AgendaCuentas.gs)
 
     // --- LÓGICA DE BUFFER Y AGRUPACIÓN ---
     const dataRange = sh.getDataRange().getValues();

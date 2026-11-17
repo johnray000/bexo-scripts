@@ -9,7 +9,7 @@ function cargar(modo) {
   const props = { NTFY_TOPIC: 'bexo-prueba', RELAY_URL: 'http://vps:8082', RELAY_TOKEN: 't', P2P_CLAVE: 'k1',
                   WEBAPP_URL: 'https://script.google.com/macros/s/X/exec', MI_TELEFONO: '5491100000000', TASA_BCV: '900' };
   if (modo) props.INTAKE_MODO = modo;
-  const cache = {}, hojas = {}, ntfy = [], waha = [];
+  const cache = {}, hojas = {}, ntfy = [], waha = [], activadores = [];
   const hoja = nombre => hojas[nombre] || (hojas[nombre] = {
     filas: [], appendRow(r) { this.filas.push(r); }, getRange: () => ({ setFontWeight() { return this; } }), setFrozenRows() {},
     getDataRange() { return { getValues: () => this.filas }; },
@@ -29,7 +29,9 @@ function cargar(modo) {
     } },
     Utilities: { sleep: () => {}, formatDate: () => '15', getUuid: () => 'u' },
     ContentService: { createTextOutput: t => ({ texto: t }) },
-    ScriptApp: { getService: () => ({ getUrl: () => 'https://x' }) },
+    ScriptApp: { getService: () => ({ getUrl: () => 'https://x' }), getProjectTriggers: () => activadores.slice(),
+      deleteTrigger: t => activadores.splice(activadores.indexOf(t), 1),
+      newTrigger: f => ({ timeBased: () => ({ after: ms => ({ create: () => activadores.push({ getHandlerFunction: () => f, ms }) }) }) }) },
     logError_: (a, b) => console.log('logError_', a, b)
   };
   vm.createContext(ctx);
@@ -39,9 +41,10 @@ function cargar(modo) {
   const op = fs.readFileSync('apps-script/3_Operativa.gs', 'utf8');
   vm.runInContext('var WAHA_URL = "http://waha"; var WAHA_API_KEY = "w";\n' + op.match(/function sendWhatsAppMessage_[\s\S]*?\n}\n/)[0], ctx);
   ctx.tasaNetaActual_ = () => 0.52;
+  vm.runInContext("var BUFFER_SHEET = 'Buffer'; var WINDOW_SEC = 60;", ctx);
   ctx.cuentasParaCobrar_ = () => ['APJ', 'NJ'];
   ctx.hojaMovimientos_ = () => hojas.Movimientos;   // sin mapear columnas: la prueba usa el orden por defecto
-  return { ctx, hojas, ntfy, waha, props };
+  return { ctx, hojas, ntfy, waha, props, activadores, hoja };
 }
 const tuyo = (tel, body, extra) => Object.assign({ fromMe: true, body, hasMedia: false,
   _data: { Info: { Chat: tel + '@s.whatsapp.net', Sender: '5491100000000@s.whatsapp.net', IsFromMe: true } } }, extra || {});
@@ -119,6 +122,25 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('números largos tapados en ntfy', ctx.textoCortoIntake_('Banesco 0412-555-0101 cédula 12.345.678') === 'Banesco ••• cédula •••',
       ctx.textoCortoIntake_('Banesco 0412-555-0101 cédula 12.345.678'));
   ver('el chat de tu mensaje es el cliente, no vos', ctx.telefonoChat_(tuyo('5491155550001', 'x')) === '5491155550001');
+}
+{ // 7. activador de una sola vez (no processBuffer): evalúa tandas cerradas una vez, se reagenda si hay abiertas
+  const { ctx, hojas, ntfy, activadores, hoja } = cargar();
+  ctx.agendarIntake_(); ctx.agendarIntake_();
+  ver('con varios mensajes se agenda un solo activador a 75 s', activadores.length === 1 && activadores[0].ms === 75000);
+  const b = hoja('Buffer');
+  b.filas.push(['Teléfono', 'Nombre', 'Mensajes', 'Última', 'Int', 'Pri', 'Img', 'Cliente', 'Drive'],
+    ['5491155550001', 'BEXO Ana', 'Hola corazón\nMe dices la tasa por favor', hace(80), '', '', false, true, ''],
+    ['5491155550002', 'BEXO Juan Pérez', 'Me pasas el alias', hace(20), '', '', false, true, ''],
+    ['5491155550001', 'BEXO Ana', 'A cómo está?', hace(5 * 3600), '', '', false, true, ''],
+    ['5491199999999', 'Amigo', 'Hola a cómo la tasa', hace(80), '', '', false, false, '']);
+  ctx.intakePorMensaje();
+  const filas = (hojas.Intake || { filas: [] }).filas;
+  ver('evalúa solo la tanda cerrada del cliente (no la abierta, la vieja ni el no cliente)', filas.length === 2 &&
+      filas[1][2] === 'BEXO Ana' && ntfy.length === 1, filas.length + ' filas · ' + ntfy.length + ' borradores');
+  ver('se borró y se reagendó para cuando cierre la abierta', activadores.length === 1 && activadores[0].ms <= 60000 && activadores[0].ms >= 50000,
+      activadores.map(a => a.ms).join());
+  ctx.intakePorMensaje();
+  ver('la misma tanda no se evalúa dos veces', hojas.Intake.filas.length === 2 && ntfy.length === 1);
 }
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);

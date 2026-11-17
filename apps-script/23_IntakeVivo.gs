@@ -1,8 +1,10 @@
 // ==========================================
 // MÓDULO 23: INTAKE EN VIVO — registra cada tanda y te propone la respuesta en ntfy
 //
-// - processBuffer (3_Operativa) llama a registrarTandaIntake_ cuando se cierra una tanda del cliente
-//   (60 s sin mensajes nuevos). doPost (2_Recepcion) llama a registrarMensajeTuyo_ con cada mensaje tuyo.
+// - Con cada mensaje de un cliente, doPost (2_Recepcion) llama a agendarIntake_: un activador de una sola vez
+//   (como la lectura de 90 s) corre intakePorMensaje a los 75 s y evalúa las tandas del Buffer que ya se cerraron
+//   (60 s sin mensajes nuevos). processBuffer (cada 12 h) no tiene nada que ver.
+//   doPost llama a registrarMensajeTuyo_ con cada mensaje tuyo.
 // - Todo queda en la hoja Intake (cliente y vos), para comparar lo sugerido con lo que contestaste.
 // - Si la sugerencia trae tasa, cálculo, alias o disponibilidad, llega a ntfy como borrador con "📤 Enviar".
 //   Nada sale sin tu toque. La foto no genera borrador: la tarjeta del comprobante trae "💬 Ok fino".
@@ -105,7 +107,41 @@ function registrarMensajeTuyo_(payload) {
   hojaIntake_().appendRow([new Date(), tel, nombre, 'vos', texto || (media ? '[foto]' : ''), media, '', '', tipo, '']);
 }
 
-/** processBuffer → una tanda del cliente que se cerró. */
+var INTAKE_ESPERA_SEG = 75;   // la tanda se cierra a los 60 s (WINDOW_SEC) sin mensajes nuevos
+
+/** doPost → mensaje de un cliente. Rápido: solo agenda (si no hay ya uno en camino). */
+function agendarIntake_(segundos) {
+  try {
+    if (modoIntake_() === 'apagado') return;
+    var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'intakePorMensaje'; });
+    if (!hay) ScriptApp.newTrigger('intakePorMensaje').timeBased().after((segundos || INTAKE_ESPERA_SEG) * 1000).create();
+  } catch (e) {
+    logError_('INTAKE_AGENDAR', e.message || e);
+  }
+}
+
+/** La corre el activador de una sola vez. Evalúa cada tanda cerrada una sola vez; si queda alguna abierta, se reagenda. */
+function intakePorMensaje() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'intakePorMensaje') ScriptApp.deleteTrigger(t);
+  });
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BUFFER_SHEET);
+  if (!sh) return;
+  var datos = sh.getDataRange().getValues(), ahora = Date.now(), cache = CacheService.getScriptCache(), abierta = 0;
+  for (var i = 1; i < datos.length; i++) {
+    var f = datos[i], fecha = new Date(f[3]), edad = (ahora - fecha.getTime()) / 1000;
+    if (String(f[7]).toUpperCase() !== 'TRUE' || !(edad >= 0) || edad > 3600) continue;   // clientes, última hora
+    if (edad <= WINDOW_SEC) { abierta = Math.max(abierta, WINDOW_SEC - edad); continue; }   // todavía puede crecer
+    var clave = 'ikev_' + f[0] + '_' + fecha.getTime();
+    if (cache.get(clave)) continue;
+    cache.put(clave, '1', 21600);
+    try { registrarTandaIntake_(String(f[0]), String(f[1]), String(f[2]), String(f[6]).toUpperCase() === 'TRUE', true, fecha); }
+    catch (e) { logError_('INTAKE_TANDA', e.message || e); }
+  }
+  if (abierta) agendarIntake_(Math.ceil(abierta) + 15);
+}
+
+/** Una tanda del cliente que se cerró (la llama intakePorMensaje). */
 function registrarTandaIntake_(tel, nombre, texto, media, esCliente, fecha) {
   var modo = modoIntake_();
   if (modo === 'apagado' || !esCliente) return null;
