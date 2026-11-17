@@ -45,7 +45,7 @@ TEXTOS = {
                    voz='Orden de compra abierta. Pagá %s', voz_insiste='Todavía no pagaste la compra de %s'),
     'venta': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=1, silencio=7 * 24 * 3600,
                   titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='',
-                  voz='Venta nueva de %s. Abrí el chat de Binance', voz_insiste=''),
+                  voz='Venta nueva de %s', voz_insiste=''),
 }
 
 
