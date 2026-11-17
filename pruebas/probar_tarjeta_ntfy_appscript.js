@@ -11,7 +11,7 @@ function cargar() {
     UrlFetchApp: { fetch: (url, o) => { pedidos.push({ url, o }); return { getResponseCode: () => 200, getContentText: () => '' }; } },
     logError_: (a, b) => console.log('logError_', a, b) };
   vm.createContext(ctx);
-  for (const f of ['0_Config', '4_LeerComprobantes', '9_P2P', '10_AgendaCuentas', '11_PreOrden', '21_Ntfy'])
+  for (const f of ['0_Config', '4_LeerComprobantes', '9_P2P', '10_AgendaCuentas', '11_PreOrden', '21_Ntfy', '23_IntakeVivo'])
     vm.runInContext(fs.readFileSync('apps-script/' + f + '.gs', 'utf8'), ctx);
   ctx.textoChatCliente_ = () => '';
   // las fechas se crean dentro del contexto del Apps Script (si no, instanceof Date da false)
@@ -46,7 +46,9 @@ const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovi
   ver('sin datos de más', !/BEXO|0123456|59899/.test(todo));
   ver('botón Armar llama al Apps Script con id y clave', c.actions[0].action === 'http' && c.actions[0].method === 'GET' &&
       c.actions[0].url === 'https://script.google.com/macros/s/X/exec?p2p=armar&id=MOV-77&k=clave123', c.actions[0].url);
-  ver('botón Comprobante abre Drive', c.actions[1].action === 'view' && /DRV1/.test(c.actions[1].url));
+  ver('botón Ok fino llama al intake con el id', c.actions[1].action === 'http' &&
+      c.actions[1].url === 'https://script.google.com/macros/s/X/exec?intake=okfino&id=MOV-77&k=clave123', c.actions[1].url);
+  ver('botón Comprobante abre Drive', c.actions[2].action === 'view' && /DRV1/.test(c.actions[2].url));
 }
 function fila(moneda, nombre) { const d = []; d[2] = nombre || 'BEXO Juan Pérez'; d[3] = 100000; d[4] = moneda; d[5] = 'Mercado Pago'; return d; }
 function armar(moneda, texto, id, nombre) {

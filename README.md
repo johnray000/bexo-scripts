@@ -38,6 +38,10 @@ Log en el teléfono: `tail -5 ~/subir.log`
   dashboard (más de 250.000 pesos: dos alias, "mitad y mitad") y la respuesta que darías vos, con tus frases.
   Pruebas: `node pruebas/probar_intake_appscript.js [chats_waha.json.gz]` — casos públicos inventados y, con el
   archivo de WAHA, repetición contra lo que contestaste vos. `probarTasasIntake()` en el editor muestra qué devuelve Yadio.
+- `apps-script/23_IntakeVivo.gs`: el intake en vivo. Cada tanda cerrada del cliente y cada mensaje tuyo van a la hoja
+  Intake; si la respuesta sugerida trae tasa, cálculo, alias o disponibilidad te llega a ntfy con "📤 Enviar" (un solo uso;
+  nada sale sin tu toque). La tarjeta del comprobante trae "💬 Ok fino" (una vez por operación). Propiedad INTAKE_MODO:
+  borrador (por defecto) / registro / apagado. Pruebas: `node pruebas/probar_intake_vivo_appscript.js`.
 - `vps/exportar_chats_waha.py`: baja de WAHA los chats de clientes ("Bexo …") con tus mensajes, los de ellos y las citas,
   para armar las pruebas del intake. Solo lee. Se corre desde el teléfono y el archivo vuelve a Descargas:
   `ssh <vps> python3 - < ~/bexo-scripts/vps/exportar_chats_waha.py > ~/storage/downloads/chats_waha.json.gz`.

@@ -159,6 +159,7 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
     logError_('NTFY_DESTINO', e.message || e);
   }
   var acciones = [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: true }];
+  acciones.push({ action: 'http', label: '💬 Ok fino', url: urlIntake_('okfino', n.id), method: 'GET', clear: false });   // 23_IntakeVivo.gs
   if (n.driveId) {
     acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
   }

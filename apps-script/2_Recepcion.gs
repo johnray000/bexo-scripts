@@ -37,6 +37,7 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({status: "ignorado"})).setMimeType(ContentService.MimeType.JSON);
     }
     if (payload.fromMe === true || key.fromMe === true) {
+    try { registrarMensajeTuyo_(payload); } catch (err) { logError_('INTAKE_TUYO', err.message || err); }   // 23_IntakeVivo.gs
     return ContentService.createTextOutput(JSON.stringify({status: "ignorado_saliente"})).setMimeType(ContentService.MimeType.JSON);
     }
 

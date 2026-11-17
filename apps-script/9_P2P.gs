@@ -794,6 +794,7 @@ function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.dash === '1') return dashboardP2PRespuesta_(p);   // 20_DashboardP2P.gs
   if (p.p2p === 'pre' && p.k === claveNext_()) return paginaPreOrden_(p);   // 11_PreOrden.gs
+  if (p.intake && p.k === claveNext_()) return rutaIntake_(p);                // botones del intake (23_IntakeVivo.gs)
   if (p.p2p === 'armar' && p.k === claveNext_()) {                           // botón de ntfy (21_Ntfy.gs)
     return ContentService.createTextOutput(armarDesdeNtfy_(String(p.id || '')));
   }

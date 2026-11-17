@@ -50,6 +50,8 @@ function processBuffer() {
 
     if (diffSec > WINDOW_SEC) {
       rowsToDelete.push(i + 1);
+      try { registrarTandaIntake_(phone, name, message, String(data[i][6]).toUpperCase() === 'TRUE', String(isClient).toUpperCase() === 'TRUE', lastUpdate); }   // 23_IntakeVivo.gs
+      catch (err) { logError_('INTAKE_TANDA', err.message || err); }
 
       // EVALUAR ESTADO DE SESIÓN (Si ya existe, concatena y silencia)
       if (activeTickets[phone]) {

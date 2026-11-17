@@ -248,6 +248,8 @@ def etapa_webhook(ses):
         anotar(3, AVISO, 'El webhook apunta a otro /exec que el de ~/.subir-ordenes.env. ¿Cambió la implementación?')
     else:
         anotar(3, OK, 'Webhook configurado al /exec de la planilla')
+    if 'message.any' not in eventos:
+        anotar(3, AVISO, 'El webhook no manda tus mensajes (falta "message.any"): el intake no ve lo que contestás vos')
     logs = docker('logs', '--since', '1h', 'waha')
     errs = len(re.findall(r'webhook[^\n]*(?:error|fail|timeout|ECONN)', logs, re.I))
     if errs:
