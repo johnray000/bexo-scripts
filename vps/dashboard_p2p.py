@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tablero P2P: servidor chiquito para el VPS (solo librería estándar, ~15 MB de RAM).
+"""Brújula P2P (tablero P2P): servidor chiquito para el VPS (solo librería estándar, ~15 MB de RAM).
 
 - Cada 10 min le pide los números al Apps Script (DASH_URL, que ya trae ?dash=1&k=TOKEN) y los guarda en data.json.
 - Sirve index.html y data.json con usuario y clave (Basic Auth). Nada más.
@@ -147,7 +147,7 @@ class Pagina(BaseHTTPRequestHandler):
     def do_GET(self):
         if not CLAVE or not hmac.compare_digest(self.headers.get('Authorization', ''), ESPERADO):
             self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="Tablero P2P", charset="UTF-8"')
+            self.send_header('WWW-Authenticate', 'Basic realm="Brujula P2P", charset="UTF-8"')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
@@ -175,5 +175,5 @@ if __name__ == '__main__':
     if not URL or not CLAVE:
         raise SystemExit('Falta DASH_URL o DASH_CLAVE en /etc/dashboard-p2p.env')
     threading.Thread(target=bucle, daemon=True).start()
-    log(f'Tablero P2P en el puerto {PUERTO}, actualiza cada {CADA // 60} min')
+    log(f'Brújula P2P en el puerto {PUERTO}, actualiza cada {CADA // 60} min')
     ThreadingHTTPServer(('0.0.0.0', PUERTO), Pagina).serve_forever()

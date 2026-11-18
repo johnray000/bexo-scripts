@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instala (o actualiza) el tablero P2P en el VPS. Uso: sudo bash dashboard_instalar.sh
+# Instala (o actualiza) la Brújula P2P (tablero P2P) en el VPS. Uso: sudo bash dashboard_instalar.sh
 # - Baja dashboard_p2p.py y la página de GitHub a /opt/dashboard-p2p
 # - La primera vez pide la dirección del Apps Script (la escribe configurarTableroP2P en el registro)
 #   y crea usuario y clave para entrar. Quedan en /etc/dashboard-p2p.env (no está en GitHub).
@@ -49,7 +49,7 @@ fi
 
 cat > /etc/systemd/system/dashboard-p2p.service <<'EOF'
 [Unit]
-Description=Tablero P2P
+Description=Brújula P2P
 After=network-online.target
 
 [Service]
