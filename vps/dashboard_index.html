@@ -174,7 +174,7 @@ td.n,th.n{text-align:right}
       <div>2. Debés menos de 50 USDT: podés bajar la venta 0,05 para vender más.</div>
       <div>3. Sin órdenes en 2 horas, en hora de movimiento (10 a 23 h): mové 0,05 hacia el mercado.</div>
       <div>4. Nunca pasar los límites de "punta a punta".</div>
-      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). OKX y Bybit: precio de la última orden de los últimos 7 días.</div>
+      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). Si no lo encuentro, dice "No sé" y muestra el precio de la última orden. Un anuncio viejo que reemplazaste por otro no se muestra. OKX y Bybit: precio de la última orden de los últimos 7 días (no sé si lo cambiaste después).</div>
     </details>
   </div>
 
@@ -276,7 +276,10 @@ td.n,th.n{text-align:right}
 
     var pend = c.pendiente || 0;
     var cls = pend > c.limitePendiente ? 'bad' : pend < 50 ? 'ok' : 'warn';
-    $('situacion').innerHTML = 'Situación: debés <b class="' + cls + '">' + n(pend) + ' USDT</b> de lo vendido en el ciclo. ' +
+    var dudoso = c.dudosas && c.pendienteMin !== c.pendienteMax;
+    $('situacion').innerHTML = 'Situación: debés <b class="' + cls + '">' + (dudoso ? n(c.pendienteMin) + ' a ' + n(c.pendienteMax) : n(pend)) + ' USDT</b> de lo vendido en el ciclo. ' +
+      (dudoso ? '<span class="warn">No sé el número exacto: hay ' + c.dudosas + ' órdenes sin moneda (' + n(c.dudaVenta, 0) + ' USDT vendidos, ' + n(c.dudaCompra, 0) +
+        ' comprados) que no sé si son UYU.</span> ' : '') +
       (pend > c.limitePendiente ? 'Prioridad: <b>comprar</b>, no bajar la venta.'
         : pend < 50 ? 'Vas parejo: podés <b>vender más</b>.' : 'Dentro de lo normal.');
 
@@ -296,17 +299,19 @@ td.n,th.n{text-align:right}
       var compra = a.tipo === 'Compra';
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
         : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>'
+        : a.accion === 'No sé' ? '<span class="pill p-warn">No sé</span>'
         : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
       var hace = a.minUltima == null ? 'sin órdenes esta semana'
         : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
-      var meta0 = a.vivo && a.puesto
-        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
-        : hace + ' · hoy ' + a.hoy + (a.ex === 'Binance' ? '' : ' · precio de últ. orden');
+      // Solo "en vivo" si el precio vino del listado de Binance; si no, se dice que es el de la última orden.
+      var meta0 = a.fuente === 'vivo' && a.puesto
+        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
+        : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
         '<div class="note">' + meta + '</div></td>' +
-        '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + n(a.nuevo, 2) + '</td>' +
+        '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + (a.nuevo == null ? '—' : n(a.nuevo, 2)) + '</td>' +
         '<td class="note">' + esc(a.porque) + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes UYU en los últimos 7 días.</td></tr>';
 

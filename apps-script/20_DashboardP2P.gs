@@ -113,6 +113,7 @@ function dashP_(lista) {   // precio promedio ponderado
   return q ? m / q : 0;
 }
 function dashR_(x, d) { var k = Math.pow(10, d || 2); return Math.round(x * k) / k; }
+function dashHace_(min) { return min === null ? 'esta semana' : 'hace ' + (min < 90 ? min + ' min' : Math.round(min / 60) + ' h'); }
 function dashTxt_(x) { return (Math.round(x * 100) / 100).toFixed(2).replace('.', ','); }   // 41,90 para los textos
 
 /**
@@ -136,6 +137,10 @@ function dashboardP2P_(vivos) {
   var recomprado = compras.reduce(function (s, o) { return s + o.cant; }, 0);
   var pVenta = dashP_(ventas), pCompra = dashP_(compras);
   var pendiente = vendido - recomprado;
+  // Órdenes del ciclo sin moneda (OKX sin historial completo): no sé si son UYU, así que el pendiente es un rango.
+  var dudosas = ok.filter(function (o) { return !o.mon && o.f >= desde; });
+  var dudaVenta = dudosas.filter(function (o) { return o.tipo === 'Venta'; }).reduce(function (s, o) { return s + o.cant; }, 0);
+  var dudaCompra = dudosas.filter(function (o) { return o.tipo === 'Compra'; }).reduce(function (s, o) { return s + o.cant; }, 0);
   var ganUYU = pVenta && pCompra ? Math.min(recomprado, vendido) * (pVenta - pCompra) : 0;
   var dias = Math.max(1, Math.round((ahora - desde) / 864e5));
 
@@ -172,18 +177,39 @@ function dashboardP2P_(vivos) {
     var k = 'Binance|' + ad;
     if (!porAnuncio[k]) porAnuncio[k] = { ex: 'Binance', tipo: v.tipo, cripto: v.cripto, precio: v.precio, ultima: null, hoy: 0 };
     var a = porAnuncio[k];
+    a.ad = ad;
     a.vivo = true;
     a.visible = v.visible !== false;
-    if (a.visible) { a.precio = +v.precio || a.precio; a.puesto = v.puesto; a.total = v.total; a.mejor = v.mejor; }
+    a.revisados = v.revisados || null;
+    if (a.visible) { a.precio = +v.precio || a.precio; a.puesto = v.puesto; a.total = v.total; a.completo = v.completo !== false; a.mejor = v.mejor; }
   });
+  // Un anuncio de Binance que no está (o no se buscó) en el listado y tiene un "hermano" (mismo tipo y cripto) que sí está, o con
+  // órdenes más nuevas, es un anuncio viejo que reemplazaste: no se muestra (antes salía como "Revisar").
+  // Pasó el 17/11: el n° ...6192 (venta, última orden 16/11) quedó en la lista junto al nuevo ...7728.
+  Object.keys(porAnuncio).forEach(function (k) {
+    var a = porAnuncio[k];
+    if (a.ex !== 'Binance' || a.visible) return;
+    var reemplazado = Object.keys(porAnuncio).some(function (k2) {
+      var b = porAnuncio[k2];
+      return k2 !== k && b.ex === 'Binance' && b.tipo === a.tipo && b.cripto === a.cripto &&
+        (b.visible || (b.ultima && (!a.ultima || b.ultima > a.ultima)));
+    });
+    if (reemplazado) delete porAnuncio[k];
+  });
+  // "258" si el pendiente es seguro; "258 a 330" si hay órdenes sin moneda que podrían ser UYU.
+  var pMin = Math.round(pendiente - dudaCompra), pMax = Math.round(pendiente + dudaVenta);
+  var pendTxt = pMin === pMax ? String(pMin) : pMin + ' a ' + pMax;
   var hora = +Utilities.formatDate(ahora, zona, 'H');
   var horaActiva = hora >= DASH_HORA_DESDE && hora <= DASH_HORA_HASTA;
   var anuncios = Object.keys(porAnuncio).map(function (k) {
     var a = porAnuncio[k];
     var min = a.ultima ? Math.round((ahora - a.ultima) / 60000) : null;
     if (a.vivo && !a.visible) {
-      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'Revisar', nuevo: dashR_(a.precio),
-               porque: 'No aparece en el listado de Binance: ¿está pausado o sin saldo?', minUltima: min, hoy: a.hoy, vivo: true };
+      // No adivinamos: puede estar pausado, sin saldo, oculto por filtros de Binance, o cerrado.
+      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'No sé', nuevo: null, ad: a.ad,
+               porque: 'No lo encontré en el listado público de Binance' + (a.revisados ? ' (revisé ' + a.revisados + ' anuncios)' : '') +
+                       '. El precio es el de la última orden. Fijate en la app si está activo.',
+               minUltima: min, hoy: a.hoy, vivo: false, fuente: 'orden' };
     }
     var quieto = horaActiva && (min === null || min >= DASH_SIN_ORDENES_MIN);
     var r = { accion: 'Mantener', nuevo: a.precio, porque: '' };
@@ -193,22 +219,22 @@ function dashboardP2P_(vivos) {
         var n = Math.min(a.precio + paso, techo);
         if (n > a.precio + 0.004) {
           r = { accion: 'Subir', nuevo: n, porque: pendiente > DASH_LIMITE_PENDIENTE
-            ? 'Debés ' + Math.round(pendiente) + ' USDT (más de ' + DASH_LIMITE_PENDIENTE + '). Techo ' + dashTxt_(techo) + '.'
-            : 'Sin órdenes ' + (min === null ? 'esta semana' : 'hace ' + min + ' min') + ' en hora de movimiento. Techo ' + dashTxt_(techo) + '.' };
+            ? 'Debés ' + pendTxt + ' USDT (más de ' + DASH_LIMITE_PENDIENTE + '). Techo ' + dashTxt_(techo) + '.'
+            : 'Sin órdenes ' + dashHace_(min) + ' en hora de movimiento. Techo ' + dashTxt_(techo) + '.' };
         } else {
           r.porque = 'Ya estás en el techo (' + dashTxt_(techo) + '): subir más no deja margen.';
         }
       } else if (pendiente < DASH_PENDIENTE_BAJO) {
         r = { accion: 'Bajar', nuevo: a.precio - 0.10, porque: 'Ya casi no debés USDT: podés comprar más barato.' };
       } else {
-        r.porque = 'Va entrando. Debés ' + Math.round(pendiente) + ' USDT, dentro de lo normal.';
+        r.porque = 'Va entrando. Debés ' + pendTxt + ' USDT, dentro de lo normal.';
       }
     } else {
       if (pendiente > DASH_LIMITE_PENDIENTE) {
-        r.porque = 'No bajes: debés ' + Math.round(pendiente) + ' USDT y te llenarías de UYU sin recomprar.';
+        r.porque = 'No bajes: debés ' + pendTxt + ' USDT y te llenarías de UYU sin recomprar.';
       } else if (pendiente < DASH_PENDIENTE_BAJO && quieto) {
         var nv = Math.max(a.precio - 0.05, piso);
-        if (nv < a.precio - 0.004) r = { accion: 'Bajar', nuevo: nv, porque: 'Sin ventas ' + (min === null ? 'esta semana' : 'hace ' + min + ' min') + ' y debés poco. Piso ' + dashTxt_(piso) + '.' };
+        if (nv < a.precio - 0.004) r = { accion: 'Bajar', nuevo: nv, porque: 'Sin ventas ' + dashHace_(min) + ' y debés poco. Piso ' + dashTxt_(piso) + '.' };
         else r.porque = 'Ya estás en el piso (' + dashTxt_(piso) + ').';
       } else {
         r.porque = quieto ? 'Quieto, pero primero recomprá lo que debés.' : 'Va vendiendo.';
@@ -216,7 +242,8 @@ function dashboardP2P_(vivos) {
     }
     return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: r.accion,
              nuevo: dashR_(r.nuevo), porque: r.porque, minUltima: min, hoy: a.hoy,
-             vivo: !!a.vivo, puesto: a.puesto || null, total: a.total || null, mejor: a.mejor || null };
+             vivo: !!a.vivo, puesto: a.puesto || null, total: a.total || null, completo: a.completo !== false,
+             mejor: a.mejor || null, ad: a.ad || null, fuente: a.vivo ? 'vivo' : 'orden' };
   }).sort(function (a, b) { return (a.tipo === b.tipo ? 0 : a.tipo === 'Compra' ? -1 : 1) || a.ex.localeCompare(b.ex); });
 
   // Rutas
@@ -314,6 +341,8 @@ function dashboardP2P_(vivos) {
     ciclo: {
       desde: Utilities.formatDate(desde, zona, 'dd/MM'), dias: dias,
       vendido: dashR_(vendido), recomprado: dashR_(recomprado), pendiente: dashR_(pendiente),
+      pendienteMin: dashR_(pendiente - dudaCompra), pendienteMax: dashR_(pendiente + dudaVenta),
+      dudosas: dudosas.length, dudaVenta: dashR_(dudaVenta), dudaCompra: dashR_(dudaCompra),
       limitePendiente: DASH_LIMITE_PENDIENTE,
       pVenta: dashR_(pVenta), pCompra: dashR_(pCompra),
       gananciaUYU: Math.round(ganUYU), gananciaUSD: pVenta ? dashR_(ganUYU / pVenta, 0) : 0,

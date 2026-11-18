@@ -36,6 +36,7 @@ def log(msg):
 
 
 BINANCE = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'
+PAGINAS_MAX = 15   # 300 anuncios; UYU suele tener menos de 150
 
 
 def pagina_binance(asset, tipo_taker, pagina):
@@ -67,9 +68,10 @@ def anuncios_binance_vivos():
         grupos.setdefault((info.get('cripto') or 'USDT', taker), []).append(ad)
     for (asset, taker), ads in grupos.items():
         faltan = set(ads)
-        puesto, mejor = 0, None
+        puesto, mejor, completo = 0, None, False
         try:
-            for pagina in range(1, 6):
+            # Recorre TODO el listado (antes cortaba en 100 y un anuncio en el puesto 101 salía como "no aparece").
+            for pagina in range(1, PAGINAS_MAX + 1):
                 lista = pagina_binance(asset, taker, pagina)
                 for a in lista:
                     puesto += 1
@@ -81,6 +83,7 @@ def anuncios_binance_vivos():
                     elif mejor is None:
                         mejor = precio
                 if len(lista) < 20:
+                    completo = True
                     break
         except Exception as e:  # noqa: BLE001
             log(f'Binance {asset} {taker}: {e}')
@@ -88,9 +91,12 @@ def anuncios_binance_vivos():
             continue
         for n in ads:
             if n in vivos:
-                vivos[n].update(total=puesto, mejor=mejor)
-            else:
-                vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'visible': False}
+                vivos[n].update(total=puesto, completo=completo, mejor=mejor)
+            elif completo:
+                vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'visible': False, 'revisados': puesto}
+            # Si no llegué al final del listado no sé si está o no: no lo marco como ausente.
+        if not completo:
+            log(f'Binance {asset} {taker}: listado de más de {puesto} anuncios, no lo recorrí entero')
     ESTADO_BINANCE['encontrados'] = sum(1 for v in vivos.values() if v.get('visible'))
     log(f"Binance en vivo: {ESTADO_BINANCE['encontrados']} de {len(mios)} anuncios encontrados")
     return vivos

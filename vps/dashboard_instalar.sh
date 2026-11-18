@@ -5,8 +5,10 @@
 #   y crea usuario y clave para entrar. Quedan en /etc/dashboard-p2p.env (no está en GitHub).
 # - Lo deja como servicio "dashboard-p2p" (máximo 60 MB de RAM) en el primer puerto libre desde 8090.
 # Volver a correrlo actualiza el código y no toca la clave.
+# Para probar una rama sin mergear: sudo bash dashboard_instalar.sh nombre-rama  (sin nada usa main)
 set -e
-BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/main/vps
+RAMA="${1:-main}"
+BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/$RAMA/vps
 DIR=/opt/dashboard-p2p
 ENV=/etc/dashboard-p2p.env
 
