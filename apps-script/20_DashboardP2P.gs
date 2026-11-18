@@ -301,6 +301,20 @@ function dashboardP2P_(vivos) {
              pCompra: m.entro ? dashR_(m.fiatPagado / m.entro, 2) : null, pVenta: m.salio ? dashR_(m.fiatCobrado / m.salio, 2) : null };
   }).sort(function (a, b) { return (b.entro + b.salio) - (a.entro + a.salio); });
   var sinMoneda = ok.filter(function (o) { return o.f >= desde && !o.mon; });
+  // Cómo va cada vuelta: Uruguay = vendés USDT por UYU y recomprás con UYU. Venezuela = comprás USDT con los ARS
+  // que te mandan y los vendés por Bs. Las demás monedas van cada una por su lado.
+  var r0 = function (m) { return rueda[m] || { entro: 0, salio: 0, n: 0 }; };
+  var vuelta = function (nombre, cuenta, vendio, repuso, n, como) {
+    return { nombre: nombre, cuenta: cuenta, vendido: dashR_(vendio), repuesto: dashR_(repuso), falta: dashR_(vendio - repuso), ordenes: n, como: como };
+  };
+  var vueltas = [];
+  var uy = r0('UYU'), ve = r0('VES'), ar = r0('ARS');
+  if (uy.n) vueltas.push(vuelta('Uruguay', 'UYU', uy.salio, uy.entro, uy.n, 'recompraste|con UYU'));
+  if (ve.n || ar.n) vueltas.push(vuelta('Venezuela', 'ARS → VES', ve.salio + ar.salio, ar.entro + ve.entro, ve.n + ar.n, 'repusiste|con ARS'));
+  Object.keys(rueda).filter(function (m) { return ['UYU', 'VES', 'ARS'].indexOf(m) < 0; }).forEach(function (m) {
+    var x = rueda[m];
+    vueltas.push(vuelta(m, m, x.salio, x.entro, x.n, 'recompraste|con ' + m));
+  });
   if (errMovs) avisos.push({ nivel: 'bad', texto: 'No pude leer Movs UY: ' + errMovs });
   else if (ultMov) {
     var dm = Math.round((ahora - ultMov) / 864e5);
@@ -337,6 +351,7 @@ function dashboardP2P_(vivos) {
     calor: calor,
     cupo: { limite: DASH_CUPO_CUENTA, cuentas: cupo },
     cargadas: cargadas,
+    vueltas: vueltas,
     rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
              sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },
     // Las últimas 10 órdenes tal como las leyó el tablero, para comprobarlas de memoria.

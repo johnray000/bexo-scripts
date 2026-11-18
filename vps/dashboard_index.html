@@ -211,12 +211,16 @@ td.n,th.n{text-align:right}
   </div>
 
   <div class="card" style="margin-top:14px">
-    <h2>Balance de la rueda <span id="ruedaDesde">desde el inicio del ciclo</span></h2>
-    <div class="tbl-wrap"><table class="rueda">
-      <thead><tr><th>Moneda</th><th class="n">Entró USDT</th><th class="n">Salió USDT</th><th class="n">Neto</th><th class="n">Compra prom.</th><th class="n">Venta prom.</th></tr></thead>
-      <tbody id="rueda"></tbody>
-    </table></div>
+    <h2>Cómo va cada vuelta <span id="ruedaDesde">desde el inicio del ciclo</span></h2>
+    <div id="vueltas"></div>
     <div class="note" style="margin-top:8px" id="ruedaNota"></div>
+    <details class="rules">
+      <summary><b>Detalle por moneda</b></summary>
+      <div class="tbl-wrap"><table class="rueda">
+        <thead><tr><th>Moneda</th><th class="n">Compraste USDT</th><th class="n">Vendiste USDT</th><th class="n">Compra prom.</th><th class="n">Venta prom.</th></tr></thead>
+        <tbody id="rueda"></tbody>
+      </table></div>
+    </details>
   </div>
 
   <div class="foot">Se lee solo de Ordenes_P2P y Movs UY. Los números se recalculan cada 10 min.</div>
@@ -292,12 +296,16 @@ td.n,th.n{text-align:right}
     $('ruedaDesde').textContent = 'desde ' + c.desde;
     $('rueda').innerHTML = ru.lista.map(function (m) {
       return '<tr><td><b>' + esc(m.mon) + '</b> <span class="note">' + m.ordenes + ' órd.</span></td><td class="n">' + n(m.entro, 2) + '</td><td class="n">' + n(m.salio, 2) +
-        '</td><td class="n ' + (m.neto >= 0 ? 'pos' : 'neg') + '">' + (m.neto > 0 ? '+' : '') + n(m.neto, 2) + '</td><td class="n">' + (m.pCompra ? n(m.pCompra, 2) : '—') +
-        '</td><td class="n">' + (m.pVenta ? n(m.pVenta, 2) : '—') + '</td></tr>';
+        '</td><td class="n">' + (m.pCompra ? n(m.pCompra, 2) : '—') + '</td><td class="n">' + (m.pVenta ? n(m.pVenta, 2) : '—') + '</td></tr>';
     }).join('');
-    $('ruedaNota').innerHTML = 'Neto total: <b class="' + (ru.neto >= 0 ? 'ok' : 'bad') + '">' + (ru.neto > 0 ? '+' : '') + n(ru.neto, 2) + ' USDT</b> ' +
-      (ru.neto >= 0 ? '(entró más de lo que salió: tenés más cripto que al empezar).' : '(salió más de lo que entró: usaste cripto que tenías de antes).') +
-      (ru.sinMoneda ? ' Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas.' : '');
+    $('vueltas').innerHTML = (d.vueltas || []).map(function (v) {
+      var cierre = Math.abs(v.falta) < 0.5 ? '<b class="ok">vuelta cerrada</b>'
+        : v.falta > 0 ? 'te faltan <b class="warn">' + n(v.falta, 2) + ' USDT</b> para cerrar la vuelta'
+        : 'repusiste <b class="ok">' + n(-v.falta, 2) + ' USDT</b> de más';
+      return '<div class="alert"><div><b>' + esc(v.nombre) + '</b> <span class="note">' + esc(v.cuenta) + ' · ' + v.ordenes + ' órd.</span><br>' +
+        'Vendiste ' + n(v.vendido, 2) + ' USDT y ' + esc(v.como.split('|')[0]) + ' ' + n(v.repuesto, 2) + ' ' + esc(v.como.split('|')[1] || '') + ': ' + cierre + '.</div></div>';
+    }).join('') || '<div class="empty">Sin órdenes en el ciclo.</div>';
+    $('ruedaNota').innerHTML = ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : '';
     $('recs').innerHTML = (d.anuncios || []).map(function (a) {
       var compra = a.tipo === 'Compra';
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
