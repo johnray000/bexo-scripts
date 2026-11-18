@@ -235,7 +235,7 @@ def mandar(filas, cta):
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:
         res = json.loads(r.read().decode('utf-8', 'replace'))
-    if res.get('ok'):   # cuándo se leyó cada app, para el botón de los martes (telefono/movs_uy_boton.sh)
+    if res.get('ok'):   # cuándo se leyó cada app, para el botón de lun-mié-vie (telefono/movs_uy_boton.sh)
         with open(os.path.expanduser('~/.movs_uy_ultima_' + cta.lower()), 'w') as fh:
             fh.write(str(int(time.time())))
     return res
