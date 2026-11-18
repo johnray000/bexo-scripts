@@ -174,7 +174,7 @@ td.n,th.n{text-align:right}
       <div>2. Debés menos de 50 USDT: podés bajar la venta 0,05 para vender más.</div>
       <div>3. Sin órdenes en 2 horas, en hora de movimiento (10 a 23 h): mové 0,05 hacia el mercado.</div>
       <div>4. Nunca pasar los límites de "punta a punta".</div>
-      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). Si no lo encuentro, dice "No sé" y muestra el precio de la última orden. Un anuncio viejo que reemplazaste por otro no se muestra. OKX y Bybit: precio de la última orden de los últimos 7 días (no sé si lo cambiaste después).</div>
+      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). Si no lo encuentro, dice "No sé" y muestra el precio de la última orden. Te reconoce por tu usuario de Binance, no por el n° de anuncio, así que sigue andando cuando Binance cierra uno y crea otro. OKX y Bybit: precio de la última orden de los últimos 7 días (no sé si lo cambiaste después).</div>
     </details>
   </div>
 
@@ -196,15 +196,9 @@ td.n,th.n{text-align:right}
     </div>
   </div>
 
-  <div class="grid row2">
-    <div class="card">
-      <h2>Ventas sin depósito encontrado <span>última semana</span></h2>
-      <table><thead><tr><th>Fecha</th><th>Exchange</th><th>Contraparte</th><th class="n">UYU</th></tr></thead><tbody id="sinDep"></tbody></table>
-    </div>
-    <div class="card">
-      <h2>Datos faltantes</h2>
-      <div id="avisos"></div>
-    </div>
+  <div class="card">
+    <h2>Datos faltantes</h2>
+    <div id="avisos"></div>
   </div>
 
   <div class="card" style="margin-top:14px">
@@ -305,7 +299,9 @@ td.n,th.n{text-align:right}
         : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
       // Solo "en vivo" si el precio vino del listado de Binance; si no, se dice que es el de la última orden.
       var meta0 = a.fuente === 'vivo' && a.puesto
-        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
+        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') +
+          (a.metodos && a.metodos.length ? '<br>' + esc(a.metodos.join(', ')) + (a.cuantos > 1 ? ' · tenés ' + a.cuantos + ' anuncios acá' : '') : '') +
+          '<br>' + hace + ' · hoy ' + a.hoy
         : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
@@ -350,15 +346,12 @@ td.n,th.n{text-align:right}
     }).join('');
     $('cupoNota').textContent = d.movsHasta ? 'Depósitos de Movs UY cargados hasta el ' + d.movsHasta + '.' : 'Movs UY sin datos.';
 
-    $('sinDep').innerHTML = (d.sinDeposito || []).map(function (s) {
-      return '<tr><td>' + esc(s.fecha) + '</td><td>' + esc(s.ex) + '</td><td>' + esc(s.contra) + '</td><td class="n">' + n(s.monto) + '</td></tr>';
-    }).join('') || '<tr><td colspan="4" class="empty">Todas las ventas tienen su depósito.</td></tr>';
-
     var bz = (d.servidor || {}).binance;
     var avs = (d.avisos || []).slice();
-    if (bz && bz.buscados !== undefined) avs.unshift(bz.error && !bz.encontrados
+    if (bz && bz.grupos !== undefined) avs.unshift(bz.error && !bz.encontrados
       ? { nivel: 'warn', texto: 'Precios en vivo de Binance: ' + bz.error }
-      : { nivel: bz.encontrados ? 'ok' : 'warn', texto: 'Precios en vivo de Binance: ' + bz.encontrados + ' de ' + bz.buscados + ' anuncios encontrados.' });
+      : { nivel: bz.encontrados ? 'ok' : 'warn', texto: 'Precios en vivo de Binance' + (bz.usuario ? ' (usuario ' + bz.usuario + ')' : '') + ': ' +
+          bz.encontrados + ' anuncios tuyos visibles en el listado.' + (bz.error ? ' ' + bz.error : '') });
     if (avs.some(function (a) { return a.nivel !== 'ok'; })) avs = avs.filter(function (a) { return a.texto !== 'Todo cargado al día.'; });
     $('avisos').innerHTML = avs.map(function (a) {
       return '<div class="alert">' + (ICON[a.nivel] || ICON.warn) + '<div>' + esc(a.texto) + '</div></div>';

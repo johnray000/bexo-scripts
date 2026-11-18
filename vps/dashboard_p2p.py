@@ -47,58 +47,79 @@ def pagina_binance(asset, tipo_taker, pagina):
         return json.load(r).get('data') or []
 
 
+YO = os.path.join(CARPETA, 'yo_binance.json')   # tu usuario de Binance (userNo y apodo), lo aprende solo
+
+
+def leer_yo():
+    try:
+        with open(YO, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def anuncios_binance_vivos():
-    """Busca tus anuncios de Binance (los n° que mandó el Apps Script la vez anterior) en el listado público UYU.
-    Devuelve {n°: {tipo, cripto, precio, puesto, total, mejor, visible}}. Si Binance falla, devuelve {}."""
+    """Busca TUS anuncios de Binance en el listado público UYU, por tipo y cripto (Compra/Venta × USDT/USDC).
+
+    Binance a veces cierra un anuncio (sin límite) y crea otro con otro número, así que no se sigue el n°:
+    se reconoce tu usuario (userNo). Lo aprende la primera vez que encuentra uno de los n° de anuncio que mandó
+    la planilla y lo guarda en yo_binance.json. Devuelve {"Venta|USDT": {...}, ...}:
+      visible: True  -> precio, puesto, total, completo, mejor (el mejor de otro), metodos, cuantos (tus anuncios ahí)
+      visible: False -> revisados (cuántos anuncios miré) y solo si recorrí el listado entero.
+    Si no sé tu usuario o Binance falla, ese grupo no va (el tablero dice "precio de últ. orden")."""
     global ESTADO_BINANCE
     try:
         with open(DATOS, encoding='utf-8') as f:
             mios = json.load(f).get('misAnunciosBinance') or {}
     except Exception:  # noqa: BLE001
         mios = {}
-    ESTADO_BINANCE = {'buscados': len(mios), 'encontrados': 0, 'error': ''}
-    if not mios:
-        ESTADO_BINANCE['error'] = 'todavía no sé cuáles son tus anuncios (la planilla no mandó la lista)'
+    yo = leer_yo()
+    ESTADO_BINANCE = {'grupos': 0, 'encontrados': 0, 'usuario': yo.get('apodo', ''), 'error': ''}
+    if not yo and not mios:
+        ESTADO_BINANCE['error'] = 'todavía no sé cuál es tu usuario de Binance (la planilla no mandó tus anuncios)'
         return {}
     vivos = {}
-    grupos = {}
-    for ad, info in mios.items():
-        # Tu anuncio de VENTA lo ve quien quiere COMPRAR (tradeType BUY) y al revés.
-        taker = 'BUY' if info.get('tipo') == 'Venta' else 'SELL'
-        grupos.setdefault((info.get('cripto') or 'USDT', taker), []).append(ad)
-    for (asset, taker), ads in grupos.items():
-        faltan = set(ads)
-        puesto, mejor, completo = 0, None, False
-        try:
-            # Recorre TODO el listado (antes cortaba en 100 y un anuncio en el puesto 101 salía como "no aparece").
-            for pagina in range(1, PAGINAS_MAX + 1):
-                lista = pagina_binance(asset, taker, pagina)
-                for a in lista:
-                    puesto += 1
-                    n = str(a['adv']['advNo'])
-                    precio = float(a['adv']['price'])
-                    if n in faltan:
-                        faltan.discard(n)
-                        vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'precio': precio, 'puesto': puesto, 'visible': True}
-                    elif mejor is None:
-                        mejor = precio
-                if len(lista) < 20:
-                    completo = True
-                    break
-        except Exception as e:  # noqa: BLE001
-            log(f'Binance {asset} {taker}: {e}')
-            ESTADO_BINANCE['error'] = f'Binance no respondió: {e}'[:160]
-            continue
-        for n in ads:
-            if n in vivos:
-                vivos[n].update(total=puesto, completo=completo, mejor=mejor)
-            elif completo:
-                vivos[n] = {'tipo': mios[n]['tipo'], 'cripto': asset, 'visible': False, 'revisados': puesto}
-            # Si no llegué al final del listado no sé si está o no: no lo marco como ausente.
-        if not completo:
-            log(f'Binance {asset} {taker}: listado de más de {puesto} anuncios, no lo recorrí entero')
-    ESTADO_BINANCE['encontrados'] = sum(1 for v in vivos.values() if v.get('visible'))
-    log(f"Binance en vivo: {ESTADO_BINANCE['encontrados']} de {len(mios)} anuncios encontrados")
+    for asset in ('USDT', 'USDC'):
+        for tipo, taker in (('Venta', 'BUY'), ('Compra', 'SELL')):   # tu VENTA la ve quien quiere COMPRAR
+            puesto, mejor, completo, mias = 0, None, False, []
+            try:
+                for pagina in range(1, PAGINAS_MAX + 1):
+                    lista = pagina_binance(asset, taker, pagina)
+                    for a in lista:
+                        puesto += 1
+                        adv, quien = a.get('adv') or {}, a.get('advertiser') or {}
+                        n, uid = str(adv.get('advNo')), str(quien.get('userNo') or quien.get('nickName') or '')
+                        if not yo.get('userNo') and n in mios and uid:   # aprende quién sos
+                            yo = {'userNo': uid, 'apodo': quien.get('nickName') or ''}
+                            with open(YO, 'w', encoding='utf-8') as f:
+                                json.dump(yo, f)
+                            log(f"Aprendí tu usuario de Binance: {yo['apodo']}")
+                        if (uid and uid == yo.get('userNo')) or n in mios:
+                            mias.append({'precio': float(adv['price']), 'puesto': puesto, 'ad': n,
+                                         'metodos': [m.get('tradeMethodName') or m.get('identifier') or ''
+                                                     for m in adv.get('tradeMethods') or []]})
+                        elif mejor is None:
+                            mejor = float(adv['price'])
+                    if len(lista) < 20:
+                        completo = True
+                        break
+            except Exception as e:  # noqa: BLE001
+                log(f'Binance {asset} {taker}: {e}')
+                ESTADO_BINANCE['error'] = f'Binance no respondió: {e}'[:160]
+                continue
+            clave = f'{tipo}|{asset}'
+            ESTADO_BINANCE['grupos'] += 1
+            if mias:
+                m = mias[0]   # el mejor ubicado
+                vivos[clave] = dict(m, tipo=tipo, cripto=asset, visible=True, total=puesto, completo=completo,
+                                    mejor=mejor, cuantos=len(mias))
+                ESTADO_BINANCE['encontrados'] += 1
+            elif completo and puesto and yo.get('userNo'):   # listado vacío = no sé
+                vivos[clave] = {'tipo': tipo, 'cripto': asset, 'visible': False, 'revisados': puesto}
+            if not completo:
+                log(f'Binance {asset} {taker}: más de {puesto} anuncios, no lo recorrí entero')
+    ESTADO_BINANCE['usuario'] = yo.get('apodo', '')
+    log(f"Binance en vivo: {ESTADO_BINANCE['encontrados']} grupos con anuncio tuyo visible")
     return vivos
 
 

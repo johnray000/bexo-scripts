@@ -155,8 +155,9 @@ function dashboardP2P_(vivos) {
 
   // Anuncios (deducidos de las órdenes UYU de los últimos 7 días)
   var hace7 = new Date(ahora.getTime() - 7 * 864e5);
-  // En Binance solo cuentan las órdenes de TUS anuncios (Rol = Anunciante), agrupadas por n° de anuncio.
-  var claveAnuncio = function (o) { return o.ex === 'Binance' && o.ad ? 'Binance|' + o.ad : o.ex + '|' + o.tipo + '|' + o.cripto; };
+  // Un renglón por exchange × tipo × cripto. En Binance no se agrupa por n° de anuncio: Binance a veces cierra el
+  // anuncio (sin límite) y crea otro con otro número. Solo cuentan las órdenes de TUS anuncios (Rol = Anunciante).
+  var claveAnuncio = function (o) { return o.ex + '|' + o.tipo + '|' + o.cripto; };
   var esMio = function (o) { return o.ex !== 'Binance' || o.rol === 'Anunciante'; };
   var porAnuncio = {};
   ords.filter(function (o) { return esUYU(o) && esMio(o) && o.f >= hace7 && o.estado !== 'Cancelada'; })
@@ -166,35 +167,28 @@ function dashboardP2P_(vivos) {
       if (!porAnuncio[k]) porAnuncio[k] = { ex: o.ex, tipo: o.tipo, cripto: o.cripto, precio: o.precio, ultima: o.f, hoy: 0 };
       if (Utilities.formatDate(o.f, zona, 'yyyyMMdd') === Utilities.formatDate(ahora, zona, 'yyyyMMdd')) porAnuncio[k].hoy++;
     });
-  // Anuncios de Binance de los últimos 30 días: el VPS busca su precio en vivo con esta lista.
+  // N° de anuncios de Binance de los últimos 30 días: el VPS los usa solo para aprender cuál es tu usuario.
   var hace30 = new Date(ahora.getTime() - 30 * 864e5);
   var misAnunciosBinance = {};
   ords.filter(function (o) { return o.ex === 'Binance' && o.rol === 'Anunciante' && o.ad && esUYU(o) && o.f >= hace30; })
     .forEach(function (o) { if (!misAnunciosBinance[o.ad]) misAnunciosBinance[o.ad] = { tipo: o.tipo, cripto: o.cripto }; });
-  // Precio en vivo: pisa el de la última orden y suma los anuncios sin órdenes esta semana.
-  Object.keys(vivos).forEach(function (ad) {
-    var v = vivos[ad] || {};
-    var k = 'Binance|' + ad;
-    if (!porAnuncio[k]) porAnuncio[k] = { ex: 'Binance', tipo: v.tipo, cripto: v.cripto, precio: v.precio, ultima: null, hoy: 0 };
+  // Precio en vivo (clave "Venta|USDT"): pisa el de la última orden. Un anuncio visible sin órdenes esta semana
+  // también aparece. Un grupo "no visible" solo se muestra si tuvo órdenes esta semana.
+  Object.keys(vivos).forEach(function (g) {
+    var v = vivos[g] || {};
+    var k = 'Binance|' + g;
+    if (!porAnuncio[k]) {
+      if (v.visible === false) return;
+      porAnuncio[k] = { ex: 'Binance', tipo: v.tipo, cripto: v.cripto, precio: v.precio, ultima: null, hoy: 0 };
+    }
     var a = porAnuncio[k];
-    a.ad = ad;
     a.vivo = true;
     a.visible = v.visible !== false;
     a.revisados = v.revisados || null;
-    if (a.visible) { a.precio = +v.precio || a.precio; a.puesto = v.puesto; a.total = v.total; a.completo = v.completo !== false; a.mejor = v.mejor; }
-  });
-  // Un anuncio de Binance que no está (o no se buscó) en el listado y tiene un "hermano" (mismo tipo y cripto) que sí está, o con
-  // órdenes más nuevas, es un anuncio viejo que reemplazaste: no se muestra (antes salía como "Revisar").
-  // Pasó el 17/11: el n° ...6192 (venta, última orden 16/11) quedó en la lista junto al nuevo ...7728.
-  Object.keys(porAnuncio).forEach(function (k) {
-    var a = porAnuncio[k];
-    if (a.ex !== 'Binance' || a.visible) return;
-    var reemplazado = Object.keys(porAnuncio).some(function (k2) {
-      var b = porAnuncio[k2];
-      return k2 !== k && b.ex === 'Binance' && b.tipo === a.tipo && b.cripto === a.cripto &&
-        (b.visible || (b.ultima && (!a.ultima || b.ultima > a.ultima)));
-    });
-    if (reemplazado) delete porAnuncio[k];
+    if (a.visible) {
+      a.precio = +v.precio || a.precio; a.puesto = v.puesto; a.total = v.total; a.completo = v.completo !== false;
+      a.mejor = v.mejor; a.metodos = v.metodos || []; a.cuantos = v.cuantos || 1;
+    }
   });
   // "258" si el pendiente es seguro; "258 a 330" si hay órdenes sin moneda que podrían ser UYU.
   var pMin = Math.round(pendiente - dudaCompra), pMax = Math.round(pendiente + dudaVenta);
@@ -206,9 +200,9 @@ function dashboardP2P_(vivos) {
     var min = a.ultima ? Math.round((ahora - a.ultima) / 60000) : null;
     if (a.vivo && !a.visible) {
       // No adivinamos: puede estar pausado, sin saldo, oculto por filtros de Binance, o cerrado.
-      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'No sé', nuevo: null, ad: a.ad,
-               porque: 'No lo encontré en el listado público de Binance' + (a.revisados ? ' (revisé ' + a.revisados + ' anuncios)' : '') +
-                       '. El precio es el de la última orden. Fijate en la app si está activo.',
+      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'No sé', nuevo: null,
+               porque: 'No veo ningún anuncio tuyo de ' + a.tipo.toLowerCase() + ' ' + a.cripto + ' en el listado de Binance' +
+                       (a.revisados ? ' (revisé los ' + a.revisados + ')' : '') + '. El precio es el de la última orden. Fijate en la app.',
                minUltima: min, hoy: a.hoy, vivo: false, fuente: 'orden' };
     }
     var quieto = horaActiva && (min === null || min >= DASH_SIN_ORDENES_MIN);
@@ -243,7 +237,7 @@ function dashboardP2P_(vivos) {
     return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: r.accion,
              nuevo: dashR_(r.nuevo), porque: r.porque, minUltima: min, hoy: a.hoy,
              vivo: !!a.vivo, puesto: a.puesto || null, total: a.total || null, completo: a.completo !== false,
-             mejor: a.mejor || null, ad: a.ad || null, fuente: a.vivo ? 'vivo' : 'orden' };
+             mejor: a.mejor || null, metodos: a.metodos || null, cuantos: a.cuantos || null, fuente: a.visible ? 'vivo' : 'orden' };
   }).sort(function (a, b) { return (a.tipo === b.tipo ? 0 : a.tipo === 'Compra' ? -1 : 1) || a.ex.localeCompare(b.ex); });
 
   // Rutas
@@ -279,26 +273,6 @@ function dashboardP2P_(vivos) {
     return { cta: c, usado: Math.round(usado), pct: Math.round(usado / DASH_CUPO_CUENTA * 100) };
   });
   var ultMov = movs.reduce(function (mx, m) { return !mx || m.f > mx ? m.f : mx; }, null);
-
-  // Ventas UYU sin depósito (solo hasta el último día que tiene Movs UY, si no todo saldría pendiente)
-  var sinDeposito = [];
-  if (ultMov) {
-    var usados = {};
-    var limite = new Date(ultMov.getTime() + 864e5);
-    ok.filter(function (o) { return esUYU(o) && o.tipo === 'Venta' && o.f >= hace7 && o.f < limite; })
-      .sort(function (a, b) { return a.f - b.f; })
-      .forEach(function (o) {
-        var i = -1;
-        movs.some(function (m, j) {
-          if (usados[j] || Math.abs(m.monto - o.monto) > 0.5) return false;
-          var dif = (m.f - o.f) / 864e5;
-          if (dif > -1.5 && dif < 2.5) { i = j; return true; }
-          return false;
-        });
-        if (i >= 0) usados[i] = true;
-        else sinDeposito.push({ fecha: Utilities.formatDate(o.f, zona, 'dd/MM HH:mm'), ex: o.ex, contra: o.contra, monto: o.monto });
-      });
-  }
 
   // Datos faltantes / avisos
   var avisos = [];
@@ -362,7 +336,6 @@ function dashboardP2P_(vivos) {
     },
     calor: calor,
     cupo: { limite: DASH_CUPO_CUENTA, cuentas: cupo },
-    sinDeposito: sinDeposito.slice(-8).reverse(),
     cargadas: cargadas,
     rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
              sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },
