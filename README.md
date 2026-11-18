@@ -34,7 +34,7 @@ Log en el teléfono: `tail -5 ~/subir.log`
   (para el acceso directo de Termux:Widget). Último informe: `cat ~/consumo_ultimo.txt`.
 - `telefono/liberar.sh`: notificación fija con el botón LIBERAR (la pone alerta.sh): cierra OKX, Instagram, Telegram y Abitab ID (más las de
   `~/.liberar_extra`) y avisa cuánta RAM liberó. A Abitab además le saca el permiso de correr en segundo plano. Usa ADB.
-- `vps/dashboard_p2p.py` + `vps/dashboard_index.html`: el tablero P2P (márgenes punta a punta, qué anuncio mover,
+- `vps/dashboard_p2p.py` + `vps/dashboard_index.html`: la Brújula P2P (tablero P2P) (márgenes punta a punta, qué anuncio mover,
   rutas, horas, cupos UYU, ventas sin depósito). Servidor de librería estándar en el VPS, puerto 8090, con usuario y clave;
   cada 10 min pide los números al Apps Script (`apps-script/20_DashboardP2P.gs`, `?dash=1&k=DASH_TOKEN`).
   Se instala o actualiza con `sudo bash dashboard_instalar.sh`. Log: `journalctl -u dashboard-p2p -n 20`.

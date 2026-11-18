@@ -1,5 +1,5 @@
 /**
- * 20_DashboardP2P.gs — Calcula los números del tablero P2P y los entrega en JSON.
+ * 20_DashboardP2P.gs — Calcula los números de la Brújula P2P (tablero P2P) y los entrega en JSON.
  *
  * - Lo pide el servidor del tablero en el VPS (vps/dashboard_p2p.py) cada 10 min:
  *   GET <url /exec>?dash=1&k=<DASH_TOKEN>   (la rama está en doGet, 9_P2P.gs)
