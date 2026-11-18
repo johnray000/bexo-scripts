@@ -339,6 +339,11 @@ function dashboardP2P_(vivos) {
     cargadas: cargadas,
     rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
              sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },
+    // Las últimas 10 órdenes tal como las leyó el tablero, para comprobarlas de memoria.
+    ultimasOrdenes: ords.slice().sort(function (a, b) { return b.f - a.f; }).slice(0, 10).map(function (o) {
+      return { fecha: Utilities.formatDate(o.f, zona, 'dd/MM HH:mm'), ex: o.ex, tipo: o.tipo, cripto: o.cripto, cant: dashR_(o.cant),
+               mon: o.mon, monto: dashR_(o.monto), precio: dashR_(o.precio, 3), estado: o.estado };
+    }),
     movsHasta: ultMov ? Utilities.formatDate(ultMov, zona, 'dd/MM') : '',
     avisos: avisos
   };

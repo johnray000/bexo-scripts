@@ -196,6 +196,15 @@ td.n,th.n{text-align:right}
     </div>
   </div>
 
+  <div class="card" style="margin-bottom:14px">
+    <h2>Últimas órdenes <span>así las leyó el tablero</span></h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Hora</th><th>Orden</th><th class="n">Cripto</th><th class="n">Monto</th><th class="n">Precio</th></tr></thead>
+      <tbody id="ultimas"></tbody>
+    </table></div>
+    <div class="note" style="margin-top:8px">Si alguna no coincide con lo que hiciste, no confíes en el resto: avisá.</div>
+  </div>
+
   <div class="card">
     <h2>Datos faltantes</h2>
     <div id="avisos"></div>
@@ -346,6 +355,13 @@ td.n,th.n{text-align:right}
     }).join('');
     $('cupoNota').textContent = d.movsHasta ? 'Depósitos de Movs UY cargados hasta el ' + d.movsHasta + '.' : 'Movs UY sin datos.';
 
+    $('ultimas').innerHTML = (d.ultimasOrdenes || []).map(function (o) {
+      var mal = o.estado !== 'Completada';
+      return '<tr' + (mal ? ' style="opacity:.55"' : '') + '><td>' + esc(o.fecha) + '</td><td><b>' + esc(o.ex) + '</b> ' +
+        '<span class="' + (o.tipo === 'Compra' ? 'ok' : 'bad') + '">' + esc(o.tipo) + '</span>' + (mal ? ' <span class="note">' + esc(o.estado) + '</span>' : '') +
+        '</td><td class="n">' + n(o.cant, 2) + ' ' + esc(o.cripto) + '</td><td class="n">' + (o.mon ? n(o.monto) + ' ' + esc(o.mon) : '<span class="warn">sin moneda</span>') +
+        '</td><td class="n">' + (o.precio ? n(o.precio, 2) : '—') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes.</td></tr>';
     var bz = (d.servidor || {}).binance;
     var avs = (d.avisos || []).slice();
     if (bz && bz.grupos !== undefined) avs.unshift(bz.error && !bz.encontrados
