@@ -7,7 +7,7 @@ Solo lee: no toca Transferir, Pagar ni nada que mueva plata. Al terminar vuelve 
 
   python itau.py --probar                 # entradas de los últimos 7 días, sin mandar nada
   python itau.py --desde 01/10/2026 --hasta 31/10/2026
-  python itau.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de los martes)
+  python itau.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de lun-mié-vie)
 
 Itaú no muestra N° de referencia en las transferencias: para no duplicar se arma uno con la fecha, los números
 del texto ("TRASPASO DE 4731176ILINK"), el monto y el orden dentro del día.
