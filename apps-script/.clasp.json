@@ -1,0 +1,36 @@
+{
+  "scriptId": "1Mt5N9yNM4SXt6GmEn-X1FXhSOcGE_KRhQm-wEjmjatwm08wyn_-VSYKc",
+  "rootDir": ".",
+  "scriptExtensions": [
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [
+    "appsscript.json",
+    "0_Config.gs",
+    "1_Identidad.gs",
+    "2_Recepcion.gs",
+    "3_Operativa.gs",
+    "4_LeerComprobantes.gs",
+    "5_Dashboard.gs",
+    "6_Mantenimiento.gs",
+    "7_CargaManual.gs",
+    "9_P2P.gs",
+    "10_AgendaCuentas.gs",
+    "11_PreOrden.gs",
+    "12_Estados.gs",
+    "13_CuentasVes.gs",
+    "14_TradersVes.gs",
+    "15_OKX.gs",
+    "ExportarMovimientos.gs",
+    "Escaner.gs",
+    "17_MovimientosUY.gs",
+    "18_Diagnostico.gs",
+    "19_Gows.gs"
+  ]
+}

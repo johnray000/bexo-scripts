@@ -1,10 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/sh
 # Diagnóstico del bot desde el teléfono. Entra al VPS por SSH y corre vps/diagnostico.py (lo manda por la
 # conexión, así el VPS no necesita git pull). Usa VPS_SSH y la clave del túnel (ver tunel_vps.sh).
-#   diagnostico.sh boton      pone la notificación fija con DIAGNÓSTICO y RASTREAR (lo llama alerta.sh)
+#   diagnostico.sh boton      pone la notificación fija con DIAGNÓSTICO y RASTREAR (lo llama alerta.sh).
+#                             Para no verla más (el vigilante sigue): touch ~/.diag_sin_boton
 #   diagnostico.sh ya         corre todas las etapas y muestra el resultado en una notificación
 #   diagnostico.sh rastrear   pide nombre o número y muestra lo último que WAHA recibió de ese cliente
-#   diagnostico.sh vigilar    chequeo callado: solo avisa si algo falla (lo llama alerta.sh cada 15 min)
+#   diagnostico.sh vigilar    chequeo callado (alerta.sh, cada 15 min): avisa solo si una etapa da ❌ en DOS vueltas
+#                             seguidas, así un tropiezo de un momento no te despierta
 DIR=/data/data/com.termux/files/home/bexo-scripts
 PY="$DIR/vps/diagnostico.py"
 VPS=$(grep '^VPS_SSH=' ~/.subir-ordenes.env 2>/dev/null | cut -d= -f2)
@@ -27,11 +29,13 @@ correr() {   # $@ = argumentos para diagnostico.py
 
 mostrar() {   # $1 = id, $2 = título, $3 = texto (al expandir la notificación se ve completo)
   termux-notification --id "$1" --priority high --title "$2" --content "$3" \
-    --button1 'REPETIR' --button1-action "sh $DIR/telefono/diagnostico.sh ya"
+    --button1 'DIAGNÓSTICO' --button1-action "sh $DIR/telefono/diagnostico.sh ya" \
+    --button2 'RASTREAR CLIENTE' --button2-action "sh $DIR/telefono/diagnostico.sh rastrear"
 }
 
 case "${1:-ya}" in
   boton)
+    if [ -f ~/.diag_sin_boton ]; then termux-notification-remove diag-boton; exit 0; fi
     termux-notification --id diag-boton --ongoing --priority low \
       --title 'Bot WhatsApp' --content '¿No llegó una pre-orden? Revisá dónde se cortó.' \
       --button1 'DIAGNÓSTICO' --button1-action "sh $DIR/telefono/diagnostico.sh ya" \
@@ -57,9 +61,11 @@ case "${1:-ya}" in
     r=$?
     # Sin SSH: si el teléfono no tiene internet no es culpa del VPS, no avisar
     if [ $r -eq 255 ] && ! curl -s -m 8 -o /dev/null https://www.google.com; then exit 0; fi
-    if [ -z "$SAL" ]; then rm -f ~/.diag_aviso; exit 0; fi
+    if [ -z "$SAL" ]; then rm -f ~/.diag_aviso ~/.diag_sospecha; exit 0; fi
     { date '+%d/%m %H:%M vigilar'; echo "$SAL"; } >> "$LOG"
     PRIMERA=$(echo "$SAL" | head -1)
+    # Primera vuelta con ❌: solo se anota. Si a los 15 min sigue fallando, recién ahí avisa.
+    if [ ! -f ~/.diag_sospecha ]; then echo "$PRIMERA" > ~/.diag_sospecha; exit 0; fi
     # No repetir el mismo aviso cada 15 min: solo si cambió
     [ "$PRIMERA" = "$(cat ~/.diag_aviso 2>/dev/null)" ] && exit 0
     echo "$PRIMERA" > ~/.diag_aviso

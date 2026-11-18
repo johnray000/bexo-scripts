@@ -1,7 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/sh
-# Lo corre Termux cada 15 minutos: si la alarma de compras no está corriendo, la arranca.
+# Lo corre Termux cada 15 minutos: si la alarma de compras y ventas no está corriendo, la arranca.
 # Así sigue andando aunque Android la cierre o reinicies el teléfono.
 sh ~/bexo-scripts/telefono/boton.sh
+sh ~/bexo-scripts/telefono/liberar.sh boton
 sh ~/bexo-scripts/telefono/adb_reconectar.sh vigilar
 sh ~/bexo-scripts/telefono/movs_uy_boton.sh
 sh ~/bexo-scripts/telefono/tunel_vps.sh
