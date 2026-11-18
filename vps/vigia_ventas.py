@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Vigía de ventas P2P en el VPS: avisa por Telegram (y ntfy) cuando entra una venta en tu anuncio de Binance.
+"""Vigía de órdenes P2P en el VPS: el que lee Binance es el VPS (no duerme), el teléfono solo suena.
 
-El teléfono también tiene alarma (alerta_compras.py), pero con la pantalla bloqueada Android puede dormir a Termux y
-no pregunta a Binance. El VPS no duerme: pregunta cada 20 s con la key de SOLO LECTURA del relay
-(/etc/relay-binance.env) y el aviso de Telegram/ntfy despierta al teléfono aunque esté bloqueado.
+Cada 5 min (de 1 a 10 de la mañana, hora UY, cada 15 min) mira tus órdenes con la key de SOLO LECTURA del relay
+(/etc/relay-binance.env) y, si hay que avisar, le manda al teléfono la orden de sonar por ntfy (tema <T>-alarma;
+lo escucha alerta_compras.py). El teléfono suena y contesta "sonó" (tema <T>-alarma-ok).
+  - VENTA nueva en tu anuncio: suena al 75%; si a los 10 min sigue sin pagar, una vez más al máximo. Nada más.
+  - COMPRA abierta en tu anuncio esperando tu pago: suena en cada vuelta hasta que pagues.
+Si en 90 s el teléfono no contestó (bloqueado y dormido, sin internet…), recién ahí manda una notificación visible
+de ntfy (tema <T>, prioridad máxima): esa sí despierta al teléfono.
+Cada ~15 min deja una "señal de vida" en <T>-vigia, solo si pudo leer Binance. Si el teléfono no la ve en 35 min,
+vuelve a leer Binance él solo (respaldo) hasta que el VPS vuelva.
 
-Por cada venta nueva (el comprador entró y espera): un mensaje "💰 VENTA NUEVA de 1.500 UYU por Prex".
-Si a los 10 min sigue sin pagar, un recordatorio. Nada más (pagada o cancelada no avisa).
-
-Config en /etc/vigia-ventas.env (no va a GitHub): TELEGRAM_TOKEN, TELEGRAM_CHAT y/o NTFY_TOPIC.
+Config: NTFY_TOPIC en /etc/vigia-ventas.env (el mismo de ~/.bexo-ntfy del teléfono).
   python3 vigia_ventas.py            # queda corriendo (servicio vigia-ventas)
-  python3 vigia_ventas.py --probar   # muestra lo que ve en Binance y manda un mensaje de prueba
+  python3 vigia_ventas.py --probar   # lee Binance una vez, le pide al teléfono un sonido de prueba y espera el "sonó"
 """
 import hashlib
 import hmac
@@ -23,15 +26,20 @@ import urllib.parse
 import urllib.request
 
 HISTORIAL = 'https://api.binance.com/sapi/v1/c2c/orderMatch/listUserOrderHistory'
-CADA_S = 20
+NTFY = 'https://ntfy.sh'
+CADA_S, CADA_NOCHE_S = 5 * 60, 15 * 60
+NOCHE = (1, 10)                      # de 1:00 a 9:59 hora de Uruguay
+UY_UTC = -3
 RECORDAR_S = 10 * 60
+ESPERA_OK_S = 90
+VIDA_S = 14 * 60
 ESPERANDO = ('PENDING', 'TRADING')
 BANCOS = (('prex', 'Prex'), ('itau', 'Itaú'), ('midinero', 'Mi Dinero'), ('redpagos', 'Mi Dinero'),
           ('mercado', 'Mercado Pago'), ('oca', 'OCA'))
 
 
 def leer_env(*rutas):
-    """Lee KEY=valor de los archivos (los del systemd ya vienen en el entorno; esto es para --probar a mano)."""
+    """KEY=valor de los archivos (con systemd ya vienen en el entorno; esto es para correrlo a mano)."""
     for ruta in rutas:
         try:
             with open(ruta) as f:
@@ -43,11 +51,18 @@ def leer_env(*rutas):
             pass
 
 
+def hora_uy(t=None):
+    return time.gmtime((t or time.time()) + UY_UTC * 3600).tm_hour
+
+
+def pausa(t=None):
+    return CADA_NOCHE_S if NOCHE[0] <= hora_uy(t) < NOCHE[1] else CADA_S
+
+
 _desfase_ms = None
 
 
 def hora_binance_ms():
-    """Hora según Binance (si el reloj del VPS se adelanta, Binance rechaza la firma)."""
     global _desfase_ms
     if _desfase_ms is None:
         with urllib.request.urlopen('https://api.binance.com/api/v3/time', timeout=10) as r:
@@ -55,10 +70,10 @@ def hora_binance_ms():
     return int(time.time() * 1000) + _desfase_ms - 2000
 
 
-def ventas_esperando():
-    """Ventas en TUS anuncios (MAKER) de las últimas 2 h donde el comprador entró y todavía no pagó."""
+def mis_ordenes(tipo):
+    """Órdenes de TUS anuncios (MAKER) de las últimas 2 h, esperando pago."""
     ahora = hora_binance_ms()
-    params = {'tradeType': 'SELL', 'startTimestamp': ahora - 2 * 3600 * 1000, 'endTimestamp': ahora,
+    params = {'tradeType': tipo, 'startTimestamp': ahora - 2 * 3600 * 1000, 'endTimestamp': ahora,
               'page': 1, 'rows': 50, 'recvWindow': 10000, 'timestamp': ahora}
     query = urllib.parse.urlencode(params)
     firma = hmac.new(os.environ['BINANCE_SECRET'].encode(), query.encode(), hashlib.sha256).hexdigest()
@@ -72,90 +87,127 @@ def ventas_esperando():
     return [o for o in datos if o.get('orderStatus') in ESPERANDO and o.get('advertisementRole') != 'TAKER']
 
 
+def tema(sufijo=''):
+    return os.environ['NTFY_TOPIC'] + sufijo
+
+
+def publicar(topic, mensaje, titulo=None, prioridad=None, tags=()):
+    cuerpo = {'topic': topic, 'message': mensaje}
+    if titulo:
+        cuerpo['title'] = titulo
+    if prioridad:
+        cuerpo['priority'] = prioridad
+    if tags:
+        cuerpo['tags'] = list(tags)
+    req = urllib.request.Request(NTFY, data=json.dumps(cuerpo).encode(), headers={'Content-Type': 'application/json'})
+    urllib.request.urlopen(req, timeout=15).read()
+
+
+def oks_desde(desde):
+    """Ids que el teléfono confirmó como "sonó" desde el segundo `desde`."""
+    url = '%s/%s/json?poll=1&since=%d' % (NTFY, tema('-alarma-ok'), int(desde))
+    with urllib.request.urlopen(url, timeout=15) as r:
+        return {json.loads(l).get('message', '').strip() for l in r if l.strip()}
+
+
 def banco(o):
     crudo = str(o.get('payMethodName') or '')
     plano = crudo.lower().replace('ú', 'u').replace(' ', '').replace('_', '')
     return next((lindo for clave, lindo in BANCOS if clave in plano), crudo)
 
 
-def texto(o, recordatorio=False):
+def monto_txt(o):
     try:
         monto = '{:,}'.format(int(float(o.get('totalPrice')))).replace(',', '.')
     except (TypeError, ValueError):
         monto = str(o.get('totalPrice'))
-    linea = '%s %s' % (monto, o.get('fiat') or '')
-    if banco(o):
-        linea += ' por ' + banco(o)
-    titulo = ('⏰ SIGUE ESPERANDO: venta de ' if recordatorio else '💰 VENTA NUEVA de ') + linea
-    minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
-    detalle = '%s %s · abierta hace %d min · orden …%s' % (o.get('amount'), o.get('asset'), minutos,
-                                                           str(o.get('orderNumber'))[-6:])
-    return titulo, detalle
+    return '%s %s' % (monto, o.get('fiat') or '')
 
 
-def enviar(titulo, detalle):
-    """Manda a Telegram y a ntfy (los que estén configurados). Devuelve a cuántos llegó."""
-    llegó = 0
-    token, chat = os.environ.get('TELEGRAM_TOKEN'), os.environ.get('TELEGRAM_CHAT')
-    if token and chat:
-        try:
-            datos = urllib.parse.urlencode({'chat_id': chat, 'text': '%s\n%s' % (titulo, detalle)}).encode()
-            urllib.request.urlopen('https://api.telegram.org/bot%s/sendMessage' % token, data=datos, timeout=10).read()
-            llegó += 1
-        except (OSError, ValueError) as e:
-            print('Telegram falló:', e, flush=True)
-    tema = os.environ.get('NTFY_TOPIC')
-    if tema:
-        try:
-            cuerpo = json.dumps({'topic': tema, 'title': titulo, 'message': detalle, 'priority': 5,
-                                 'tags': ['moneybag']}).encode()
-            urllib.request.urlopen(urllib.request.Request('https://ntfy.sh', data=cuerpo,
-                                                          headers={'Content-Type': 'application/json'}),
-                                   timeout=10).read()
-            llegó += 1
-        except (OSError, ValueError) as e:
-            print('ntfy falló:', e, flush=True)
-    return llegó
+def comando(o, clase, fuerte):
+    """Lo que viaja al teléfono: lo justo para sonar (sin apodos)."""
+    return {'id': '%s-%s-%d' % (str(o.get('orderNumber'))[-9:], clase, int(time.time())), 'clase': clase,
+            'fuerte': fuerte, 'orderNumber': str(o.get('orderNumber')), 'totalPrice': o.get('totalPrice'),
+            'fiat': o.get('fiat'), 'amount': o.get('amount'), 'asset': o.get('asset'),
+            'createTime': o.get('createTime'), 'payMethodName': o.get('payMethodName')}
 
 
-def vuelta(avisadas, ahora):
-    """avisadas: orden → [cuándo avisó la primera vez, si ya mandó el recordatorio]."""
-    esperando = ventas_esperando()
-    for o in esperando:
+def que_avisar(ordenes, avisadas, ahora):
+    """ordenes: [(orden, 'venta'|'compra')]. avisadas: orden → [primera vez, veces]. Devuelve los comandos."""
+    cmds = []
+    for o, clase in ordenes:
         n = str(o.get('orderNumber'))
-        if n not in avisadas:
-            enviar(*texto(o))
-            avisadas[n] = [ahora, False]
-            print(time.strftime('%Y-%m-%d %H:%M:%S'), 'venta nueva …' + n[-6:], flush=True)
-        elif not avisadas[n][1] and ahora - avisadas[n][0] >= RECORDAR_S:
-            enviar(*texto(o, recordatorio=True))
-            avisadas[n][1] = True
-            print(time.strftime('%Y-%m-%d %H:%M:%S'), 'recordatorio …' + n[-6:], flush=True)
-    vivas = {str(o.get('orderNumber')) for o in esperando}
+        primera, veces = avisadas.get(n, (ahora, 0))
+        if clase == 'venta':
+            if veces == 0:
+                cmds.append(comando(o, clase, False))
+            elif veces == 1 and ahora - primera >= RECORDAR_S:
+                cmds.append(comando(o, clase, True))
+            else:
+                continue
+        else:
+            cmds.append(comando(o, clase, True))
+        avisadas[n] = [primera, veces + 1]
+    vivas = {str(o.get('orderNumber')) for o, _ in ordenes}
     for n in list(avisadas):
         if n not in vivas:
             del avisadas[n]
-    return esperando
+    return cmds
+
+
+def avisar(cmds, espera=ESPERA_OK_S):
+    """Manda los comandos al teléfono; a los que no contesta en `espera` s, notificación visible."""
+    if not cmds:
+        return []
+    desde = time.time() - 5
+    for c in cmds:
+        publicar(tema('-alarma'), json.dumps(c))
+    time.sleep(espera)
+    try:
+        oks = oks_desde(desde)
+    except (OSError, ValueError):
+        oks = set()
+    sin_ok = [c for c in cmds if c['id'] not in oks]
+    for c in sin_ok:
+        extra = (' por ' + banco(c)) if banco(c) else ''
+        titulo = ('💰 VENTA NUEVA de ' if c['clase'] == 'venta' else '🚨 COMPRA ABIERTA: pagá ') + monto_txt(c) + extra
+        publicar(tema(), 'El teléfono no sonó · orden …%s' % c['orderNumber'][-6:], titulo, 5,
+                 ('moneybag',) if c['clase'] == 'venta' else ('rotating_light',))
+    for c in cmds:
+        print(time.strftime('%Y-%m-%d %H:%M:%S'), c['clase'], monto_txt(c), '…' + c['orderNumber'][-6:],
+              'sonó en el teléfono' if c not in sin_ok else 'NO sonó: notificación', flush=True)
+    return sin_ok
+
+
+def leer_binance():
+    return [(o, 'venta') for o in mis_ordenes('SELL')] + [(o, 'compra') for o in mis_ordenes('BUY')]
 
 
 if __name__ == '__main__':
     leer_env('/etc/relay-binance.env', '/etc/vigia-ventas.env')
+    if not os.environ.get('NTFY_TOPIC'):
+        sys.exit('Falta NTFY_TOPIC en /etc/vigia-ventas.env')
     if '--probar' in sys.argv:
-        print('Ventas esperando ahora:', len(ventas_esperando()))
-        n = enviar('💰 VENTA NUEVA de 1.500 UYU por Prex', 'PRUEBA del vigía del VPS · no es una venta real')
-        print('Mensaje de prueba enviado a %d destino(s)' % n)
-        sys.exit(0 if n else 1)
-    avisadas, errores = {}, 0
-    print(time.strftime('%Y-%m-%d %H:%M'), 'vigía de ventas arrancado', flush=True)
+        ords = leer_binance()
+        print('Binance OK. Ventas esperando: %d · compras esperando: %d' % (
+            sum(1 for _, c in ords if c == 'venta'), sum(1 for _, c in ords if c == 'compra')))
+        publicar(tema('-vigia'), 'vivo')
+        prueba = {'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
+                  'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}
+        print('Le pido al teléfono que suene una venta de prueba y espero %d s…' % ESPERA_OK_S, flush=True)
+        sin_ok = avisar([dict(comando(prueba, 'venta', False), prueba=True)])
+        sys.exit(1 if sin_ok else 0)
+    avisadas, errores, ultima_vida = {}, 0, 0
+    print(time.strftime('%Y-%m-%d %H:%M'), 'vigía de órdenes arrancado', flush=True)
     while True:
         try:
-            vuelta(avisadas, time.time())
-            if errores >= 10:
-                enviar('✅ Vigía de ventas: Binance volvió a responder', '')
+            ords = leer_binance()
             errores = 0
-        except Exception as e:     # sin internet o Binance caído: sigue intentando
+            if time.time() - ultima_vida >= VIDA_S:
+                publicar(tema('-vigia'), 'vivo')
+                ultima_vida = time.time()
+            avisar(que_avisar(ords, avisadas, time.time()))
+        except Exception as e:     # sin internet o Binance caído: sin señal de vida, el teléfono toma la posta
             errores += 1
             print(time.strftime('%Y-%m-%d %H:%M:%S'), 'error:', e, flush=True)
-            if errores == 10:      # ~3 min sin poder mirar: que lo sepas, porque no te va a avisar
-                enviar('⚠️ Vigía de ventas: no puedo leer Binance', str(e)[:200])
-        time.sleep(CADA_S)
+        time.sleep(pausa() if not errores else 60)
