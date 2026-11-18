@@ -3,30 +3,27 @@
 
 La app de Binance no avisa bien y, si no atendés a tiempo, las órdenes se cancelan y te cierran el anuncio
 (16/11: 9 ventas canceladas por compradores entre 12:23 y 14:46 → anuncios de venta cerrados por 1 día).
-QUIÉN LEE BINANCE: el VPS (vps/vigia_ventas.py, cada 5 min; de 1 a 10 de la mañana cada 15). Este script
-escucha por ntfy (tema <T>-alarma, <T> = ~/.bexo-ntfy) lo que el VPS le manda, suena y le contesta "sonó"
-(<T>-alarma-ok). Si el teléfono no contesta en 90 s, el VPS manda una notificación visible de ntfy.
-RESPALDO: si en 35 min no ve la señal de vida del VPS (<T>-vigia), lee Binance él mismo cada 30 s
-(key de solo lectura de ~/.subir-ordenes.env) hasta que el VPS vuelva.
-Cómo suena:
-  - COMPRA abierta en tu anuncio, esperando que pagues: pitidos agudos al máximo, cada vez que el VPS avisa.
+Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y avisa con notificación + sonido + voz:
+  - COMPRA abierta en tu anuncio, esperando que pagues: pitidos agudos al máximo, repite cada 5 min.
     "YA ME ENTERÉ" la calla 30 min; si después sigue sin pagar, vuelve con más pitidos.
   - VENTA nueva en tu anuncio: un ding-ding ("caja registradora") al 75% del volumen. Si en 10 min no tocaste
     "YA ME ENTERÉ", suena UNA vez más al máximo y nada más. Pagada, liberada o cancelada: no suena.
+
+Cada minuto le avisa al VPS que está mirando (latido); si el teléfono se duerme y deja de mirar, el VPS
+(vps/vigia_ventas.py) te manda una notificación de ntfy.
 
   python alerta_compras.py            # queda corriendo (lo arranca telefono/alerta.sh)
   python alerta_compras.py --probar   # una sola vuelta, muestra lo que ve y suena una alarma de prueba
 """
 import argparse
 import json
-import threading
-import urllib.request
 import math
 import os
 import struct
 import subprocess
 import sys
 import time
+import urllib.request
 import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -40,11 +37,6 @@ PITIDOS = {False: 3, True: 10}            # alarma normal / alarma después de "
 CANCELADAS = ('CANCELLED', 'CANCELLED_BY_SYSTEM')
 VOLUMEN_SUAVE = 0.75                      # ventas: primero al 75% del volumen multimedia...
 SUBIR_VOLUMEN_S = 10 * 60                 # ...y si en 10 min no tocaste YA ME ENTERÉ, una vez más al máximo
-NTFY = 'https://ntfy.sh'
-VPS_MUERTO_S = 35 * 60                    # sin señal de vida del VPS en este tiempo → el teléfono lee Binance
-MIRAR_VPS_S = 5 * 60
-MAX_EDAD_CMD_S = 10 * 60                  # un aviso del VPS más viejo que esto ya no suena
-SONANDO = threading.Lock()                # de a una alarma por vez
 
 # (tipo, estado de Binance) → qué decir. repetir/silencio en segundos; veces: máximo de alarmas por orden.
 AVISOS = {
@@ -205,7 +197,7 @@ def sonar(o, clase, insiste=False, fuerte=True):
     if clase == 'venta' and banco(o):
         monto, hablado = '%s por %s' % (monto, banco(o)), '%s por %s' % (hablado, banco(o))
     cant = '%s %s' % (o.get('amount'), o.get('asset'))
-    minutos = int((time.time() * 1000 - int(o.get('createTime') or 0)) / 60000)
+    minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
     notificar(n[-9:], t['insiste' if insiste else 'titulo'] % monto,
               '%s · abierta hace %d min · orden …%s' % (cant, minutos, n[-6:]),
               PITIDOS[insiste], t['voz_insiste' if insiste else 'voz'] % hablado, boton=marca_ya(n, clase),
@@ -253,79 +245,6 @@ def revisar_activas(activas, est, ahora, limpiar=True):
                     pass
 
 
-def tema_ntfy():
-    try:
-        with open(os.path.join(HOME, '.bexo-ntfy')) as f:
-            return f.read().strip()
-    except OSError:
-        return ''
-
-
-def publicar_ntfy(topic, mensaje):
-    req = urllib.request.Request(NTFY, data=json.dumps({'topic': topic, 'message': mensaje}).encode(),
-                                 headers={'Content-Type': 'application/json'})
-    urllib.request.urlopen(req, timeout=15).read()
-
-
-def vps_vivo(t):
-    """True si el VPS dejó señal de vida en los últimos 35 min (o si no se puede saber: ntfy caído)."""
-    try:
-        url = '%s/%s-vigia/json?poll=1&since=%dm' % (NTFY, t, VPS_MUERTO_S // 60)
-        with urllib.request.urlopen(url, timeout=15) as r:
-            return any(l.strip() for l in r)
-    except OSError:
-        return None
-
-
-def atender_vps(c, ahora=None):
-    """Un aviso del VPS: suena si corresponde (respeta YA ME ENTERÉ). Devuelve qué hizo."""
-    ahora = ahora or time.time()
-    clase, n = c.get('clase'), str(c.get('orderNumber'))
-    if clase not in TEXTOS:
-        return 'desconocido'
-    marca = marca_ya(n, clase)
-    ya = os.path.getmtime(marca) if os.path.exists(marca) else 0
-    if ya and not c.get('prueba') and ahora - ya < TEXTOS[clase]['silencio']:
-        return 'callada'
-    with SONANDO:
-        if clase == 'venta':
-            sonar(c, 'venta', fuerte=bool(c.get('fuerte')))
-        else:
-            sonar(c, 'compra', insiste=bool(ya))
-    return 'sonó'
-
-
-def escuchar_vps(t):
-    """Hilo: escucha <T>-alarma para siempre; suena y contesta el id en <T>-alarma-ok."""
-    ultimo, espera = None, 2
-    while True:
-        url = '%s/%s-alarma/json' % (NTFY, t) + ('?since=%s' % ultimo if ultimo else '')
-        try:
-            with urllib.request.urlopen(url, timeout=120) as r:   # ntfy manda un "keepalive" cada ~45 s
-                espera = 2
-                for linea in r:
-                    ev = json.loads(linea)
-                    if ev.get('event') != 'message':
-                        continue
-                    ultimo = ev.get('id')
-                    try:
-                        c = json.loads(ev.get('message') or '{}')
-                    except ValueError:
-                        continue
-                    if time.time() - float(ev.get('time') or 0) > MAX_EDAD_CMD_S:
-                        continue
-                    hizo = atender_vps(c)
-                    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'aviso del VPS:', c.get('clase'), hizo, flush=True)
-                    try:
-                        publicar_ntfy(t + '-alarma-ok', c.get('id', ''))
-                    except OSError:
-                        pass
-        except (OSError, ValueError) as e:
-            print(time.strftime('%Y-%m-%d %H:%M:%S'), 'ntfy cortado (%s): reintento en %d s' % (e, espera), flush=True)
-            time.sleep(espera)
-            espera = min(espera * 2, 60)
-
-
 def vuelta(cfg, est):
     """Una revisión. Si Binance falla en compras o en ventas, la otra mitad igual se revisa."""
     activas, error = [], None
@@ -344,6 +263,22 @@ def vuelta(cfg, est):
     if error:
         raise error
     return activas, ventas or []
+
+
+LATIDO_S = 60
+
+
+def latir(cfg):
+    """Le avisa al VPS "estoy mirando Binance" (relay, /latido). Si deja de llegar, el VPS te manda un ntfy.
+    Necesita VPS_SSH (usuario@ip) y RELAY_TOKEN en ~/.subir-ordenes.env; sin ellos no hace nada."""
+    host, token = cfg.get('VPS_SSH', '').split('@')[-1], cfg.get('RELAY_TOKEN', '')
+    if not host or not token:
+        return False
+    try:
+        urllib.request.urlopen('http://%s:8082/latido?token=%s' % (host, token), timeout=10).read()
+        return True
+    except OSError:
+        return False
 
 
 if __name__ == '__main__':
@@ -374,29 +309,18 @@ if __name__ == '__main__':
                   {k: o.get(k) for k in o if any(x in k.lower() for x in ('pay', 'method', 'bank'))})
         else:
             print('No hay ventas en las últimas 72 h para ver los campos')
+        print('Latido al VPS:', 'OK' if latir(cfg) else 'NO (falta VPS_SSH o RELAY_TOKEN en el .env, o el relay no responde)')
         sonar({'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
                'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'venta')
         sys.exit(0)
     est = Estado()
-    t = tema_ntfy()
-    if t:
-        threading.Thread(target=escuchar_vps, args=(t,), daemon=True).start()
-        print(time.strftime('%Y-%m-%d %H:%M'), 'alarma arrancada: escucha al VPS; respaldo si el VPS se cae', flush=True)
-    else:
-        print(time.strftime('%Y-%m-%d %H:%M'), 'alarma arrancada SIN ~/.bexo-ntfy: lee Binance el teléfono', flush=True)
-    respaldo, mirado = not t, 0
+    print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras y ventas arrancada', flush=True)
+    ultimo_latido = 0
     while True:
-        if t and time.time() - mirado >= MIRAR_VPS_S:
-            mirado = time.time()
-            vivo = vps_vivo(t)
-            if vivo is not None and respaldo == vivo:
-                respaldo = not vivo
-                print(time.strftime('%Y-%m-%d %H:%M'), 'VPS caído: leo Binance yo' if respaldo
-                      else 'VPS de vuelta: dejo de leer Binance', flush=True)
-        if respaldo:
-            try:
-                with SONANDO:
-                    vuelta(cfg, est)
-            except (Exception, SystemExit) as e:   # sin internet o Binance caído: sigue intentando
-                print(time.strftime('%Y-%m-%d %H:%M'), 'error:', e, flush=True)
+        try:
+            vuelta(cfg, est)
+            if time.time() - ultimo_latido >= LATIDO_S and latir(cfg):
+                ultimo_latido = time.time()
+        except (Exception, SystemExit) as e:   # sin internet o Binance caído: sigue intentando
+            print(time.strftime('%Y-%m-%d %H:%M'), 'error:', e, flush=True)
         time.sleep(CADA_S)

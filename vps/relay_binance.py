@@ -21,6 +21,7 @@ PUERTO = int(os.environ.get('RELAY_PUERTO', '8082'))
 BINANCE = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'
 HISTORIAL = 'https://api.binance.com/sapi/v1/c2c/orderMatch/listUserOrderHistory'
 DIA_MS = 24 * 3600 * 1000
+ULTIMO_LATIDO = 0
 
 
 def buscar_anuncios(fiat, tipo, pago, filas, monto):
@@ -141,8 +142,15 @@ class Relay(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
-        if q.get('token') != TOKEN or url.path not in ('/anuncios', '/contrapartes', '/descripcion'):
+        if q.get('token') != TOKEN or url.path not in ('/anuncios', '/contrapartes', '/descripcion', '/latido'):
             return self.responder(403, {'error': 'no autorizado'})
+        if url.path == '/latido':
+            # La alarma del teléfono avisa "estoy mirando Binance"; ?ver=1 (el vigía) pregunta hace cuánto.
+            global ULTIMO_LATIDO
+            if q.get('ver'):
+                return self.responder(200, {'hace_s': int(time.time() - ULTIMO_LATIDO) if ULTIMO_LATIDO else None})
+            ULTIMO_LATIDO = time.time()
+            return self.responder(200, {'ok': True})
         if url.path == '/descripcion':
             try:
                 return self.responder(200, {'descripcion': descripcion(q.get('adNo', ''))})

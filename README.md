@@ -10,9 +10,10 @@ Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive 
   (Bybit solo si está `BYBIT_KEY` en el .env).
 
 Log en el teléfono: `tail -5 ~/subir.log`
-- `alerta_compras.py`: la alarma del teléfono (pitidos para compras; ding-ding con monto y banco para ventas). Escucha lo que
-  le manda el VPS por ntfy y contesta "sonó"; solo si el VPS no da señal de vida en 35 min lee Binance él mismo (respaldo).
-  `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
+- `alerta_compras.py`: alarma (notificación + sonido + voz) por las órdenes de tus anuncios de Binance: compra abierta
+  (pitidos cada 5 min hasta que pagues) y venta nueva (un ding-ding al 75%; si en 10 min no tocaste YA ME ENTERÉ,
+  uno más al máximo y nada más); revisa cada 30 s y cada minuto manda un latido al VPS (necesita RELAY_TOKEN y
+  VPS_SSH en el .env). `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
   Log: `tail -5 ~/alerta.log`
 - `facturacion/prex.py`: lee las entradas de plata de Prex (lista de Movimientos + detalle de cada una) por ADB.
   La huella la ponés vos; solo lee. `--probar` las muestra y las guarda en Descargas/prex_entradas.csv.
@@ -34,10 +35,10 @@ Log en el teléfono: `tail -5 ~/subir.log`
   (para el acceso directo de Termux:Widget). Último informe: `cat ~/consumo_ultimo.txt`.
 - `telefono/liberar.sh`: notificación fija con el botón LIBERAR (la pone alerta.sh): cierra OKX, Instagram, Telegram y Abitab ID (más las de
   `~/.liberar_extra`) y avisa cuánta RAM liberó. A Abitab además le saca el permiso de correr en segundo plano. Usa ADB.
-- `vps/vigia_ventas.py`: el que lee Binance es el VPS (no duerme como el teléfono bloqueado): cada 5 min (de 1 a 10 de
-  la mañana cada 15) mira tus órdenes con la key de solo lectura del relay y le dice al teléfono que suene, por ntfy.
-  Si el teléfono no contesta "sonó" en 90 s, manda una notificación visible de ntfy. Se instala con
-  `sudo bash vigia_instalar.sh`. Log: `journalctl -u vigia-ventas -n 20`.
+- `vps/vigia_ventas.py`: vigía de la alarma del teléfono. Binance no deja leer órdenes desde EE.UU. (451), así que lee
+  el teléfono; este manda un ntfy de prioridad máxima si el teléfono deja de mandar su latido al relay (`/latido`)
+  por más de 5 min (de 1 a 10 de la mañana, 20 min). Se instala con `sudo bash vigia_instalar.sh` (también
+  actualiza el relay). Log: `journalctl -u vigia-ventas -n 20`.
 - `vps/dashboard_p2p.py` + `vps/dashboard_index.html`: la Brújula P2P (tablero P2P) (márgenes punta a punta, qué anuncio mover,
   rutas, horas, cupos UYU, ventas sin depósito). Servidor de librería estándar en el VPS, puerto 8090, con usuario y clave;
   cada 10 min pide los números al Apps Script (`apps-script/20_DashboardP2P.gs`, `?dash=1&k=DASH_TOKEN`).
