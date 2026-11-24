@@ -148,6 +148,7 @@ td.n,th.n{text-align:right}
       <div class="val ok" id="ganUSD">—</div>
       <div class="note" id="ganNota"></div>
       <div class="note" style="margin-top:10px;color:var(--tx)">Promedio: <b class="ok" id="porDia">—</b></div>
+      <div class="note" id="porVuelta"></div>
     </div>
     <div class="card">
       <div class="lbl">Margen actual</div>
@@ -274,7 +275,10 @@ td.n,th.n{text-align:right}
     if (p.venta) punta(p);
     $('ganUSD').innerHTML = '$' + n(c.gananciaUSD) + '<small>USD</small>';
     $('ganNota').textContent = '≈ ' + n(c.gananciaUYU) + ' UYU · desde ' + c.desde + ' (' + c.dias + ' días)';
-    $('porDia').textContent = '≈ $' + n(c.porDiaUSD, 1) + ' por día';
+    $('porDia').textContent = c.diasTrabajados
+      ? '≈ $' + n(c.porDiaTrabajadoUSD, 1) + ' por día trabajado (' + c.diasTrabajados + ' de ' + c.dias + ' días)'
+      : '≈ $' + n(c.porDiaUSD, 1) + ' por día';
+    $('porVuelta').textContent = c.por100USD ? '≈ $' + n(c.por100USD, 2) + ' por cada 100 USDT que vendés y recomprás' : '';
     $('margen').innerHTML = n(p.margen, 1) + '<small>%</small>';
     $('margenNota').textContent = 'Compra prom. ' + n(p.compra, 2) + ' · venta ' + n(p.venta, 2);
     $('margenBar').style.width = Math.min(100, (p.margen || 0) * 10) + '%';

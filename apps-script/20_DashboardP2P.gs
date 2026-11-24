@@ -171,6 +171,10 @@ function dashboardP2P_(vivos) {
   var dudaCompra = dudosas.filter(function (o) { return o.tipo === 'Compra'; }).reduce(function (s, o) { return s + o.cant; }, 0);
   var ganUYU = pVenta && pCompra ? Math.min(recomprado, vendido) * (pVenta - pCompra) : 0;
   var dias = Math.max(1, Math.round((ahora - desde) / 864e5));
+  // Días trabajados: días del ciclo con al menos una orden UYU completada (los días parados no bajan el promedio).
+  var diasTrab = {};
+  enCiclo.forEach(function (o) { diasTrab[Utilities.formatDate(o.f, zona, 'yyyyMMdd')] = 1; });
+  var nTrab = Object.keys(diasTrab).length;
 
   // Precios de hoy: venta = la última venta UYU; compra = promedio del ciclo (o la última si no hay ciclo)
   var uyuOk = ok.filter(esUYU).sort(function (a, b) { return b.f - a.f; });
@@ -386,7 +390,11 @@ function dashboardP2P_(vivos) {
       limitePendiente: DASH_LIMITE_PENDIENTE,
       pVenta: dashR_(pVenta), pCompra: dashR_(pCompra),
       gananciaUYU: Math.round(ganUYU), gananciaUSD: pVenta ? dashR_(ganUYU / pVenta, 0) : 0,
-      porDiaUSD: pVenta ? dashR_(ganUYU / pVenta / dias, 1) : 0
+      porDiaUSD: pVenta ? dashR_(ganUYU / pVenta / dias, 1) : 0,
+      diasTrabajados: nTrab,
+      porDiaTrabajadoUSD: pVenta && nTrab ? dashR_(ganUYU / pVenta / nTrab, 1) : 0,
+      // Por cada 100 USDT vendidos y recomprados (vuelta cerrada): no depende de cuántos días trabajaste.
+      por100USD: pVenta && pCompra ? dashR_(100 * (pVenta - pCompra) / pVenta, 2) : 0
     },
     punta: {
       compra: dashR_(compraHoy), venta: dashR_(ventaHoy), techo: dashR_(techo), piso: dashR_(piso),
