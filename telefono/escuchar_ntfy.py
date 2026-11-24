@@ -4,8 +4,10 @@ de Termux (con termux-wake-lock para que Android no lo duerma):
 
   python ~/bexo-scripts/telefono/escuchar_ntfy.py
 
-Hoy entiende un solo comando: el link de un anuncio de Binance (lo manda el botón "Armar en Binance" de la pre-orden
-en ntfy, apps-script/21_Ntfy.gs) → binance_orden.py arma la orden en la app (nunca la coloca).
+Entiende dos comandos:
+- el link de un anuncio de Binance (lo manda el botón "Armar en Binance" de la pre-orden en ntfy, apps-script/21_Ntfy.gs)
+  → binance_orden.py arma la orden en la app (nunca la coloca);
+- "subir-ordenes" (lo manda el botón "Actualizar ahora" de la Brújula P2P) → telefono/subir.sh sube ya las órdenes.
 Comandos de hace más de MAX_EDAD_S se ignoran: una orden vieja ya no sirve. De a uno: mientras arma una orden, los
 que llegan esperan su turno (y si para entonces son viejos, se ignoran).
 """
@@ -40,6 +42,20 @@ def correr_binance(link):
     print('%s terminó (código %d); detalle en %s' % (hora(), r.returncode, LOG), flush=True)
 
 
+ULTIMA_SUBIDA = [0]
+
+
+def correr_subir():
+    """Sube ya las órdenes de Binance y Bybit (lo mismo que corre cada 4 h). Como mucho una vez por minuto."""
+    if time.time() - ULTIMA_SUBIDA[0] < 60:
+        print('%s subir-ordenes: ya subí hace menos de 1 min' % hora(), flush=True)
+        return
+    ULTIMA_SUBIDA[0] = time.time()
+    print('%s subo las órdenes (pedido de la Brújula)' % hora(), flush=True)
+    r = subprocess.run(['sh', os.path.join(RAIZ, 'telefono', 'subir.sh')])
+    print('%s subida terminada (código %d); detalle en ~/subir.log' % (hora(), r.returncode), flush=True)
+
+
 def procesar(ev, ahora=None):
     """Un mensaje del tema de comandos. Devuelve qué hizo (para las pruebas)."""
     texto = (ev.get('message') or '').strip()
@@ -51,6 +67,9 @@ def procesar(ev, ahora=None):
     if LINK_BINANCE.match(texto):
         correr_binance(texto)
         return 'binance'
+    if texto == 'subir-ordenes':           # botón "Actualizar ahora" de la Brújula P2P (vps/dashboard_p2p.py)
+        correr_subir()
+        return 'subir'
     print('%s no sé qué hacer con: %s' % (hora(), texto[:80]), flush=True)
     publicar('Comando desconocido', texto[:200], 2)
     return 'desconocido'

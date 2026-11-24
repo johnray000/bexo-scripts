@@ -392,6 +392,9 @@ td.n,th.n{text-align:right}
     var edad = srv.hora ? (Date.now() / 1000 - srv.hora) / 60 : 999;
     $('live').className = 'live' + (!srv.ok ? ' err' : edad > 25 ? ' stale' : '');
     $('liveTxt').textContent = (srv.ok ? 'Actualizado ' : 'Sin conexión con la planilla · datos del ') + (d.generadoTexto || '—') + ' · cada 10 min';
+    var tel = srv.telefono || {};
+    if (tel.pedido && srv.hora < tel.pedido + 80 && Date.now() / 1000 - tel.pedido < 300)
+      $('liveTxt').textContent = 'Le pedí al teléfono que suba tus órdenes: en 1 o 2 min se actualiza solo';
   }
 
   function cargar(url) {

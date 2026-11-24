@@ -49,6 +49,19 @@ EOF
   NUEVA=1
 fi
 
+# Opcional: el tema de ntfy del teléfono, para que "Actualizar ahora" le pida que suba las órdenes ya.
+if ! grep -q '^DASH_NTFY_TEMA=' "$ENV"; then
+  echo ""
+  echo "Para que \"Actualizar ahora\" le pida al teléfono que suba tus órdenes, pegá el tema de ntfy"
+  echo "(en Termux: cat ~/.bexo-ntfy) y Enter. Si no querés, solo Enter."
+  read -r TEMA
+  case "$TEMA" in
+    "") ;;
+    *[!A-Za-z0-9_-]*) echo "Ese tema tiene caracteres raros: no lo guardé." ;;
+    *) echo "DASH_NTFY_TEMA=$TEMA" >> "$ENV"; echo "Listo, guardado." ;;
+  esac
+fi
+
 cat > /etc/systemd/system/dashboard-p2p.service <<'EOF'
 [Unit]
 Description=Brújula P2P

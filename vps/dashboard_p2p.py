@@ -8,6 +8,7 @@
     DASH_USUARIO=john
     DASH_CLAVE=...
     DASH_PUERTO=8090
+    DASH_NTFY_TEMA=bexo-...   (opcional: con esto "Actualizar ahora" le pide al teléfono que suba las órdenes)
 Lo instala vps/dashboard_instalar.sh como servicio systemd "dashboard-p2p".
 """
 import base64
@@ -28,6 +29,8 @@ CLAVE = os.environ.get('DASH_CLAVE', '')
 PUERTO = int(os.environ.get('DASH_PUERTO', '8090'))
 CADA = int(os.environ.get('DASH_CADA_SEG', '600'))
 ULTIMO_PEDIDO = 0
+NTFY_TEMA = os.environ.get('DASH_NTFY_TEMA', '')   # el de ~/.bexo-ntfy del teléfono (opcional)
+TELEFONO = {'pedido': 0}
 ESPERADO = 'Basic ' + base64.b64encode(f'{USUARIO}:{CLAVE}'.encode()).decode()
 
 
@@ -137,7 +140,8 @@ def actualizar():
             datos = json.loads(r.read().decode('utf-8'))
         if 'error' in datos:
             raise ValueError(datos['error'])
-        datos['servidor'] = {'ok': True, 'hora': int(time.time()), 'binance': ESTADO_BINANCE}
+        datos['servidor'] = {'ok': True, 'hora': int(time.time()), 'binance': ESTADO_BINANCE,
+                             'telefono': {'activo': bool(NTFY_TEMA), 'pedido': TELEFONO['pedido']}}
     except Exception as e:  # noqa: BLE001
         log(f'No pude actualizar: {e}')
         try:
@@ -150,6 +154,27 @@ def actualizar():
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(datos, f, ensure_ascii=False)
     os.replace(tmp, DATOS)
+
+
+def pedir_al_telefono():
+    """Le pide al teléfono (por ntfy, tema-cmd) que suba ya las órdenes de Binance y Bybit, y 90 s después
+    vuelve a pedir los números a la planilla. Como mucho una vez cada 2 min. Devuelve True si mandó el pedido."""
+    if not NTFY_TEMA or time.time() - TELEFONO['pedido'] < 120:
+        return False
+    try:
+        req = urllib.request.Request(f'https://ntfy.sh/{NTFY_TEMA}-cmd', data=b'subir-ordenes')
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:  # noqa: BLE001
+        log(f'No pude avisarle al teléfono: {e}')
+        return False
+    TELEFONO['pedido'] = int(time.time())
+    log('Le pedí al teléfono que suba las órdenes')
+
+    def despues():
+        time.sleep(90)
+        actualizar()
+    threading.Thread(target=despues, daemon=True).start()
+    return True
 
 
 def bucle():
@@ -185,6 +210,7 @@ class Pagina(BaseHTTPRequestHandler):
             archivo, tipo = 'data.json', 'application/json; charset=utf-8'
         elif ruta == '/actualizar':   # botón "actualizar ahora" de la página (como mucho 1 vez por minuto)
             global ULTIMO_PEDIDO
+            pedir_al_telefono()   # el teléfono sube las órdenes y en 90 s se vuelve a calcular
             if time.time() - ULTIMO_PEDIDO > 60:
                 ULTIMO_PEDIDO = time.time()
                 actualizar()
