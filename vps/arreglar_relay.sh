@@ -1,10 +1,11 @@
 #!/bin/bash
 # Instala el relay de Binance que no se cuelga y su vigilancia. Uso: sudo bash arreglar_relay.sh
+# Desde una rama sin mergear: sudo RAMA=recorrido-binance bash arreglar_relay.sh   (por defecto, main)
 # 1) guarda el relay actual en /opt/relay-binance/relay_binance.py.antes
 # 2) pone la versión nueva (atiende varios pedidos a la vez y corta conexiones mudas a los 30 s)
 # 3) agrega un control cada 5 min que lo reinicia solo si deja de responder
 set -e
-BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/main/vps
+BASE=https://raw.githubusercontent.com/johnray000/bexo-scripts/${RAMA:-main}/vps
 cd /opt/relay-binance
 cp -n relay_binance.py relay_binance.py.antes
 curl -fsSL "$BASE/relay_binance.py" -o relay_binance.py.nuevo

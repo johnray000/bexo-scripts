@@ -1,5 +1,9 @@
 # bexo-scripts
 
+
+> **¿Perdido? Empezá por `COMO_FUNCIONA.md`**: el flujo comprobante → ntfy → Armar en Binance → FIN, qué tiene que
+> estar andando en el teléfono, el intake y qué hacer si algo falla.
+
 Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive solo en
 `~/.subir-ordenes.env` del teléfono.
 
@@ -12,7 +16,8 @@ Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive 
 Log en el teléfono: `tail -5 ~/subir.log`
 - `alerta_compras.py`: alarma (notificación + pitidos + voz) por las órdenes de tus anuncios de Binance: compra abierta
   (pitidos cada 5 min hasta que pagues) y venta nueva (un ding-ding al 75%; si en 10 min no tocaste YA ME ENTERÉ,
-  uno más al máximo y nada más); revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
+  uno más al máximo y nada más) y venta pagada (escalera de notas: "Te pagaron 1500 por Prex. Revisá y liberá",
+  mismo esquema); revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
   Log: `tail -5 ~/alerta.log`
 - `facturacion/prex.py`: lee las entradas de plata de Prex (lista de Movimientos + detalle de cada una) por ADB.
   La huella la ponés vos; solo lee. `--probar` las muestra y las guarda en Descargas/prex_entradas.csv.
@@ -34,6 +39,19 @@ Log en el teléfono: `tail -5 ~/subir.log`
   (para el acceso directo de Termux:Widget). Último informe: `cat ~/consumo_ultimo.txt`.
 - `telefono/liberar.sh`: notificación fija con el botón LIBERAR (la pone alerta.sh): cierra OKX, Instagram, Telegram y Abitab ID (más las de
   `~/.liberar_extra`) y avisa cuánta RAM liberó. A Abitab además le saca el permiso de correr en segundo plano. Usa ADB.
+- `apps-script/22_Intake.gs`: etapa 1 del intake (solo calcula, no manda nada): intenciones de cada tanda del cliente,
+  cálculo pesos ↔ Bs y dólares a tasa BCV/euro (Yadio, o TASA_BCV/TASA_EURO de la config), alias de cobro según el
+  dashboard (más de 250.000 pesos: dos alias, "mitad y mitad") y la respuesta que darías vos, con tus frases.
+  Pruebas: `node pruebas/probar_intake_appscript.js [chats_waha.json.gz]` — casos públicos inventados y, con el
+  archivo de WAHA, repetición contra lo que contestaste vos. `probarTasasIntake()` en el editor muestra qué devuelve Yadio.
+- `apps-script/23_IntakeVivo.gs`: el intake en vivo. Cada tanda cerrada del cliente y cada mensaje tuyo van a la hoja
+  Intake; si la respuesta sugerida trae tasa, cálculo, alias o disponibilidad te llega a ntfy con "📤 Enviar" (un solo uso;
+  nada sale sin tu toque). La tarjeta del comprobante trae "💬 Ok fino" (una vez por operación). Propiedad INTAKE_MODO:
+  borrador (por defecto) / registro / apagado. Pruebas: `node pruebas/probar_intake_vivo_appscript.js`.
+- `vps/exportar_chats_waha.py`: baja de WAHA los chats de clientes ("Bexo …") con tus mensajes, los de ellos y las citas,
+  para armar las pruebas del intake. Solo lee. Se corre desde el teléfono y el archivo vuelve a Descargas:
+  `ssh <vps> python3 - < ~/bexo-scripts/vps/exportar_chats_waha.py > ~/storage/downloads/chats_waha.json.gz`.
+  El archivo tiene datos de clientes: nunca va al repo.
 - `vps/dashboard_p2p.py` + `vps/dashboard_index.html`: la Brújula P2P (tablero P2P) (márgenes punta a punta, qué anuncio mover,
   rutas, horas, cupos UYU, ventas sin depósito). Servidor de librería estándar en el VPS, puerto 8090, con usuario y clave;
   cada 10 min pide los números al Apps Script (`apps-script/20_DashboardP2P.gs`, `?dash=1&k=DASH_TOKEN`).

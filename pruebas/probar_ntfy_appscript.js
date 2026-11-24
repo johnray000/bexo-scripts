@@ -1,7 +1,7 @@
 // Prueba sin Google el aviso de pre-orden por ntfy: node pruebas/probar_ntfy_appscript.js (desde la raíz del repo)
 const fs = require('fs'), vm = require('vm');
 function cargar(conTopic) {
-  const props = { P2P_ULTIMA: JSON.stringify({ apodo: 'CARI7', precio: 1069 }) };
+  const props = { P2P_ULTIMA: JSON.stringify({ apodo: 'CARI7', precio: 1069 }), RELAY_URL: 'http://vps:8082', RELAY_TOKEN: 't' };
   if (conTopic) props.NTFY_TOPIC = 'bexo-prueba';
   const enviados = { ntfy: [], wa: [] };
   const ctx = { console, Logger: { log: () => {} },
@@ -25,7 +25,7 @@ function ver(nombre, ok, detalle) { n++; bien += ok ? 1 : 0; console.log((ok ? '
   const c = (enviados.ntfy[0] || {}).cuerpo || {};
   const b = (c.actions || [])[0] || {};
   ver('con ntfy: un aviso, sin WhatsApp', enviados.ntfy.length === 1 && enviados.wa.length === 0);
-  ver('título', c.title === '💸 CARI7 · 5000 Bs · PagoMovil', c.title);
+  ver('título (un solo emoji: la etiqueta)', c.title === 'CARI7 · 5000 Bs · PagoMovil' && JSON.stringify(c.tags) === '["moneybag"]', c.title);
   ver('reservas en el texto', /RonalditoP2P/.test(c.message));
   ver('sin datos del cliente', !/Juan/.test(JSON.stringify(c)));
   ver('botón al tema de comandos con el link', b.action === 'http' && b.url === 'https://ntfy.sh/bexo-prueba-cmd' &&

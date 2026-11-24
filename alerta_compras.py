@@ -7,7 +7,9 @@ Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y 
   - COMPRA abierta en tu anuncio, esperando que pagues: pitidos agudos al máximo, repite cada 5 min.
     "YA ME ENTERÉ" la calla 30 min; si después sigue sin pagar, vuelve con más pitidos.
   - VENTA nueva en tu anuncio: un ding-ding ("caja registradora") al 75% del volumen. Si en 10 min no tocaste
-    "YA ME ENTERÉ", suena UNA vez más al máximo y nada más. Pagada, liberada o cancelada: no suena.
+    "YA ME ENTERÉ", suena UNA vez más al máximo y nada más.
+  - VENTA PAGADA (el comprador marcó "Pagado"): una escalera de notas al 75% y "Te pagaron 1500 por Prex. Revisá
+    y liberá". Si en 10 min no tocaste "YA ME ENTERÉ", una vez más al máximo. Liberada o cancelada: no suena.
 
   python alerta_compras.py            # queda corriendo (lo arranca telefono/alerta.sh)
   python alerta_compras.py --probar   # una sola vuelta, muestra lo que ve y suena una alarma de prueba
@@ -38,6 +40,7 @@ SUBIR_VOLUMEN_S = 10 * 60                 # ...y si en 10 min no tocaste YA ME E
 AVISOS = {
     ('BUY', 'PENDING'): 'compra', ('BUY', 'TRADING'): 'compra',
     ('SELL', 'PENDING'): 'venta', ('SELL', 'TRADING'): 'venta',
+    ('SELL', 'BUYER_PAYED'): 'liberar',
 }
 TEXTOS = {
     'compra': dict(repetir=5 * 60, silencio=30 * 60,
@@ -46,6 +49,10 @@ TEXTOS = {
     'venta': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=1, silencio=7 * 24 * 3600,
                   titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='',
                   voz='Venta nueva de %s', voz_insiste=''),
+    # El comprador marcó "Pagado": revisá la cuenta y liberá. Otro sonido (escalera) para no confundirla con una venta.
+    'liberar': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=2, silencio=7 * 24 * 3600,
+                    titulo='✅ TE PAGARON %s · revisá y liberá', insiste='',
+                    voz='Te pagaron %s. Revisá y liberá', voz_insiste=''),
 }
 
 
@@ -190,7 +197,7 @@ def sonar(o, clase, insiste=False, fuerte=True):
     n = str(o.get('orderNumber'))
     t = TEXTOS[clase]
     monto, hablado = montos(o)
-    if clase == 'venta' and banco(o):
+    if t.get('sonido') and banco(o):
         monto, hablado = '%s por %s' % (monto, banco(o)), '%s por %s' % (hablado, banco(o))
     cant = '%s %s' % (o.get('amount'), o.get('asset'))
     minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
@@ -222,7 +229,7 @@ def revisar_activas(activas, est, ahora, limpiar=True):
             continue
         # Al terminar el silencio suena enseguida; después, cada `repetir` hasta otro "YA ME ENTERÉ".
         if ahora - ultimo >= t['repetir'] or (ya and ultimo < ya + t['silencio']):
-            sonar(o, clase, insiste=bool(ya), fuerte=clase != 'venta' or ahora - primera >= SUBIR_VOLUMEN_S)
+            sonar(o, clase, insiste=bool(ya), fuerte=not t.get('sonido') or ahora - primera >= SUBIR_VOLUMEN_S)
             est.avisadas[n] = (clase, ahora, primera, veces + 1)
     if not limpiar:                         # Binance falló en una mitad: no borrar lo que no se pudo ver
         return
@@ -276,7 +283,7 @@ if __name__ == '__main__':
     if args.probar:
         est = Estado()
         activas, ventas = vuelta(cfg, est)
-        for clase in ('compra', 'venta'):
+        for clase in ('compra', 'venta', 'liberar'):
             print('%-8s' % clase, sum(1 for _, c in activas if c == clase))
         print('Ventas de tus anuncios en las últimas %d h: %d (canceladas: %d)' % (
             VENTANA_VENTAS_H, len(ventas), sum(1 for o in ventas if o.get('orderStatus') in CANCELADAS)))
@@ -291,6 +298,9 @@ if __name__ == '__main__':
             print('No hay ventas en las últimas 72 h para ver los campos')
         sonar({'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
                'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'venta')
+        time.sleep(2)
+        sonar({'orderNumber': '000000001', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
+               'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'liberar')
         sys.exit(0)
     est = Estado()
     print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras y ventas arrancada', flush=True)

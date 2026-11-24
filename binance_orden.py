@@ -94,12 +94,16 @@ def paso(texto):
     print(time.strftime('%H:%M:%S ') + texto, flush=True)
 
 
-def avisar(titulo, texto, prioridad=3, ntfy=True):
-    """Notificación de Termux y, si ~/.bexo-ntfy está, también a la app ntfy (ver bexo_ntfy.py)."""
+LINK_EN_CURSO = None   # el link de la orden en curso (lo pone recorrido): botones Rearmar y FIN del aviso final
+
+
+def avisar(titulo, texto, prioridad=3, ntfy=True, botones=False):
+    """Notificación de Termux y, si ~/.bexo-ntfy está, también a la app ntfy (ver bexo_ntfy.py).
+    botones=True: con "🔁 Rearmar" y "✅ FIN" (bexo_ntfy.botones_orden) si hay una orden en curso."""
     subprocess.run(['termux-notification', '--id', 'binance-orden', '--title', titulo, '--content', texto],
                    check=False)
     if ntfy:
-        bexo_ntfy.publicar(titulo, texto, prioridad)
+        bexo_ntfy.publicar(titulo, texto, prioridad, acciones=bexo_ntfy.botones_orden(LINK_EN_CURSO) if botones else ())
 
 
 # ---------- 1. El anuncio ----------
@@ -327,6 +331,33 @@ def escribir(campo, valor, en_orden_ok=False):
 
 # ---------- 3. Traer Binance ----------
 
+def cerrar_cortina():
+    """Cierra la cortina de notificaciones (queda abierta al tocar un botón de ntfy: 16/11 17:27). Primero
+    `cmd statusbar collapse`; si sigue abierta, Atrás, que con la cortina al frente solo la cierra. Atrás se aprieta
+    únicamente si lo que está al frente es la cortina, nunca sobre Binance. True si quedó cerrada."""
+    for intento in range(3):
+        if 'NotificationShade' not in al_frente():
+            return True
+        if intento == 0:
+            paso('cierro la cortina de notificaciones')
+            adb('shell', 'cmd', 'statusbar', 'collapse')
+        else:
+            paso('la cortina sigue abierta: Atrás')
+            adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+        time.sleep(0.7)
+    return 'NotificationShade' not in al_frente()
+
+
+def reiniciar_binance():
+    """Cierra Binance y lo abre de nuevo: siempre arranca en el inicio, desde donde se sabe llegar a P2P. Para cuando
+    quedó en una pantalla que no está grabada (el libro de órdenes, 16/11). Nunca con una orden a medio armar."""
+    paso('Binance está en una pantalla que no conozco: lo cierro y lo abro de nuevo')
+    adb('shell', 'am', 'force-stop', PAQ)
+    time.sleep(1)
+    adb('shell', 'am', 'start', '-n', '%s/%s' % (PAQ, INICIO_ACT))
+    time.sleep(3)
+
+
 def traer_binance():
     """Pone Binance al frente. Primero monkey: retoma la app DONDE QUEDÓ (si quedó en P2P, se ahorra el inicio
     animado, ~15 s). Después la actividad de inicio (vuelve al inicio) y, si nada anduvo, el link de app.binance.com
@@ -338,7 +369,7 @@ def traer_binance():
                                   '-d', 'https://app.binance.com/es-LA', PAQ)),
     )
     for nombre, cmd in formas:
-        adb('shell', 'cmd', 'statusbar', 'collapse')     # si corrió desde la notificación, la cortina está abierta
+        cerrar_cortina()                                   # si corrió desde la notificación, la cortina está abierta
         salida = ' '.join(adb(*cmd).split())
         paso('abro Binance (%s): %s' % (nombre, salida[-100:] or 'sin salida'))
         for _ in range(12):
@@ -347,7 +378,7 @@ def traer_binance():
             if PAQ in f:
                 return True
             if 'NotificationShade' in f:
-                adb('shell', 'cmd', 'statusbar', 'collapse')
+                cerrar_cortina()
         paso('al frente sigue: %s' % al_frente())
     return False
 
@@ -460,14 +491,26 @@ def en_filtrar(ns, monto, metodo, estado):
     return 'filtro (completo)'
 
 
+def etiqueta_metodo(ns):
+    """El texto chico a la derecha del título "Método de Pago" ("Todo", "(1 seleccionado/s)" o el nombre elegido).
+    Grabación 17:21: con ninguno elegido dice "Todo"."""
+    tit = con(ns, 'Método de Pago')
+    if not tit:
+        return None
+    fila = [n for n in ns if n.t and abs(n.y - tit[0].y) < 40 and n.x > tit[0].x + 300 and n.t != 'Método de Pago']
+    return fila[0].t if fila else None
+
+
 def seleccionados(ns):
-    """El texto "(1 seleccionado/s)" junto a "Método de Pago": la única marca en el xml de que hay uno elegido
-    (grabación 16:34; los botones no traen selected/checked). None si no hay ninguno elegido."""
+    """Cuántos métodos hay elegidos. El xml no marca los botones (ni selected ni checked): la única señal es la
+    etiqueta junto a "Método de Pago": "(1 seleccionado/s)" (16:34), "Todo" (17:21) u otro texto = hay uno elegido.
+    None si no hay ninguno."""
     for n in ns:
         m = re.search(r'\((\d+) seleccionado', n.t)
         if m:
             return int(m.group(1))
-    return None
+    e = etiqueta_metodo(ns)
+    return 1 if e and e != 'Todo' else None
 
 
 def botones_metodo(ns):
@@ -491,19 +534,24 @@ def poner_metodo(ns, metodo, estado):
         ns = nodos()
     else:
         frenar('No encontré "%s" en la sección Método de Pago del filtro' % metodo['nombre'], 'filtrar', ns)
-    elegidos = seleccionados(ns)
+    elegidos, etiqueta = seleccionados(ns), etiqueta_metodo(ns)
     if elegidos:
-        if elegidos == 1 and es_metodo(estado.get('pago antes', ''), metodo):
+        if elegidos == 1 and (es_metodo(etiqueta or '', metodo) or es_metodo(estado.get('pago antes', ''), metodo)):
             paso('método: %s ya está elegido' % metodo['nombre'])
             return ns
-        frenar('En el filtro hay %d método(s) elegido(s) y la lista decía "%s": dejalo en Todo a mano' %
-               (elegidos, estado.get('pago antes', '')), 'filtrar', ns)
-    boton = [n for n in botones_metodo(ns) if es_metodo(n.t, metodo)][0]
-    tocar('el método %s' % boton.t, boton.x, boton.y)
-    ns = nodos()
-    if seleccionados(ns) != 1:
-        frenar('Toqué %s y no quedó elegido' % boton.t, 'filtrar', ns)
-    return ns
+        frenar('En el filtro hay %d método(s) elegido(s) ("%s") y la lista decía "%s": dejalo en Todo a mano' %
+               (elegidos, etiqueta, estado.get('pago antes', '')), 'filtrar', ns)
+    for vez in range(2):
+        boton = [n for n in botones_metodo(ns) if es_metodo(n.t, metodo)][0]
+        tocar('el método %s' % boton.t, boton.x, boton.y)
+        ns = nodos()
+        if seleccionados(ns) == 1:
+            return ns
+        # 17:21: estaba elegido sin que se notara y el toque lo desmarcó (volvió a "Todo"): se toca otra vez
+        if etiqueta_metodo(ns) != 'Todo' or vez:
+            break
+        paso('el toque desmarcó %s (estaba elegido): lo toco de nuevo' % boton.t)
+    frenar('Toqué %s y no quedó elegido' % boton.t, 'filtrar', ns)
 
 
 def en_monto(ns, monto):
@@ -596,6 +644,11 @@ def llegar_a_la_orden(candidatos, metodo, monto):
     estado = {}
     for _ in range(MAX_VUELTAS):
         frente = al_frente()
+        if 'NotificationShade' in frente:
+            veces['cortina'] += 1
+            if veces['cortina'] > 3 or not cerrar_cortina():
+                frenar('No pude cerrar la cortina de notificaciones', 'cortina')
+            continue
         if PAQ not in frente:
             veces['traer'] += 1
             if veces['traer'] > 2 or not traer_binance():
@@ -673,6 +726,11 @@ def llegar_a_la_orden(candidatos, metodo, monto):
             tocar('"%s" del cartel' % n.t, n.x, n.y)
             hecho = 'cartel'
         else:
+            if estado.get('esperé') and not EN_ORDEN and not estado.get('reinicié'):
+                reiniciar_binance()         # una sola vez: vuelve al inicio, que sí se conoce
+                estado.clear()
+                estado['reinicié'] = True
+                continue
             if estado.get('esperé') or EN_ORDEN:
                 frenar('Pantalla que no conozco (no está grabada): grabala con --grabar', 'desconocida', ns)
             estado['esperé'] = True         # una vuelta de gracia: puede que estuviera cargando
@@ -817,7 +875,8 @@ def resumen(principal, elegido, monto, metodo, faltan, base):
 
 
 def recorrido(link):
-    global EN_ORDEN, ELEGIDO
+    global EN_ORDEN, ELEGIDO, LINK_EN_CURSO
+    LINK_EN_CURSO = link
     EN_ORDEN, ELEGIDO = False, None
     ad, monto, pago, alts = leer_link(link)
     if not monto:
@@ -835,7 +894,9 @@ def recorrido(link):
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
-    avisar('Binance: orden armada %s' % ('⚠️ REVISÁ' if alerta else '✅'), texto, 4 if alerta else 3)
+    # urgente (5): es el momento de tocar Realizar Orden, el anuncio puede durar menos de un minuto
+    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 5,
+           botones=True)
     subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
     return texto
 
@@ -965,5 +1026,5 @@ if __name__ == '__main__':
             sys.exit(2)
     except Frenado as e:
         print('FRENADO: %s' % e, flush=True)
-        avisar('Binance: me frené ⚠️', str(e), 4)
+        avisar('Binance: me frené ⚠️', str(e), 4, botones=True)
         sys.exit(1)

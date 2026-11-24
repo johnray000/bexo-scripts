@@ -49,6 +49,21 @@ ver('link de otro sitio → desconocido', esc.procesar({'message': 'https://evil
     'desconocido')
 ver('link con espacios y salto → arma el link limpio',
     esc.procesar({'message': '  ' + L + '\n', 'time': ahora}, ahora) == 'binance' and corridos[-1] == L)
+# botones del final del recorrido (Rearmar / FIN)
+import urllib.parse  # noqa: E402
+FIN = 'https://script.google.com/macros/s/X/exec?p2p=fin&id=MOV-77&k=clave'
+LF = L + '&mov=MOV-77&fin=' + urllib.parse.quote(FIN, safe='')
+b = bexo_ntfy.botones_orden(LF)
+ver('Rearmar: POST del mismo link al tema de comandos', b and b[0]['label'] == '🔁 Rearmar' and
+    b[0]['url'] == 'https://ntfy.sh/bexo-prueba-cmd' and b[0]['body'] == LF and b[0]['clear'] is False, b and b[0])
+ver('FIN: GET a la dirección que vino en el link', len(b) == 2 and b[1]['label'] == '✅ FIN' and b[1]['url'] == FIN, b)
+ver('sin fin= (prueba a mano): solo Rearmar', [x['label'] for x in bexo_ntfy.botones_orden(L)] == ['🔁 Rearmar'])
+ver('sin link: sin botones', bexo_ntfy.botones_orden(None) == [])
+ver('el link con mov y fin lo acepta el teléfono', esc.procesar({'message': LF, 'time': ahora}, ahora) == 'binance' and
+    corridos[-1] == LF)
+mandados.clear()
+bexo_ntfy.publicar('ORDEN LISTA', 'x', 5, esperar=True, acciones=b)
+ver('los botones viajan en el aviso', mandados and [a['label'] for a in mandados[0]['actions']] == ['🔁 Rearmar', '✅ FIN'])
 os.unlink(tmp.name)
 print('%d de %d bien' % (bien, n))
 sys.exit(0 if bien == n else 1)
