@@ -108,10 +108,17 @@ python3 pruebas/probar_limpiar_telefono.py                                # limp
 - 19/11: limpiador del teléfono.
 - 24/11: merge de `main` (alarma de ventas pagadas, hora de Binance); `escuchar.sh` lo deja corriendo solo; esta guía.
 
-## 9. Pendiente
+## 9. Pendiente (Issues de GitHub)
 
-- Varias órdenes para una misma operación ("Falta otra…", una de cada cuatro).
-- Confirmar que tus mensajes llegan al intake (`message.any`).
-- Automatizar "Realizar Orden" (después de unos días de prueba; liberar sigue siendo con tu huella).
-- Medir la velocidad del recorrido; probar "Guardar filtro para el próximo uso".
+Lo pendiente vive en los **Issues** del repo (github.com/johnray000/bexo-scripts/issues): cada uno con su lista de
+pasos. Para anotar algo nuevo: app de GitHub → bexo-scripts → Issues → New, o decíselo a Claude ("anotalo como issue").
+El repo es público: nada de datos de clientes en los issues.
+
+- #54 Recorrido más rápido (que la oferta no se vaya antes del click): primero medir cada etapa.
+- #55 Pop-ups y mensajes que se atraviesan: cada uno se graba y se agrega, sin adivinar.
+- #56 Varias órdenes para una misma operación ("Falta otra…").
+- #57 Intake: confirmar que tus mensajes llegan (`message.any`).
+- #58 Automatizar "Realizar Orden" (liberar sigue siendo con tu huella).
 - Merge a `main` al final, con todo probado.
+
+Estado al 24/11: el recorrido completo anda bien (`--prueba 5000 PagoMovil`) cuando no se atraviesa ningún pop-up.
