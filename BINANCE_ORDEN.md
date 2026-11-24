@@ -1,4 +1,8 @@
-# Pre-orden → app de Binance (estado al 15/11/2026, tarde)
+# Pre-orden → app de Binance (detalle técnico)
+
+> **Para usarlo hoy, leé primero `COMO_FUNCIONA.md`** (24/11). Este archivo es la historia y el detalle técnico;
+> lo de compartir el link desde WhatsApp (`termux-url-opener`, `enviarLinkSolo_`) ya no se usa: el disparo es el
+> botón "Armar en Binance" de la tarjeta en ntfy.
 
 Rama: `recorrido-binance` (todavía sin merge a `main`; regla del proyecto: una rama, un solo merge al final, probado).
 

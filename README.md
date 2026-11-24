@@ -1,5 +1,9 @@
 # bexo-scripts
 
+
+> **¿Perdido? Empezá por `COMO_FUNCIONA.md`**: el flujo comprobante → ntfy → Armar en Binance → FIN, qué tiene que
+> estar andando en el teléfono, el intake y qué hacer si algo falla.
+
 Scripts que corren en el teléfono (Termux). Sin claves: la key de Binance vive solo en
 `~/.subir-ordenes.env` del teléfono.
 
