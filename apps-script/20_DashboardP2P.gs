@@ -284,6 +284,23 @@ function dashboardP2P_(vivos) {
     var hs = u ? (ahora - u) / 36e5 : null;
     return { ex: ex, hasta: u ? Utilities.formatDate(u, zona, 'dd/MM HH:mm') : '', horas: hs === null ? null : Math.round(hs) };
   });
+  // Cuándo llegó la última subida de cada fuente (no la última orden: si no operaste, la orden es vieja pero la
+  // subida es reciente). Binance y Bybit las sube el teléfono cada 4 h; OKX la trae el Apps Script cada 4 h.
+  var props = PropertiesService.getScriptProperties();
+  var subidas = [['Binance', 'ORDENES_ULTIMA_SUBIDA'], ['Bybit', 'ORDENES_ULTIMA_BYBIT'], ['OKX', 'ORDENES_ULTIMA_OKX'],
+                 ['OKX app', 'ORDENES_ULTIMA_OKX_APP']].map(function (x) {
+    var ms = +props.getProperty(x[1]) || 0;
+    var hs = ms ? (ahora - ms) / 36e5 : null;
+    return { fuente: x[0], hace: hs === null ? null : Math.round(hs * 10) / 10,
+             cuando: ms ? Utilities.formatDate(new Date(ms), zona, 'dd/MM HH:mm') : '',
+             atrasada: x[0] !== 'OKX app' && hs !== null && hs > 5 };   // sin dato todavía = no se marca
+  });
+  var atrasadas = subidas.filter(function (x) { return x.atrasada; });
+  atrasadas.forEach(function (x) {
+    avisos.push({ nivel: 'bad', texto: x.fuente + ': ' + (x.hace === null ? 'nunca llegó una subida de órdenes.' :
+      'la última subida de órdenes fue hace ' + (x.hace < 48 ? Math.round(x.hace) + ' h' : Math.round(x.hace / 24) + ' días') + ' (' + x.cuando +
+      '). Lo que hiciste después no está en ningún número.') });
+  });
   cargadas.forEach(function (c) {
     if (c.horas === null || c.horas >= 24) avisos.push({ nivel: 'warn', texto: c.ex + ': ' + (c.horas === null ? 'sin órdenes cargadas.' : 'la última orden cargada es de hace ' + c.horas + ' h.') });
   });
@@ -355,6 +372,7 @@ function dashboardP2P_(vivos) {
     calor: calor,
     cupo: { limite: DASH_CUPO_CUENTA, cuentas: cupo },
     cargadas: cargadas,
+    subidas: subidas,
     vueltas: vueltas,
     rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
              sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },

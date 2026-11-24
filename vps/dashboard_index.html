@@ -290,8 +290,15 @@ td.n,th.n{text-align:right}
       (pend > c.limitePendiente ? 'Prioridad: <b>comprar</b>, no bajar la venta.'
         : pend < 50 ? 'Vas parejo: podés <b>vender más</b>.' : 'Dentro de lo normal.');
 
-    $('cargadas').textContent = 'Órdenes cargadas hasta: ' + (d.cargadas || []).map(function (c) { return c.ex + ' ' + (c.hasta || '—'); }).join(' · ') +
-      '. Lo que hiciste después todavía no cuenta.';
+    // Cuándo llegó cada subida de órdenes. Si una está atrasada, se dice en rojo: los números no la incluyen.
+    var sub = d.subidas || [];
+    var malas = sub.filter(function (x) { return x.atrasada; });
+    $('cargadas').innerHTML = (malas.length ? '<div class="bad" style="font-weight:600;margin-bottom:4px">⚠ No confíes en estos números: ' +
+        malas.map(function (x) { return esc(x.fuente) + ' no sube órdenes desde ' + (x.cuando || 'nunca'); }).join(' · ') + '.</div>' : '') +
+      'Última subida de órdenes: ' + (sub.length ? sub.map(function (x) {
+        return '<span class="' + (x.atrasada ? 'bad' : '') + '">' + esc(x.fuente) + ' ' + (x.cuando || '—') + '</span>';
+      }).join(' · ') : (d.cargadas || []).map(function (c) { return esc(c.ex) + ' ' + (c.hasta || '—'); }).join(' · ')) +
+      '. Se suben cada 4 h: lo que hiciste después todavía no cuenta.';
     var ru = d.rueda || { lista: [] };
     $('ruedaDesde').textContent = 'desde ' + c.desde;
     $('rueda').innerHTML = ru.lista.map(function (m) {

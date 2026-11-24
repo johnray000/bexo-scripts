@@ -271,6 +271,7 @@ function traerMovimientosOKX() {
     escribirOrdenesP2P_(sh, filas);
     Logger.log('OKX: %s movimientos, %s órdenes nuevas, %s unidas a filas que ya estaban, %s canceladas',
                movs.length, nuevas, unidas, canceladas);
+    PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_OKX', String(Date.now()));   // lo muestra la Brújula
     return { movimientos: movs.length, nuevas: nuevas, unidas: unidas, canceladas: canceladas };
   } catch (e) {
     logError_('traerMovimientosOKX', e.message || e);
@@ -356,6 +357,7 @@ function completarOrdenesOKX_(lista) {
     porRef[ref] = fila;
   });
   escribirOrdenesP2P_(sh, filas);
+  PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_OKX_APP', String(Date.now()));
   return { ok: true, recibidas: lista.length, unidas: unidas, agregadas: agregadas, yaEstaban: yaEstaban };
 }
 
