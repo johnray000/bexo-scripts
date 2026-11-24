@@ -53,7 +53,9 @@ function recibirOrdenesBybit_(data) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000);
-    return salida(agregarBybitOrdenesP2P_(data.ordenesBybit || []));
+    var r = agregarBybitOrdenesP2P_(data.ordenesBybit || []);
+    PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_BYBIT', String(Date.now()));   // lo muestra la Brújula
+    return salida(r);
   } catch (e) {
     logError_('recibirOrdenesBybit_', e.message || e);
     return salida({ error: String(e.message || e) });
