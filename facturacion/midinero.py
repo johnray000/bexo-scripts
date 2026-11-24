@@ -8,7 +8,7 @@ en la terminal y después recuerda el dispositivo. Solo lee: no toca transferir 
   python3 midinero.py --explorar   # entra, guarda cada pantalla y los datos que trae la web en ~/midinero_explorar
   python3 midinero.py --probar     # muestra las entradas de los últimos 9 días (no manda nada)
   python3 midinero.py --desde 01/10/2026 --hasta 31/10/2026   # un mes entero
-  python3 midinero.py              # lee los últimos 9 días y los manda a "Movs UY" (lo del cron de los martes)
+  python3 midinero.py              # lee los últimos 9 días y los manda a "Movs UY" (lo del cron de lun-mié-vie)
 
 Sale a internet por el túnel del teléfono (MiDinero bloquea IPs de fuera de Uruguay). Para mandar usa
 WEBAPP_URL y ORDENES_TOKEN del mismo .env, como prex.py.
