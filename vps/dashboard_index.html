@@ -374,7 +374,7 @@ td.n,th.n{text-align:right}
       var mal = o.estado !== 'Completada';
       return '<tr' + (mal ? ' style="opacity:.55"' : '') + '><td>' + esc(o.fecha) + '</td><td><b>' + esc(o.ex) + '</b> ' +
         '<span class="' + (o.tipo === 'Compra' ? 'ok' : 'bad') + '">' + esc(o.tipo) + '</span>' + (mal ? ' <span class="note">' + esc(o.estado) + '</span>' : '') +
-        '</td><td class="n">' + n(o.cant, 2) + ' ' + esc(o.cripto) + '</td><td class="n">' + (o.mon ? n(o.monto) + ' ' + esc(o.mon) : '<span class="warn">sin moneda</span>') +
+        '</td><td class="n">' + n(o.cant, 2) + ' ' + esc(o.cripto) + '</td><td class="n">' + (o.mon ? (o.supuesto ? '<span class="warn">≈ ' : '') + n(o.monto) + ' ' + esc(o.mon) + (o.supuesto ? ' supuesto</span>' : '') : '<span class="warn">sin moneda</span>') +
         '</td><td class="n">' + (o.precio ? n(o.precio, 2) : '—') + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes.</td></tr>';
     var bz = (d.servidor || {}).binance;

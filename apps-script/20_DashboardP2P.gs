@@ -16,6 +16,10 @@ var DASH_CUPO_CUENTA = 120000;       // UYU por mes por cuenta
 var DASH_CUENTAS_UY = ['Prex', 'MercadoPago', 'OcaBlue', 'MiDinero', 'Itau'];
 var DASH_SIN_ORDENES_MIN = 120;      // minutos sin órdenes en hora de movimiento para mover el precio
 var DASH_HORA_DESDE = 10, DASH_HORA_HASTA = 23;
+// OKX sin moneda (la API no la trae y el historial del teléfono no siempre llega): john opera OKX solo en UYU (24/11).
+// Se cuentan como esta moneda, con monto = cantidad × último precio OKX conocido del mismo tipo, marcadas "supuesto".
+// Vacío = no suponer (quedan como "sin moneda" y lo que debés se muestra como rango).
+var DASH_OKX_SIN_MONEDA = '';
 
 function dashboardP2PRespuesta_(p) {
   var salida = function (obj) {
@@ -78,7 +82,7 @@ function dashLeerOrdenes_() {
   var v = sh.getDataRange().getValues();
   var h = {};
   v[0].forEach(function (n, i) { h[n] = i; });
-  return v.slice(1).map(function (r) {
+  var lista = v.slice(1).map(function (r) {
     return {
       ex: String(r[h['Exchange']] || ''),
       f: dashFecha_(r[h['Creada']]),
@@ -94,6 +98,30 @@ function dashLeerOrdenes_() {
       ad: String(r[h['Anuncio']] || '').replace(/^'/, '')
     };
   }).filter(function (o) { return o.f; });
+  if (DASH_OKX_SIN_MONEDA) dashSuponerOKX_(lista);
+  return lista;
+}
+
+/** Completa las órdenes OKX sin moneda con DASH_OKX_SIN_MONEDA y el último precio OKX conocido del mismo tipo. */
+function dashSuponerOKX_(lista) {
+  var okx = lista.filter(function (o) { return o.ex === 'OKX'; }).sort(function (a, b) { return a.f - b.f; });
+  var ultimo = {};
+  okx.forEach(function (o) {
+    if (o.mon) { if (o.precio) ultimo[o.tipo] = o.precio; return; }
+    o.mon = DASH_OKX_SIN_MONEDA;
+    o.supuesto = true;
+    o.precio = ultimo[o.tipo] || 0;
+  });
+  // Si no había un precio OKX anterior: el último precio conocido en esa moneda, mismo tipo y cripto, de cualquier exchange.
+  var otro = {};
+  lista.filter(function (o) { return o.mon === DASH_OKX_SIN_MONEDA && !o.supuesto && o.precio; })
+    .sort(function (a, b) { return a.f - b.f; })
+    .forEach(function (o) { otro[o.tipo + o.cripto] = o.precio; });
+  okx.forEach(function (o) {
+    if (!o.supuesto) return;
+    if (!o.precio) o.precio = otro[o.tipo + o.cripto] || 0;
+    o.monto = Math.round(o.cant * o.precio * 100) / 100;
+  });
 }
 
 function dashLeerMovsUY_() {
@@ -277,6 +305,9 @@ function dashboardP2P_(vivos) {
   // Datos faltantes / avisos
   var avisos = [];
   var okxSinMoneda = ords.filter(function (o) { return o.ex === 'OKX' && !o.mon && o.f >= hace7; }).length;
+  var okxSupuestas = ords.filter(function (o) { return o.supuesto && o.f >= desde; }).length;
+  if (okxSupuestas) avisos.push({ nivel: 'warn', texto: okxSupuestas + ' órdenes OKX del ciclo sin moneda: las cuento como ' + DASH_OKX_SIN_MONEDA +
+    ' con el último precio de OKX (supuesto, no comprobado).' });
   if (okxSinMoneda) avisos.push({ nivel: 'warn', texto: okxSinMoneda + ' órdenes OKX de esta semana sin moneda. Corré el historial P2P en el teléfono.' });
   // Hasta cuándo hay órdenes cargadas de cada exchange: lo que pasó después todavía no entra en las cuentas.
   var cargadas = ['Binance', 'OKX', 'Bybit'].map(function (ex) {
@@ -379,7 +410,7 @@ function dashboardP2P_(vivos) {
     // Las últimas 10 órdenes tal como las leyó el tablero, para comprobarlas de memoria.
     ultimasOrdenes: ords.slice().sort(function (a, b) { return b.f - a.f; }).slice(0, 10).map(function (o) {
       return { fecha: Utilities.formatDate(o.f, zona, 'dd/MM HH:mm'), ex: o.ex, tipo: o.tipo, cripto: o.cripto, cant: dashR_(o.cant),
-               mon: o.mon, monto: dashR_(o.monto), precio: dashR_(o.precio, 3), estado: o.estado };
+               mon: o.mon, monto: dashR_(o.monto), precio: dashR_(o.precio, 3), estado: o.estado, supuesto: !!o.supuesto };
     }),
     movsHasta: ultMov ? Utilities.formatDate(ultMov, zona, 'dd/MM') : '',
     avisos: avisos
