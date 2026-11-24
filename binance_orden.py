@@ -94,7 +94,7 @@ def paso(texto):
     print(time.strftime('%H:%M:%S ') + texto, flush=True)
 
 
-LINK = None   # el link de la orden en curso: para los botones Rearmar y FIN del aviso final
+LINK_EN_CURSO = None   # el link de la orden en curso (lo pone recorrido): botones Rearmar y FIN del aviso final
 
 
 def avisar(titulo, texto, prioridad=3, ntfy=True, botones=False):
@@ -103,7 +103,7 @@ def avisar(titulo, texto, prioridad=3, ntfy=True, botones=False):
     subprocess.run(['termux-notification', '--id', 'binance-orden', '--title', titulo, '--content', texto],
                    check=False)
     if ntfy:
-        bexo_ntfy.publicar(titulo, texto, prioridad, acciones=bexo_ntfy.botones_orden(LINK) if botones else ())
+        bexo_ntfy.publicar(titulo, texto, prioridad, acciones=bexo_ntfy.botones_orden(LINK_EN_CURSO) if botones else ())
 
 
 # ---------- 1. El anuncio ----------
@@ -875,7 +875,8 @@ def resumen(principal, elegido, monto, metodo, faltan, base):
 
 
 def recorrido(link):
-    global EN_ORDEN, ELEGIDO
+    global EN_ORDEN, ELEGIDO, LINK_EN_CURSO
+    LINK_EN_CURSO = link
     EN_ORDEN, ELEGIDO = False, None
     ad, monto, pago, alts = leer_link(link)
     if not monto:
@@ -1018,7 +1019,6 @@ if __name__ == '__main__':
         elif args[:1] == ['--grabar']:
             grabar(int(args[1]) if len(args) > 1 and args[1].isdigit() else 60)
         elif len(args) == 1 and not args[0].startswith('--'):
-            LINK = args[0]
             r = recorrido(args[0])
             print(r)
         else:

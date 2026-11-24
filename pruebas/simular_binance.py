@@ -381,6 +381,12 @@ ok_busca = [a['apodo'] for a in r] == ['wen2', 'Otro']
 print('  %s: %s' % ('BIEN' if ok_busca else 'MAL', [a['apodo'] for a in r]))
 if not ok_busca:
     bien -= 1
+# --prueba arma el link con la plantilla LINK (24/11: una variable nueva con el mismo nombre la había pisado)
+pedido = [b.prueba(5000.0, 'PagoMovil', 1, arrancar=False)]
+ok_link = pedido == ['https://c2c.binance.com/es-LA/adv?code=2&monto=5000&pago=PagoMovil&alt=3']
+print('  %s: --prueba arma el link %s' % ('BIEN' if ok_link else 'MAL', pedido))
+if not ok_link:
+    bien -= 1
 
 print('==== el apodo no está en la lista')
 t = Telefono()
