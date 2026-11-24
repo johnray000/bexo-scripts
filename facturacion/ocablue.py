@@ -7,7 +7,7 @@ Solo lee: no toca Transferir, Pagar ni nada que mueva plata. Al terminar vuelve 
 
   python ocablue.py --probar                 # entradas de los últimos 7 días, sin mandar nada
   python ocablue.py --probar --dias 40
-  python ocablue.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de los martes)
+  python ocablue.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de lun-mié-vie)
 
 Referencia: el N° de transferencia del detalle (OCA-04071180). Los depósitos de Red Pagos no tienen detalle: se
 arma una con la fecha, los números del texto, el monto y el orden dentro del día.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Tablero P2P</title>
+<title>Brújula P2P</title>
 <style>
 :root{--buy:#3fb950;--sell:#f85149;--bg:#0d1117;--panel:#161b22;--line:#273040;--tx:#e6edf3;--mut:#8b98a8;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff;--h1:#12301f;--h2:#1b5e33;--h3:#2e8b4e;--h4:#4cc26f}
 *{box-sizing:border-box}
@@ -94,28 +94,43 @@ td.n,th.n{text-align:right}
 .chip{cursor:pointer;font:inherit;font-size:12px}
 .live.stale .dot{background:var(--warn)}.live.err .dot{background:var(--bad)}
 .empty{color:var(--mut);font-size:13px;padding:8px 0}
+.pill{white-space:nowrap}
+.cargadas{font-size:11.5px;color:var(--mut);margin:-4px 0 10px}
+.rueda td.pos{color:var(--ok)}.rueda td.neg{color:var(--bad)}
+@media (max-width:700px){.rueda th:nth-child(n+5),.rueda td:nth-child(n+5){display:none}.rueda th,.rueda td{padding:7px 4px}}
 .hm-c{aspect-ratio:auto;height:24px}
 @media (max-width:700px){
- .recs thead{display:none}
- .recs,.recs tbody{display:block}
- .recs tr{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:6px 12px;padding:12px 0 12px 12px;border-bottom:1px solid #1d2430}
- .recs td{border:0;padding:0;text-align:left!important}
- .recs td:nth-child(1),.recs td:nth-child(5){grid-column:1/-1}
- .recs td:nth-child(2):before{content:"hoy ";color:var(--mut);font-size:11.5px}
- .recs td:nth-child(4):before{content:"→ ";color:var(--mut)}
- .recs td:nth-child(4){font-weight:600}
+ body{font-size:13px}
+ .page{padding:14px 12px 28px}
+ .card{padding:12px}
+ .recs,.recs tbody,.recs thead{display:block}
+ .recs thead tr,.recs tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;column-gap:8px;align-items:center}
+ .recs td:nth-child(2),.recs td:nth-child(4){white-space:nowrap}
+ .recs thead tr{border-bottom:1px solid var(--line)}
+ .recs th{border:0;padding:6px 0;font-size:10.5px}
+ .recs th:first-child{padding-left:10px}
+ .recs th:nth-child(5){display:none}
+ .recs tbody tr{padding:9px 0 9px 10px;border-bottom:1px solid #1d2430;row-gap:3px}
+ .recs td{border:0;padding:0;font-size:12.5px}
+ .recs td:nth-child(5){grid-column:1/-1;font-size:11.5px;line-height:1.35}
+ .recs td:first-child .note{font-size:10.5px}
+ .recs td:nth-child(4){font-weight:650}
+ .recs .tag{font-size:9px;padding:1px 5px;margin-right:5px}
+ .recs .pill{font-size:10px;padding:2px 6px}
  .r-buy td:first-child,.r-sell td:first-child{box-shadow:none}
  .recs tr.r-buy{box-shadow:inset 3px 0 0 var(--buy)}.recs tr.r-sell{box-shadow:inset 3px 0 0 var(--sell)}
- .hm-c{height:16px}
+ .hm-c{height:14px}
+ .routes4{grid-template-columns:1fr 1fr!important;gap:0 12px}
+ .route .note{font-size:11px}
 }
-@media (max-width:560px){.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
+@media (max-width:560px){.kpis .card .val{font-size:22px}.lbl{font-size:10.5px}.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
 </style>
 </head>
 <body>
 <div class="page">
   <div class="top">
     <div>
-      <h1>Arbitraje P2P USDT</h1>
+      <h1>Brújula P2P</h1>
       <div class="sub">Binance · OKX · Bybit — valores en USD — ciclo UYU desde <span id="desde">—</span></div>
     </div>
     <button class="chip" id="btnAct" type="button">Actualizar ahora</button>
@@ -145,6 +160,7 @@ td.n,th.n{text-align:right}
   <div class="card" style="margin-bottom:14px">
     <h2>Qué anuncio mover ahora <span>se recalcula cada 10 min</span></h2>
     <div class="why" id="situacion"></div>
+    <div class="cargadas" id="cargadas"></div>
     <div class="leg2"><span><i style="background:var(--buy)"></i>Compra</span><span><i style="background:var(--sell)"></i>Venta</span></div>
     <div class="tbl-wrap">
     <table class="recs">
@@ -158,7 +174,7 @@ td.n,th.n{text-align:right}
       <div>2. Debés menos de 50 USDT: podés bajar la venta 0,05 para vender más.</div>
       <div>3. Sin órdenes en 2 horas, en hora de movimiento (10 a 23 h): mové 0,05 hacia el mercado.</div>
       <div>4. Nunca pasar los límites de "punta a punta".</div>
-      <div class="note">Los anuncios salen de tus órdenes UYU de los últimos 7 días (el precio es el de la última orden).</div>
+      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). OKX y Bybit: precio de la última orden de los últimos 7 días.</div>
     </details>
   </div>
 
@@ -189,6 +205,15 @@ td.n,th.n{text-align:right}
       <h2>Datos faltantes</h2>
       <div id="avisos"></div>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h2>Balance de la rueda <span id="ruedaDesde">desde el inicio del ciclo</span></h2>
+    <div class="tbl-wrap"><table class="rueda">
+      <thead><tr><th>Moneda</th><th class="n">Entró USDT</th><th class="n">Salió USDT</th><th class="n">Neto</th><th class="n">Compra prom.</th><th class="n">Venta prom.</th></tr></thead>
+      <tbody id="rueda"></tbody>
+    </table></div>
+    <div class="note" style="margin-top:8px" id="ruedaNota"></div>
   </div>
 
   <div class="foot">Se lee solo de Ordenes_P2P y Movs UY. Los números se recalculan cada 10 min.</div>
@@ -232,7 +257,12 @@ td.n,th.n{text-align:right}
   }
 
   function render(d) {
-    var c = d.ciclo || {}, p = d.punta || {};
+    var c = d.ciclo, p = d.punta || {};
+    if (!c) {
+      $('live').className = 'live err';
+      $('liveTxt').textContent = 'Todavía sin números de la planilla' + (d.servidor && d.servidor.error ? ': ' + d.servidor.error : '');
+      return;
+    }
     $('desde').textContent = c.desde || '—';
     if (p.venta) punta(p);
     $('ganUSD').innerHTML = '$' + n(c.gananciaUSD) + '<small>USD</small>';
@@ -250,13 +280,32 @@ td.n,th.n{text-align:right}
       (pend > c.limitePendiente ? 'Prioridad: <b>comprar</b>, no bajar la venta.'
         : pend < 50 ? 'Vas parejo: podés <b>vender más</b>.' : 'Dentro de lo normal.');
 
+    $('cargadas').textContent = 'Órdenes cargadas hasta: ' + (d.cargadas || []).map(function (c) { return c.ex + ' ' + (c.hasta || '—'); }).join(' · ') +
+      '. Lo que hiciste después todavía no cuenta.';
+    var ru = d.rueda || { lista: [] };
+    $('ruedaDesde').textContent = 'desde ' + c.desde;
+    $('rueda').innerHTML = ru.lista.map(function (m) {
+      return '<tr><td><b>' + esc(m.mon) + '</b> <span class="note">' + m.ordenes + ' órd.</span></td><td class="n">' + n(m.entro, 2) + '</td><td class="n">' + n(m.salio, 2) +
+        '</td><td class="n ' + (m.neto >= 0 ? 'pos' : 'neg') + '">' + (m.neto > 0 ? '+' : '') + n(m.neto, 2) + '</td><td class="n">' + (m.pCompra ? n(m.pCompra, 2) : '—') +
+        '</td><td class="n">' + (m.pVenta ? n(m.pVenta, 2) : '—') + '</td></tr>';
+    }).join('');
+    $('ruedaNota').innerHTML = 'Neto total: <b class="' + (ru.neto >= 0 ? 'ok' : 'bad') + '">' + (ru.neto > 0 ? '+' : '') + n(ru.neto, 2) + ' USDT</b> ' +
+      (ru.neto >= 0 ? '(entró más de lo que salió: tenés más cripto que al empezar).' : '(salió más de lo que entró: usaste cripto que tenías de antes).') +
+      (ru.sinMoneda ? ' Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas.' : '');
     $('recs').innerHTML = (d.anuncios || []).map(function (a) {
       var compra = a.tipo === 'Compra';
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
-        : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>' : '<span class="pill p-off">Mantener</span>';
+        : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>'
+        : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
+      var hace = a.minUltima == null ? 'sin órdenes esta semana'
+        : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
+      var meta0 = a.vivo && a.puesto
+        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
+        : hace + ' · hoy ' + a.hoy + (a.ex === 'Binance' ? '' : ' · precio de últ. orden');
+      var meta = meta0;
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
-        '<div class="note">última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h') + ' · hoy ' + a.hoy + '</div></td>' +
+        '<div class="note">' + meta + '</div></td>' +
         '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + n(a.nuevo, 2) + '</td>' +
         '<td class="note">' + esc(a.porque) + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes UYU en los últimos 7 días.</td></tr>';
@@ -300,7 +349,13 @@ td.n,th.n{text-align:right}
       return '<tr><td>' + esc(s.fecha) + '</td><td>' + esc(s.ex) + '</td><td>' + esc(s.contra) + '</td><td class="n">' + n(s.monto) + '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="empty">Todas las ventas tienen su depósito.</td></tr>';
 
-    $('avisos').innerHTML = (d.avisos || []).map(function (a) {
+    var bz = (d.servidor || {}).binance;
+    var avs = (d.avisos || []).slice();
+    if (bz && bz.buscados !== undefined) avs.unshift(bz.error && !bz.encontrados
+      ? { nivel: 'warn', texto: 'Precios en vivo de Binance: ' + bz.error }
+      : { nivel: bz.encontrados ? 'ok' : 'warn', texto: 'Precios en vivo de Binance: ' + bz.encontrados + ' de ' + bz.buscados + ' anuncios encontrados.' });
+    if (avs.some(function (a) { return a.nivel !== 'ok'; })) avs = avs.filter(function (a) { return a.texto !== 'Todo cargado al día.'; });
+    $('avisos').innerHTML = avs.map(function (a) {
       return '<div class="alert">' + (ICON[a.nivel] || ICON.warn) + '<div>' + esc(a.texto) + '</div></div>';
     }).join('');
 

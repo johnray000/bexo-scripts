@@ -7,7 +7,7 @@ monto, tipo y hora. Solo lee: no toca Ingresar, Transferir ni nada que mueva pla
 
   python mercadopago.py --probar                 # entradas de los últimos 7 días, sin mandar nada
   python mercadopago.py --probar --dias 40
-  python mercadopago.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de los martes)
+  python mercadopago.py --dias 9                 # lee y manda a la hoja "Movs UY" (lo que usa el botón de lun-mié-vie)
 
 Referencia: MP-<fecha>-<hora>-<monto en centésimos>-<orden> (la lista no muestra el N° de movimiento).
 """
