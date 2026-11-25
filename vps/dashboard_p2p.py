@@ -2,7 +2,9 @@
 """Brújula P2P (tablero P2P): servidor chiquito para el VPS (solo librería estándar, ~15 MB de RAM).
 
 - Cada 10 min le pide los números al Apps Script (DASH_URL, que ya trae ?dash=1&k=TOKEN) y los guarda en data.json.
-- Sirve index.html y data.json con usuario y clave (Basic Auth). Nada más.
+- Sirve index.html y data.json con usuario y clave (Basic Auth).
+- Hitos de Bitget (bitget.json): los cargás a mano desde la página (POST /bitget), copiando lo que muestra Bitget.
+  No hay API de Bitget conectada: el tablero no los inventa ni los calcula.
 - Configuración en /etc/dashboard-p2p.env (no está en el repo):
     DASH_URL=https://script.google.com/macros/s/.../exec?dash=1&k=...
     DASH_USUARIO=john
@@ -128,6 +130,39 @@ def anuncios_binance_vivos():
 
 ESTADO_BINANCE = {}
 
+BITGET = os.path.join(CARPETA, 'bitget.json')   # lo que cargaste a mano de Bitget (no está en el repo)
+BITGET_CAMPOS = {'ordenes': (0, 100000), 'usuarios': (0, 100000), 'tasa': (0, 100), 'volumen': (0, 10000000)}
+
+
+def guardar_bitget(cuerpo):
+    """Valida y guarda los números de Bitget que cargaste a mano. Devuelve (dict guardado, error)."""
+    try:
+        entrada = json.loads(cuerpo.decode('utf-8'))
+    except Exception:  # noqa: BLE001
+        return None, 'no entendí los datos'
+    if not isinstance(entrada, dict):
+        return None, 'no entendí los datos'
+    nuevo = {}
+    for campo, (lo, hi) in BITGET_CAMPOS.items():
+        try:
+            v = float(str(entrada.get(campo, '')).replace(',', '.'))
+        except ValueError:
+            return None, f'falta o está mal: {campo}'
+        if not lo <= v <= hi:
+            return None, f'fuera de rango: {campo}'
+        nuevo[campo] = v
+    alta = str(entrada.get('alta') or '')
+    if alta and not (len(alta) == 10 and alta[4] == '-' and alta[7] == '-' and alta.replace('-', '').isdigit()):
+        return None, 'la fecha de alta va como AAAA-MM-DD'
+    nuevo['alta'] = alta
+    nuevo['cargado'] = int(time.time())
+    tmp = BITGET + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(nuevo, f)
+    os.replace(tmp, BITGET)
+    log(f'Bitget a mano: {nuevo}')
+    return nuevo, ''
+
 
 def actualizar(okx=False):
     """Pide los números al Apps Script. Si falla, deja el data.json anterior y anota el error."""
@@ -196,14 +231,39 @@ class Pagina(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
+    def _autorizado(self):
+        if CLAVE and hmac.compare_digest(self.headers.get('Authorization', ''), ESPERADO):
+            return True
+        self.send_response(401)
+        self.send_header('WWW-Authenticate', 'Basic realm="Brujula P2P", charset="UTF-8"')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+        return False
+
+    def do_POST(self):
+        if not self._autorizado():
+            return
+        if self.path.split('?')[0] != '/bitget':
+            return self._mandar(404, b'', 'text/plain')
+        # Solo JSON: un formulario de otra página no puede mandarlo sin permiso del navegador.
+        largo = int(self.headers.get('Content-Length') or 0)
+        if not self.headers.get('Content-Type', '').startswith('application/json') or not 0 < largo <= 2000:
+            return self._mandar(400, b'{"error":"pedido invalido"}', 'application/json')
+        guardado, error = guardar_bitget(self.rfile.read(largo))
+        if error:
+            return self._mandar(400, json.dumps({'error': error}).encode(), 'application/json; charset=utf-8')
+        self._mandar(200, json.dumps(guardado).encode(), 'application/json; charset=utf-8')
+
     def do_GET(self):
-        if not CLAVE or not hmac.compare_digest(self.headers.get('Authorization', ''), ESPERADO):
-            self.send_response(401)
-            self.send_header('WWW-Authenticate', 'Basic realm="Brujula P2P", charset="UTF-8"')
-            self.send_header('Content-Length', '0')
-            self.end_headers()
+        if not self._autorizado():
             return
         ruta = self.path.split('?')[0]
+        if ruta == '/bitget.json':
+            try:
+                with open(BITGET, 'rb') as f:
+                    return self._mandar(200, f.read(), 'application/json; charset=utf-8')
+            except FileNotFoundError:
+                return self._mandar(200, b'{}', 'application/json; charset=utf-8')
         if ruta in ('/', '/index.html'):
             archivo, tipo = 'index.html', 'text/html; charset=utf-8'
         elif ruta == '/data.json':
