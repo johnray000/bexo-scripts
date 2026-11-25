@@ -53,7 +53,7 @@ informe() {
     {
       cmd=""; for(i=4;i<=NF;i++) cmd=cmd" "$i
       q="otro"
-      if (cmd ~ /alerta_compras/)       q="Alarma de compras y ventas Binance: SIEMPRE, pregunta a Binance cada 30 s"
+      if (cmd ~ /alerta_compras/)       q="Alarma de compras y ventas Binance y Bybit: SIEMPRE, pregunta cada 2 min"
       else if (cmd ~ /while true/)      q="Vigilante del túnel: SIEMPRE, casi no gasta (espera)"
       else if (cmd ~ /ssh -N -R 1080/)  q="Túnel al VPS (MiDinero): SIEMPRE, conexión abierta"
       else if (cmd ~ /diagnostico/)     q="Diagnóstico del bot: cada 15 min, dura segundos"

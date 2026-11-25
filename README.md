@@ -17,7 +17,7 @@ Log en el teléfono: `tail -5 ~/subir.log`
 - `alerta_compras.py`: alarma (notificación + pitidos + voz) por las órdenes de tus anuncios de Binance: compra abierta
   (pitidos cada 5 min hasta que pagues) y venta nueva (un ding-ding al 75%; si en 10 min no tocaste YA ME ENTERÉ,
   uno más al máximo y nada más) y venta pagada (escalera de notas: "Te pagaron 1500 por Prex. Revisá y liberá",
-  mismo esquema); revisa cada 30 s. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
+  mismo esquema); revisa Binance y Bybit (si está BYBIT_KEY) cada 2 min. `telefono/alerta.sh` la arranca si no está corriendo (Termux lo corre cada 15 min).
   Log: `tail -5 ~/alerta.log`
 - `facturacion/prex.py`: lee las entradas de plata de Prex (lista de Movimientos + detalle de cada una) por ADB.
   La huella la ponés vos; solo lee. `--probar` las muestra y las guarda en Descargas/prex_entradas.csv.

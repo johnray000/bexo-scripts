@@ -31,14 +31,17 @@ DIA_MS = 24 * 3600 * 1000
 ESTADOS = {50: 'COMPLETED', 40: 'CANCELLED', 80: 'CANCELLED', 30: 'IN_APPEAL', 100: 'IN_APPEAL'}
 
 _desfase_ms = None
+_desfase_cuando = 0
 
 
 def hora_bybit_ms():
-    """Hora según Bybit (si el reloj del teléfono está corrido, Bybit rechaza la firma)."""
-    global _desfase_ms
-    if _desfase_ms is None:
+    """Hora según Bybit (si el reloj del teléfono está corrido, Bybit rechaza la firma). Se vuelve a medir cada
+    10 min: la alarma corre días seguidos y el reloj del teléfono se corre."""
+    global _desfase_ms, _desfase_cuando
+    if _desfase_ms is None or time.time() - _desfase_cuando > 600:
         with urllib.request.urlopen(BASE + '/v5/market/time', timeout=20) as r:
             _desfase_ms = int(json.loads(r.read())['time']) - int(time.time() * 1000)
+        _desfase_cuando = time.time()
     return int(time.time() * 1000) + _desfase_ms
 
 
@@ -88,6 +91,54 @@ def ordenes(cfg, dias):
         'hora': int(o.get('createDate') or 0),
         'comision': float(o.get('fee') or 0),
     } for o in lista]
+
+
+def _buscar(obj, clave):
+    """Primer valor de `clave` en cualquier nivel de un JSON (Bybit anida el método de pago)."""
+    if isinstance(obj, dict):
+        if obj.get(clave):
+            return obj[clave]
+        obj = list(obj.values())
+    if isinstance(obj, list):
+        for v in obj:
+            hallado = _buscar(v, clave)
+            if hallado:
+                return hallado
+    return None
+
+
+_detalles = {}
+
+
+def pendientes(cfg):
+    """Órdenes P2P de Bybit sin terminar, con la forma de las de Binance para que la alarma las trate igual.
+    Estados de Bybit: 10 = esperando que pague el comprador, 20 = pagada (falta liberar). Si sos el anunciante
+    (makerUserId) va advertisementRole=MAKER; el detalle se pide una sola vez por orden."""
+    r = pedir(cfg, '/v5/p2p/order/pending/simplifyList', {'page': 1, 'size': POR_PAGINA})
+    lista = []
+    for o in r.get('items') or []:
+        n = str(o.get('id'))
+        if n not in _detalles:
+            try:
+                _detalles[n] = pedir(cfg, '/v5/p2p/order/info', {'orderId': n})
+            except SystemExit:
+                _detalles[n] = {}
+        d = _detalles[n]
+        if d.get('makerUserId') and d.get('userId'):
+            rol = 'MAKER' if str(d['makerUserId']) == str(d['userId']) else 'TAKER'
+        else:
+            rol = 'MAKER'                  # sin dato: mejor que suene de más que de menos
+        estado = {10: 'TRADING', 20: 'BUYER_PAYED'}.get(int(o.get('status') or 0), 'OTRO')
+        lista.append({'orderNumber': n, 'tradeType': 'BUY' if str(o.get('side')) == '0' else 'SELL',
+                      'orderStatus': estado, 'advertisementRole': rol, 'totalPrice': o.get('amount'),
+                      'fiat': o.get('currencyId') or '', 'amount': o.get('notifyTokenQuantity'),
+                      'asset': o.get('tokenId') or '', 'createTime': int(o.get('createDate') or 0),
+                      'payMethodName': _buscar(d, 'paymentName') or '', 'exchange': 'Bybit'})
+    vivas = {o['orderNumber'] for o in lista}
+    for n in list(_detalles):
+        if n not in vivas:
+            del _detalles[n]
+    return lista
 
 
 def subir(cfg, lista):
