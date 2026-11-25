@@ -3,7 +3,7 @@
  *
  * - Lo pide el servidor del tablero en el VPS (vps/dashboard_p2p.py) cada 10 min:
  *   GET <url /exec>?dash=1&k=<DASH_TOKEN>   (la rama está en doGet, 9_P2P.gs)
- * - Solo LEE: Ordenes_P2P (esta planilla) y Movs UY (Registro BEXO). No escribe nada.
+ * - LEE Ordenes_P2P (esta planilla) y Movs UY (Registro BEXO). Solo escribe la hoja Revision_Brujula (22_RevisionBrujula.gs).
  * - Propiedades del script: DASH_TOKEN (la crea configurarTableroP2P) y DASH_CICLO_DESDE (dd/MM/yyyy),
  *   el día en que arrancó el ciclo UYU actual (si falta, toma los últimos 14 días). Al cerrar un ciclo, cambiala.
  *
@@ -82,7 +82,7 @@ function dashLeerOrdenes_() {
   var v = sh.getDataRange().getValues();
   var h = {};
   v[0].forEach(function (n, i) { h[n] = i; });
-  var lista = v.slice(1).map(function (r) {
+  var lista = v.slice(1).map(function (r, i) {
     return {
       ex: String(r[h['Exchange']] || ''),
       f: dashFecha_(r[h['Creada']]),
@@ -95,7 +95,12 @@ function dashLeerOrdenes_() {
       contra: String(r[h['Contraparte']] || ''),
       estado: String(r[h['Estado']] || ''),
       rol: String(r[h['Rol']] || ''),
-      ad: String(r[h['Anuncio']] || '').replace(/^'/, '')
+      ad: String(r[h['Anuncio']] || '').replace(/^'/, ''),
+      orden: String(r[h['Orden']] || '').replace(/^'/, ''),
+      fuente: String(r[h['Fuente']] || ''),
+      refApi: String(r[h['Ref API']] || ''),
+      refApp: String(r[h['Ref app']] || ''),
+      fila: i + 2
     };
   }).filter(function (o) { return o.f; });
   if (DASH_OKX_SIN_MONEDA) dashSuponerOKX_(lista);
@@ -379,7 +384,7 @@ function dashboardP2P_(vivos) {
   if (!CONFIG.DASH_CICLO_DESDE) avisos.push({ nivel: 'warn', texto: 'Sin fecha de inicio de ciclo (DASH_CICLO_DESDE): uso los últimos 14 días.' });
   if (!avisos.length) avisos.push({ nivel: 'ok', texto: 'Todo cargado al día.' });
 
-  return {
+  var salida = {
     generado: ahora.toISOString(),
     generadoTexto: Utilities.formatDate(ahora, zona, 'dd/MM HH:mm'),
     ciclo: {
@@ -423,4 +428,9 @@ function dashboardP2P_(vivos) {
     movsHasta: ultMov ? Utilities.formatDate(ultMov, zona, 'dd/MM') : '',
     avisos: avisos
   };
+  // Revisión de los datos (22_RevisionBrujula.gs): no se muestra en la página, la lee Claude cuando algo falla.
+  if (typeof revisarBrujula_ === 'function') {
+    try { salida.revision = revisarBrujula_(ords, salida, desde, ahora, zona); } catch (e) { salida.revision = [{ estado: 'mal', prueba: 'revisión', detalle: String(e.message || e) }]; }
+  }
+  return salida;
 }

@@ -17,6 +17,7 @@ ENV=/etc/dashboard-p2p.env
 mkdir -p "$DIR"
 curl -fsSL "$BASE/dashboard_p2p.py" -o "$DIR/dashboard_p2p.py.nuevo"
 curl -fsSL "$BASE/dashboard_index.html" -o "$DIR/index.html.nuevo"
+curl -fsSL "$BASE/revisar_brujula.py" -o "$DIR/revisar_brujula.py" || true   # revisión: sudo python3 /opt/dashboard-p2p/revisar_brujula.py
 python3 -m py_compile "$DIR/dashboard_p2p.py.nuevo"
 mv "$DIR/dashboard_p2p.py.nuevo" "$DIR/dashboard_p2p.py"
 mv "$DIR/index.html.nuevo" "$DIR/index.html"
