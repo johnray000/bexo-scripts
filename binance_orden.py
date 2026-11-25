@@ -894,10 +894,10 @@ def recorrido(link):
     base = guardar('listo')
     faltan = [x for x, ok in (('el monto', monto_ok), ('el método', metodo_ok), ('la casilla', casilla_ok)) if not ok]
     texto, alerta = resumen(principal, ELEGIDO, monto, metodo, faltan, base)
-    # urgente (5): es el momento de tocar Realizar Orden, el anuncio puede durar menos de un minuto
-    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 5,
+    # alta (4): aparece arriba de la pantalla con una vibración corta (la 5 de ntfy vibra largo y repetido)
+    avisar('Binance: %s' % ('⚠️ REVISÁ la orden' if alerta else 'ORDEN LISTA ✅ · tocá Realizar Orden'), texto, 4,
            botones=True)
-    subprocess.run(['termux-vibrate', '-d', '1500' if alerta else '600'], check=False)
+    vibrar(150)
     return texto
 
 
