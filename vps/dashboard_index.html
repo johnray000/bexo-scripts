@@ -95,6 +95,8 @@ td.n,th.n{text-align:right}
 .live.stale .dot{background:var(--warn)}.live.err .dot{background:var(--bad)}
 .empty{color:var(--mut);font-size:13px;padding:8px 0}
 .pill{white-space:nowrap}
+.r-off td{opacity:.45}
+.r-off:hover td{opacity:.8}
 .cargadas{font-size:11.5px;color:var(--mut);margin:-4px 0 10px}
 .rueda td.pos{color:var(--ok)}.rueda td.neg{color:var(--bad)}
 @media (max-width:700px){.rueda th:nth-child(n+5),.rueda td:nth-child(n+5){display:none}.rueda th,.rueda td{padding:7px 4px}}
@@ -332,7 +334,14 @@ td.n,th.n{text-align:right}
           '<br>' + hace + ' · hoy ' + a.hoy
         : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
-      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
+      // Apagado: Binance no lo muestra en el listado (pausado, sin saldo o fuera de línea), o en Bybit/OKX no hubo
+      // órdenes en 2 días (no sé si está activo: esos exchanges no dejan ver el listado desde acá).
+      var noListado = a.ex === 'Binance' && a.accion === 'No sé';
+      var quieto = a.ex !== 'Binance' && (a.minUltima == null || a.minUltima > 2880);
+      var off = noListado || quieto;
+      if (noListado) meta = '<span class="warn">○ no está en el listado de Binance</span><br>' + hace + ' · hoy ' + a.hoy;
+      if (quieto) meta = meta + '<br><span class="warn">sin órdenes hace ' + (a.minUltima == null ? 'más de 7 días' : Math.round(a.minUltima / 1440) + ' días: ¿está activo?') + '</span>';
+      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
         '<div class="note">' + meta + '</div></td>' +
         '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + (a.nuevo == null ? '—' : n(a.nuevo, 2)) + '</td>' +

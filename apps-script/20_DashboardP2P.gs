@@ -233,8 +233,8 @@ function dashboardP2P_(vivos) {
     if (a.vivo && !a.visible) {
       // No adivinamos: puede estar pausado, sin saldo, oculto por filtros de Binance, o cerrado.
       return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'No sé', nuevo: null,
-               porque: 'No veo ningún anuncio tuyo de ' + a.tipo.toLowerCase() + ' ' + a.cripto + ' en el listado de Binance' +
-                       (a.revisados ? ' (revisé los ' + a.revisados + ')' : '') + '. El precio es el de la última orden. Fijate en la app.',
+               porque: 'No está en el listado público de Binance' + (a.revisados ? ' (revisé los ' + a.revisados + ')' : '') +
+                       ': pausado, sin saldo o fuera de línea. El precio es el de la última orden.',
                minUltima: min, hoy: a.hoy, vivo: false, fuente: 'orden' };
     }
     var quieto = horaActiva && (min === null || min >= DASH_SIN_ORDENES_MIN);
