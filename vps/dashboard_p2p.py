@@ -129,10 +129,10 @@ def anuncios_binance_vivos():
 ESTADO_BINANCE = {}
 
 
-def actualizar():
+def actualizar(okx=False):
     """Pide los números al Apps Script. Si falla, deja el data.json anterior y anota el error."""
     try:
-        url = URL
+        url = URL + ('&okx=1' if okx else '')   # okx=1: el Apps Script trae antes las órdenes de OKX
         vivos = anuncios_binance_vivos()
         if vivos:
             url += '&vivos=' + urllib.parse.quote(json.dumps(vivos, separators=(',', ':')))
@@ -210,10 +210,10 @@ class Pagina(BaseHTTPRequestHandler):
             archivo, tipo = 'data.json', 'application/json; charset=utf-8'
         elif ruta == '/actualizar':   # botón "actualizar ahora" de la página (como mucho 1 vez por minuto)
             global ULTIMO_PEDIDO
-            pedir_al_telefono()   # el teléfono sube las órdenes y en 90 s se vuelve a calcular
+            pedir_al_telefono()   # el teléfono sube Binance y Bybit, y en 90 s se vuelve a calcular
             if time.time() - ULTIMO_PEDIDO > 60:
                 ULTIMO_PEDIDO = time.time()
-                actualizar()
+                actualizar(okx=True)   # OKX lo trae el Apps Script desde su API, en el momento
             archivo, tipo = 'data.json', 'application/json; charset=utf-8'
         else:
             return self._mandar(404, b'', 'text/plain')

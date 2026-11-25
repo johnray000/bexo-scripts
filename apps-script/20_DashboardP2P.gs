@@ -30,6 +30,11 @@ function dashboardP2PRespuesta_(p) {
   try {
     var vivos = {};
     try { vivos = JSON.parse(p.vivos || '{}'); } catch (x) { vivos = {}; }
+    // Botón "Actualizar ahora": antes de calcular, trae las órdenes de OKX de su API (si no se trajeron hace < 2 min).
+    if (p.okx === '1' && typeof traerMovimientosOKX === 'function') {
+      var ultOkx = +PropertiesService.getScriptProperties().getProperty('ORDENES_ULTIMA_OKX') || 0;
+      if (Date.now() - ultOkx > 120000) { try { traerMovimientosOKX(); } catch (e) { logError_('dashboard okx', e.message || e); } }
+    }
     return salida(dashboardP2P_(vivos));
   } catch (e) {
     logError_('dashboardP2P_', e.message || e);
