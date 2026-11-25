@@ -334,13 +334,13 @@ td.n,th.n{text-align:right}
           '<br>' + hace + ' · hoy ' + a.hoy
         : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
-      // Apagado: Binance no lo muestra en el listado (pausado, sin saldo o fuera de línea), o en Bybit/OKX no hubo
-      // órdenes en 2 días (no sé si está activo: esos exchanges no dejan ver el listado desde acá).
+      // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público. En Bybit y OKX no puedo ver
+      // si el anuncio está activo (pocas órdenes no quiere decir pausado: el 25/11 había anuncios OKX activos y se
+      // apagaban por no tener órdenes en 2 días), así que se dice "no sé si está activo" y no se apaga.
       var noListado = a.ex === 'Binance' && a.accion === 'No sé';
-      var quieto = a.ex !== 'Binance' && (a.minUltima == null || a.minUltima > 2880);
-      var off = noListado || quieto;
+      var off = noListado;
       if (noListado) meta = '<span class="warn">○ no está en el listado de Binance</span><br>' + hace + ' · hoy ' + a.hoy;
-      if (quieto) meta = meta + '<br><span class="warn">sin órdenes hace ' + (a.minUltima == null ? 'más de 7 días' : Math.round(a.minUltima / 1440) + ' días: ¿está activo?') + '</span>';
+      if (a.ex !== 'Binance') meta = meta + '<br><span class="note">no puedo ver si está activo</span>';
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
         '<div class="note">' + meta + '</div></td>' +
