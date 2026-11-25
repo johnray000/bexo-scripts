@@ -209,24 +209,48 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
 }
 
 /**
- * Prueba manual desde el editor: manda la tarjeta (🧪) del último comprobante en ARS de Movimientos. Si tocás
+ * El comprobante en ARS MÁS RECIENTE de Movimientos (por fecha de Recibido, no por posición: las filas nuevas entran
+ * arriba). soloPendientes: solo los que siguen en LEIDO (sin Confirmar). Devuelve el objeto de la tarjeta o null.
+ */
+function ultimoComprobanteArs_(soloPendientes) {
+  var datos = hojaMovimientos_().getDataRange().getValues();
+  var mejor = null, fechaMejor = -1;
+  for (var i = 1; i < datos.length; i++) {
+    var d = datos[i];
+    if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(Number(d[C.MONTO - 1]) > 0) || !d[C.ID - 1]) continue;
+    if (soloPendientes && String(d[C.ESTADO - 1]).trim() !== E_LEID) continue;
+    var f = d[C.RECIBIDO - 1] instanceof Date ? d[C.RECIBIDO - 1].getTime() : 0;
+    if (f <= fechaMejor) continue;
+    fechaMejor = f;
+    mejor = { id: String(d[C.ID - 1]), nombre: String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto: Number(d[C.MONTO - 1]),
+              institucion: String(d[C.INSTITUCION - 1] || ''), ref: d[C.REFERENCIA - 1], confianza: d[C.CONFIANZA - 1],
+              driveId: String(d[C.DRIVE_ID - 1] || ''),
+              hora: f ? Utilities.formatDate(d[C.RECIBIDO - 1], Session.getScriptTimeZone(), 'HH:mm') : '' };
+  }
+  return mejor;
+}
+
+/**
+ * Prueba manual desde el editor: manda la tarjeta (🧪) del comprobante en ARS más reciente de Movimientos. Si tocás
  * "Armar en Binance", el teléfono arma una orden de verdad por ese monto (Realizar Orden lo tocás vos o no).
  */
 function probarTarjetaNtfy() {
-  var datos = hojaMovimientos_().getDataRange().getValues();
-  for (var i = datos.length - 1; i >= 1; i--) {
-    var d = datos[i];
-    if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(Number(d[C.MONTO - 1]) > 0) || !d[C.ID - 1]) continue;
-    var n = { id: String(d[C.ID - 1]), nombre: String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto: Number(d[C.MONTO - 1]),
-              institucion: String(d[C.INSTITUCION - 1] || ''), ref: d[C.REFERENCIA - 1], confianza: d[C.CONFIANZA - 1],
-              driveId: String(d[C.DRIVE_ID - 1] || ''),
-              hora: d[C.RECIBIDO - 1] instanceof Date ?
-                    Utilities.formatDate(d[C.RECIBIDO - 1], Session.getScriptTimeZone(), 'HH:mm') : '' };
-    Logger.log(avisarComprobanteNtfy_(n, tasaNetaActual_(), true) ? 'Tarjeta enviada: ' + n.id
-                                                                   : 'No se envió (¿falta NTFY_TOPIC?)');
-    return;
-  }
-  Logger.log('No hay comprobantes en ARS en Movimientos.');
+  var n = ultimoComprobanteArs_(false);
+  if (!n) { Logger.log('No hay comprobantes en ARS en Movimientos.'); return; }
+  Logger.log(avisarComprobanteNtfy_(n, tasaNetaActual_(), true) ? 'Tarjeta enviada: ' + n.nombre + ' · ' + n.id
+                                                                 : 'No se envió (¿falta NTFY_TOPIC?)');
+}
+
+/**
+ * Para correr a mano desde el editor: vuelve a mandar a ntfy la tarjeta (de verdad, sin 🧪) del comprobante en ARS
+ * más reciente que sigue sin confirmar (LEIDO). Sirve cuando la tarjeta no llegó o el anuncio ya no está: el botón
+ * "✅ Armar en Binance" elige el anuncio en el momento en que lo tocás.
+ */
+function reenviarTarjetaPendiente() {
+  var n = ultimoComprobanteArs_(true);
+  if (!n) { Logger.log('No hay comprobantes en ARS sin confirmar.'); return; }
+  Logger.log(avisarComprobanteNtfy_(n, tasaNetaActual_(), false) ? 'Tarjeta reenviada: ' + n.nombre + ' · ' + n.hora
+                                                                  : 'No se envió (mirá Debug_Errores, NTFY)');
 }
 
 /** Manda un link al tema de comandos (lo escucha telefono/escuchar_ntfy.py). */
