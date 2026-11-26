@@ -90,8 +90,6 @@ function pedidoDeCalculo_(texto) {
   t = t.replace(/(\d+(?:[.,]\d+)?)\s*(millon(es)?|palo)s?\b( de| d)?/g, function (x, n) { return String(Math.round(Number(n.replace(',', '.')) * 1e6)) + ' '; });
   // "¿cuánto es en pesos?" / "¿cuántos pesos?": el monto que dio son bolívares
   var enBs = /(cuanto|cuantos) (es |son |seria |serian |sería )?en pesos|cuantos pesos|cuanto (te )?(tengo|debo) (que |q )?(enviar|transferir|pasar|depositar)/.test(t);
-  // con los datos de una cuenta venezolana, un monto sin moneda son los Bs para esa cuenta (Dayana 26/11: "(3200.) 0102 …")
-  if (/\b01\d\d\b|\b04\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b/.test(t)) enBs = true;
   // "para que llegue(n) (allá) 15": número chico sin moneda = dólares a tasa BCV (así lo usan tus clientes)
   if ((m = t.match(/(llegue|lleguen|llegar|llegaran|lleguen alla|llegue alla)\s+(alla\s+)?(\d{1,3})(?![\d.,]|\s*(mil|k|luca|bs|bolivares|pesos|ars))/))) {
     return { de: base === 'EURO' ? 'EUR' : 'USD', monto: Number(m[3]), base: base };
