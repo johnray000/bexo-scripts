@@ -178,5 +178,18 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
       ntfy.length === 1, JSON.stringify(r.mensajes));
   ver('tu capture dejó la operación cerrada', !ctx.estadoChat_('5491155550001').enProceso && !ctx.estadoChat_('5491155550001').foto);
 }
+{ // 10. tus despedidas cierran la operación
+  const { ctx } = cargar();
+  for (const [frase, esperado] of [['Listo que estes muy bien! 👍🏻', 'cierre'], ['Quedó Listo, saludos! 👋🏻', 'cierre'],
+                                   ['Listo, un abrazo! 🙌🏼', 'cierre'], ['Listo mí pana 👍🏼', 'cierre'],
+                                   ['Ok fino te aviso apenas tenga el capturé', 'en_proceso'], ['Ya te digo', 'otro']])
+    ver('"' + frase + '" → ' + esperado, ctx.tipoTuyo_(frase, false) === esperado, ctx.tipoTuyo_(frase, false));
+  ctx.guardarEstadoChat_('5491155550001', { enProceso: Date.now(), foto: Date.now() });
+  ctx.registrarMensajeTuyo_(tuyo('5491155550001', 'Quedó Listo, saludos! 👋🏻'));
+  ver('después de la despedida, la operación quedó cerrada', !ctx.estadoChat_('5491155550001').enProceso);
+  ctx.guardarEstadoChat_('5491155550002', { enProceso: Date.now(), foto: Date.now() });
+  ctx.cerrarOperacionIntake_('+54 9 11 5555-0002');
+  ver('FIN cierra la operación', !ctx.estadoChat_('5491155550002').enProceso && !ctx.estadoChat_('5491155550002').foto);
+}
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);

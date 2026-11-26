@@ -48,7 +48,8 @@ function tipoTuyo_(texto, media) {
   var t = normIntake_(texto);
   if (!t) return media ? 'foto' : '';
   if (/te aviso apenas tenga/.test(t)) return 'en_proceso';
-  if (/^listo\b/.test(t)) return 'cierre';
+  // tus despedidas cierran la operación: "Listo que estes muy bien! 👍🏻", "Quedó Listo, saludos! 👋🏻", "Listo, un abrazo! 🙌🏼"
+  if (/^(quedo )?listo\b|\bsaludos\b|un abrazo|que estes muy bien/.test(t)) return 'cierre';
   if (/^0[.,]\d{2,3}$/.test(t)) return 'tasa';
   if (/^[\d.,]+ ?(mil )?(pesos|bs|bolivares|dolares|\$)/.test(t)) return 'calculo';
   if (/^john\.|alias/.test(t)) return 'alias';
@@ -212,6 +213,15 @@ function enviarSugerenciaIntake_(id) {
   if (sug.tipos.indexOf('saludo') !== -1) est.ultSaludo = est.ultJohn;
   guardarEstadoChat_(sug.tel, est);
   return 'enviado';
+}
+
+/** Botón "✅ FIN": la operación de ese cliente queda cerrada para el intake. */
+function cerrarOperacionIntake_(tel) {
+  tel = String(tel || '').replace(/\D/g, '');
+  if (!tel) return;
+  var est = estadoChat_(tel);
+  est.enProceso = 0; est.foto = 0;
+  guardarEstadoChat_(tel, est);
 }
 
 /** Botón "💬 Ok fino" de la tarjeta del comprobante. id = ID de Movimientos. No se repite en la misma operación.
