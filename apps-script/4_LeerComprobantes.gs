@@ -255,7 +255,8 @@ function leerComprobante_(b64) {
     '{"es_comprobante": true|false, "monto": number|null, "moneda": string|null, ' +
     '"fecha": "YYYY-MM-DD"|null, "institucion": string|null, "referencia": string|null, ' +
     '"titular_origen": string|null, "titular_destino": string|null, ' +
-    '"destino_identificador": string|null, "destino_tipo": string|null, "confianza": 0-1}\n' +
+    '"destino_identificador": string|null, "destino_tipo": string|null, "destino_cedula": string|null, ' +
+    '"confianza": 0-1}\n' +
     'REGLAS:\n' +
     '- es_comprobante: true SOLO si es un comprobante o constancia de transferencia bancaria ' +
     'o de billetera virtual. Cualquier otra cosa (foto personal, captura de chat, meme, ' +
@@ -267,6 +268,10 @@ function leerComprobante_(b64) {
     '- destino_identificador: CVU, CBU o ALIAS de QUIEN RECIBE, nunca del remitente. ' +
     'Copialo completo, digito por digito, sin espacios ni guiones.\n' +
     '- destino_tipo: "CVU", "CBU" o "ALIAS".\n' +
+    '- Comprobantes de Venezuela (Bs, Pago Movil, transferencia): destino_identificador es el TELEFONO o ' +
+    'el NUMERO DE CUENTA de quien recibe (Receptor, Beneficiario, Destino), copiado tal cual aunque tenga ' +
+    'asteriscos (ej 0416***2961); destino_tipo "TELEFONO" o "CUENTA"; destino_cedula es la cedula o ' +
+    'documento de quien recibe, tal cual (ej V14***493). En los demas comprobantes destino_cedula va null.\n' +
     '- Si un dato no se ve con claridad, null. No inventes.\n' +
     '- confianza menor a 0.7 si la imagen esta borrosa, cortada o dudosa.';
 

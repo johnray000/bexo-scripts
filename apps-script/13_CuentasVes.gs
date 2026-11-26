@@ -5,7 +5,12 @@
 //    "Pesos" / "$", pone ARS.
 //    A las filas de Movimientos en bolívares les
 //    pone Moneda VES, reconoce la cuenta (MJ, MR, PMJ, PMR) desde lo que leyó DeepSeek (columna Raw_JSON) y,
-//    si quedó en REVISAR por la cuenta, pasa a LEIDO. Completa dos columnas al final:
+//    si quedó en REVISAR por la cuenta, pasa a LEIDO.
+//    ¿Es de verdad un VES > ARS? Solo si los Bs llegaron a una cuenta tuya (por número de cuenta, teléfono o cédula).
+//    Si el comprobante muestra otro destino (el cliente te pasa los datos de una cuenta o te reenvía un pago a un
+//    tercero), Cuenta = TERCERO, queda en REVISAR y no lleva Tasa ni ARS (no suma). Si no se ve ningún destino,
+//    Cuenta = PMJ por defecto y queda en REVISAR para que lo mires vos.
+//    Completa dos columnas al final:
 //      Tasa = tasa bruta del día (hoja Tasas, columna "Tasa", la última lectura antes de que llegara el comprobante)
 //      ARS  = Bs ÷ Tasa × FACTOR_VES   (la cuenta que John hacía a mano para cargarlo como efectivo)
 //    La Tasa queda fija; el ARS se recalcula si corregís el monto.
@@ -21,6 +26,8 @@
 var FACTOR_VES = 1.10;   // ARS = Bs ÷ tasa bruta × 1,10
 var COL_TASA_VES = 'Tasa';
 var COL_ARS_VES = 'ARS';
+var CUENTA_VES_DEFECTO = 'PMJ';   // si el comprobante no muestra a qué cuenta llegó
+var CUENTA_TERCERO = 'TERCERO';   // los Bs fueron a una cuenta que no es tuya: no es un VES > ARS
 
 // Tus cuentas en Venezuela. cuenta = últimos 4 del número de cuenta; tel = últimos 4 del teléfono de Pago Móvil;
 // ci = cédula del titular (se usa solo si no aparece ni cuenta ni teléfono).
@@ -89,6 +96,11 @@ function cuentaVe_(p) {
   return null;
 }
 
+/** true si DeepSeek vio algún dato de quien recibe (teléfono, cuenta o cédula). El nombre solo no alcanza. */
+function tieneDestino_(p) {
+  return !!p && soloDigitos_(String(p.destino_identificador || '') + String(p.destino_cedula || '')).length >= 4;
+}
+
 /** Tasas: [{fecha, tasa}] de la hoja Tasas (la más nueva primero), columna "Tasa" (bruta). */
 function leerTasasBrutas_() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA_TASAS);
@@ -150,8 +162,12 @@ function completarVes_() {
 
 function completarFilaVes_(sh, d, fila, colT, colA, cache) {
   if (d[C.MONEDA - 1] !== 'VES') sh.getRange(fila, C.MONEDA).setValue('VES');
-  // Sin cuenta, o con una argentina que 4_LeerComprobantes adivinó por los últimos 4: se busca entre las de Venezuela
-  if (!esCuentaVe_(d[C.CUENTA - 1])) {
+  var cuenta = String(d[C.CUENTA - 1] || '').trim();
+  if (cuenta === CUENTA_TERCERO) return;   // no es un VES > ARS: sin Tasa ni ARS
+  // Sin cuenta, o con una argentina que 4_LeerComprobantes adivinó por los últimos 4: se busca entre las de Venezuela.
+  // Solo en filas abiertas (REVISAR / LEIDO): lo que ya contaste o descartaste no se toca.
+  var abierta = d[C.ESTADO - 1] === E_REVI || d[C.ESTADO - 1] === E_LEID;
+  if (!esCuentaVe_(cuenta) && abierta) {
     var p = null;
     try { p = JSON.parse(d[C.RAW - 1] || 'null'); } catch (e) { p = null; }
     var cod = cuentaVe_(p);
@@ -161,6 +177,17 @@ function completarFilaVes_(sh, d, fila, colT, colA, cache) {
       if (d[C.ESTADO - 1] === E_REVI && Number(d[C.CONFIANZA - 1]) >= 0.8 && Number(d[C.MONTO - 1]) > 0) {
         sh.getRange(fila, C.ESTADO).setValue(E_LEID);
       }
+    } else if (tieneDestino_(p)) {
+      // Se ve a quién fue y no es tuyo: datos de una cuenta o pago a un tercero. Queda para que decidas vos.
+      sh.getRange(fila, C.CUENTA).setValue(CUENTA_TERCERO);
+      if (d[C.ESTADO - 1] !== E_REVI) sh.getRange(fila, C.ESTADO).setValue(E_REVI);
+      if (d[colT - 1] !== '') sh.getRange(fila, colT).setValue('');
+      if (d[colA - 1] !== '') sh.getRange(fila, colA).setValue('');
+      return;
+    } else {
+      // No se ve ningún destino: PMJ por defecto, en REVISAR (sin pre-orden hasta que lo mires)
+      sh.getRange(fila, C.CUENTA).setValue(CUENTA_VES_DEFECTO);
+      if (d[C.ESTADO - 1] !== E_REVI) sh.getRange(fila, C.ESTADO).setValue(E_REVI);
     }
   }
   var bs = Number(d[C.MONTO - 1]) || 0;
@@ -174,6 +201,35 @@ function completarFilaVes_(sh, d, fila, colT, colA, cache) {
   }
   var ars = arsDeBs_(bs, tasa);
   if (Number(d[colA - 1]) !== ars) sh.getRange(fila, colA).setValue(ars);
+}
+
+/**
+ * Para correr UNA VEZ a mano desde el editor (después de subir el prompt nuevo): vuelve a leer con DeepSeek los
+ * comprobantes en Bs que están en REVISAR sin una cuenta tuya reconocida (vacía, PMJ por defecto o TERCERO), así
+ * aprovechan el teléfono / cédula del receptor. Solo cambia Raw_JSON y Cuenta; después completa Tasa y ARS.
+ */
+function releerVesSinCuenta() {
+  var sh = hojaMovimientos_();
+  if (sh.getLastRow() < 2) return;
+  var datos = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  var n = 0, ok = 0;
+  for (var i = 0; i < datos.length; i++) {
+    var d = datos[i], p = null;
+    if (d[C.ESTADO - 1] !== E_REVI || !esMonedaVes_(d[C.MONEDA - 1]) || !d[C.DRIVE_ID - 1]) continue;
+    try { p = JSON.parse(d[C.RAW - 1] || 'null'); } catch (e) { p = null; }
+    if (cuentaVe_(p)) continue;   // ya se reconoce por los datos
+    n++;
+    try {
+      var blob = DriveApp.getFileById(d[C.DRIVE_ID - 1]).getBlob();
+      var nuevo = leerComprobante_(Utilities.base64Encode(blob.getBytes()));
+      if (!nuevo || !nuevo.es_comprobante) continue;
+      sh.getRange(i + 2, C.RAW).setValue(JSON.stringify(nuevo));
+      sh.getRange(i + 2, C.CUENTA).setValue('');   // que completarVes_ decida de nuevo con lo leído
+      ok++;
+    } catch (e) { logError_('VES_RELEER', 'fila ' + (i + 2) + ' | ' + (e.message || e)); }
+  }
+  completarVes_();
+  Logger.log('Releídos ' + ok + ' de ' + n + ' comprobantes en Bs sin cuenta reconocida');
 }
 
 /** ARS de una fila en Bs con un monto nuevo (lo usa Confirmar cuando corregís el monto). */
