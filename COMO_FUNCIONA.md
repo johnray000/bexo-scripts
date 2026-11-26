@@ -56,8 +56,13 @@ Lo que nunca hace solo: tocar **Realizar Orden** ni liberar (eso pide tu huella)
 - Alias de cobro: el orden del dashboard (`CUENTAS_PAUSADAS = ['APB']`, `CUENTAS_AL_FINAL = ['BBJ']` en `5_Dashboard.gs`).
 - `processBuffer` (cada 12 h) no tiene nada que ver con el intake: dejalo como está.
 - Propiedad `INTAKE_MODO`: `borrador` (por defecto), `registro` (solo la hoja) o `apagado`.
-- Pendiente de confirmar: que tus mensajes aparezcan como "vos" en la hoja Intake. Si no aparecen, WAHA no manda
-  tus mensajes (falta el evento `message.any`; el diagnóstico del VPS lo avisa).
+- Tus mensajes: para que el intake sepa si ya contestaste, WAHA tiene que mandarlos (evento `message.any`).
+  `ssh <vps> python3 - aplicar < ~/bexo-scripts/vps/webhook_tus_mensajes.py` (sin `aplicar` solo muestra cómo está;
+  `volver` lo deshace). doPost ignora un mensaje repetido por su id.
+- **Cuánto acierta**: `resumenIntake()` en el editor manda a ntfy los últimos 7 días (sugerido vs lo que contestaste
+  en 30 min: acierta / faltó / sobró, y qué quedó a mano). Necesita tus mensajes registrados.
+- **Importante**: subí a Apps Script siempre desde la rama que tiene todo. Del 18 al 24/11 el intake estuvo apagado
+  porque se subió desde `main` sin él; desde el 26/11 está todo en `main`.
 
 Diseño completo y números de tus chats: documento "Bexo · Diseño del intake de WhatsApp" (Claude Docs).
 

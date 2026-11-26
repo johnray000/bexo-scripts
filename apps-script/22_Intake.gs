@@ -48,7 +48,7 @@ var REGLAS_INTAKE = [
   ['division',      /((\d.*(a|para) (esta|esa|una).*(el resto|la otra|otra cuenta))|el resto a|divid|la mitad|dos cuentas|\d+ a una y)/],
   ['pide_capture',  /((me (pasas?|envias|mandas)|pasame) (el )?(capture|captur|comprobante)|apenas tengas (el )?captur|captur.* (te lo pasaron|me lo (envias|pasas))|confirmame si|ya (lo )?(enviaste|mandaste|hiciste)\?)/],
   ['incidente',     /(no (ha )?(llego|llegado|me llego|le llego|recib)|rebot|devuelv|devuelven|falta plata|falto plata|nada que|aun no (sabes|llega)|ayer no transferiste|sale (que hay )?error|me dice error|no existe)/],
-  ['otra_ruta',     /(colombia|brasil|brazil|\bpix\b|nequi|neki|peso colombiano|reais|peru|soles|chile|de venezuela (para|a)|desde venezuela|me van a enviar de|tengo (en venezuela)?[ /]*[\d.,]+ ?(mil )?(bs|bolivares)|(bs|bolivares) en (el )?(banco|venezuela|bdv)|en dolares\b|cuantos dolares|zelle)/],
+  ['otra_ruta',     /(colombia|brasil|brazil|\bpix\b|nequi|neki|peso colombiano|reais|peru|soles|chile|de venezuela (para|a)|desde venezuela|me van a enviar de|tengo (en venezuela)?[ /]*[\d.,]+ ?(mil )?(bs|bolivares)|(bs|bolivares) en (el )?(banco|venezuela|bdv)|en dolares\b|cuantos dolares|zelle|(te )?(podre|puedo|podria) (pasar|mandar|enviar|dar)(te)? (unos |algunos )?(bs|bolivares)|(bs|bolivares).{0,40}(me los|me lo) (pases|des|cambies|transfieras|mandes))/],
   ['difusion',      /(\bgente\b|a todos|mis amigos|familiares y contactos|tomando pedido|rifa|lanzamiento|promo(cion)?\b|sorteo|estaremos)/],
   ['gracias',       /(gracias|graciaz|graciaa|grax|bendicion|dios te)/]
 ];
@@ -62,7 +62,8 @@ function intencionesIntake_(texto, media) {
   if (media) out.push('comprobante');
   REGLAS_INTAKE.forEach(function (r) { if (r[1].test(t)) out.push(r[0]); });
   if (lineas.some(function (l) { return CONFIRMA_INTAKE.test(normIntake_(l)); })) out.push('confirma');
-  if (/\d\s*(\$|usd|dolares|dolar|dolres)|\$\s*\d{1,3}\b(?![.,]\d{3})|tasa bcv|\bbcv\b|euro/.test(t)) out.push('usd');
+  if (/\d\s*(\$|usd|dolares|dolar|dolres)|\$\s*\d{1,3}\b(?![.,]\d{3})|tasa bcv|\bbcv\b|euro/.test(t) ||
+      /(llegue|lleguen|llegar)\s+(alla\s+)?\d{1,3}(?![\d.,]|\s*(mil|k|luca|bs|bolivares|pesos))/.test(t)) out.push('usd');
   // "pasame el capture" o "apenas tengas capture" no es un aviso de pago
   if (out.indexOf('pide_capture') !== -1) out = out.filter(function (x) { return x !== 'avisa_pago'; });
   return out;
@@ -89,6 +90,10 @@ function pedidoDeCalculo_(texto) {
   t = t.replace(/(\d+(?:[.,]\d+)?)\s*(millon(es)?|palo)s?\b( de| d)?/g, function (x, n) { return String(Math.round(Number(n.replace(',', '.')) * 1e6)) + ' '; });
   // "¿cuánto es en pesos?" / "¿cuántos pesos?": el monto que dio son bolívares
   var enBs = /(cuanto|cuantos) (es |son |seria |serian |sería )?en pesos|cuantos pesos|cuanto (te )?(tengo|debo) (que |q )?(enviar|transferir|pasar|depositar)/.test(t);
+  // "para que llegue(n) (allá) 15": número chico sin moneda = dólares a tasa BCV (así lo usan tus clientes)
+  if ((m = t.match(/(llegue|lleguen|llegar|llegaran|lleguen alla|llegue alla)\s+(alla\s+)?(\d{1,3})(?![\d.,]|\s*(mil|k|luca|bs|bolivares|pesos|ars))/))) {
+    return { de: base === 'EURO' ? 'EUR' : 'USD', monto: Number(m[3]), base: base };
+  }
   if ((m = t.match(new RegExp(NUM + '\\s*(\\$|usd|dolares|dolar|dolres|verdes)'))) ||
       (m = t.match(new RegExp('\\$\\s*' + NUM + '(?![\\d.,])')))) {
     var v = numeroIntake_(m[1]);
@@ -251,7 +256,8 @@ function respuestaIntake_(texto, media, ctx) {
   }
   var tasas = ctx.tasas || {}, calc = null, pedido = pedidoDeCalculo_(texto);
   if (tiene('disponibilidad') || (tiene('quiere_enviar') && !tiene('calculo') && !tiene('pide_alias')) ||
-      (tiene('monto') && !tiene('calculo') && !tiene('pide_alias') && !tiene('datos_cuenta'))) {
+      (tiene('monto') && !tiene('calculo') && !tiene('pide_alias') && !tiene('datos_cuenta') &&
+       (pedido || {}).de !== 'VES')) {
     r.mensajes.push(FRASES_JOHN.disponible); r.tipos.push('disponible');
   }
   if (tiene('calculo')) {
@@ -274,6 +280,7 @@ function respuestaIntake_(texto, media, ctx) {
   }
   var algo = r.tipos.length || ['gracias', 'confirma', 'datos_cuenta', 'destino_ref', 'pide_capture', 'avisa_pago', 'saludo']
     .some(function (k) { return tiene(k); });
-  if (!algo) a_mano('pregunta general');
+  var corto = normIntake_(texto).split(' ').length <= 8 && texto.indexOf('?') === -1;
+  if (!algo && !corto) a_mano('pregunta general');
   return r;
 }

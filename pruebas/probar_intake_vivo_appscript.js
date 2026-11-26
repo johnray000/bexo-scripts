@@ -142,5 +142,21 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ctx.intakePorMensaje();
   ver('la misma tanda no se evalúa dos veces', hojas.Intake.filas.length === 2 && ntfy.length === 1);
 }
+{ // 8. cuánto acierta: sugerido vs lo que contestaste en 30 min
+  const { ctx } = cargar();
+  const H = ['Fecha', 'Teléfono', 'Nombre', 'Quién', 'Texto', 'Foto', 'Intenciones', 'Sugerido', 'Tipos', 'A mano'];
+  const f = (hm, tel, q, tipos, mano) => ['26/11/2026 ' + hm, tel, 'x', q, '', false, '', '', tipos, mano || ''];
+  const filas = [H,
+    f('10:00:00', '1', 'cliente', 'saludo tasa'), f('10:02:00', '1', 'vos', 'saludo'), f('10:03:00', '1', 'vos', 'tasa'),
+    f('11:00:00', '2', 'cliente', 'calculo'), f('11:05:00', '2', 'vos', 'otro'),
+    f('12:00:00', '3', 'cliente', '', 'otra ruta'), f('12:01:00', '3', 'vos', 'saludo'),
+    f('13:00:00', '4', 'cliente', 'alias')];
+  const r = ctx.medirIntake_(filas, 7, new Date(2026, 10, 26, 18).getTime());
+  ver('mide aciertos, faltas y sobras', r.tandas === 4 && r.vos === 4 && r.tipos.saludo.ok === 1 && r.tipos.tasa.ok === 1 &&
+      r.tipos.calculo.sobro === 1 && r.tipos.saludo.falto === 1 && r.sinRespuesta === 1 && r.aMano['otra ruta'] === 1, JSON.stringify(r));
+  const sinVos = ctx.textoMedicionIntake_(ctx.medirIntake_([H, f('10:00:00', '1', 'cliente', 'tasa')], 7, new Date(2026, 10, 26, 18).getTime()), 7);
+  ver('sin tus mensajes avisa cómo arreglarlo', /No llegan tus mensajes/.test(sinVos), sinVos);
+  ver('lee la fecha como la muestra la hoja', ctx.fechaIntake_('26/11/2026 8:21:11') === new Date(2026, 10, 26, 8, 21, 11).getTime());
+}
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);
