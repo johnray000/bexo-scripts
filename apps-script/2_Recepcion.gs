@@ -36,7 +36,14 @@ function doPost(e) {
     if (e.postData.contents.includes("status@broadcast") || rawFrom.includes('@g.us') || altFrom.includes('@g.us')) {
     return ContentService.createTextOutput(JSON.stringify({status: "ignorado"})).setMimeType(ContentService.MimeType.JSON);
     }
+    // Un mismo mensaje no se procesa dos veces (con "message" y "message.any" a la vez WAHA lo mandaría repetido)
+    if (payload.id) {
+      const vistos = CacheService.getScriptCache(), idMsg = 'msg_' + String(payload.id).slice(0, 200);
+      if (vistos.get(idMsg)) return ContentService.createTextOutput(JSON.stringify({status: "repetido"})).setMimeType(ContentService.MimeType.JSON);
+      vistos.put(idMsg, '1', 600);
+    }
     if (payload.fromMe === true || key.fromMe === true) {
+    try { registrarMensajeTuyo_(payload); } catch (err) { logError_('INTAKE_TUYO', err.message || err); }   // 23_IntakeVivo.gs
     return ContentService.createTextOutput(JSON.stringify({status: "ignorado_saliente"})).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -106,7 +113,8 @@ function doPost(e) {
       driveId = null;
     }
 
-    if (isClient) registrarDatosPago_(name, message);   // datos de pago a la Agenda (10_AgendaCuentas.gs)
+    if (isClient) registrarDatosPago_(name, message);
+    if (isClient) agendarIntake_();   // 23_IntakeVivo.gs: evalúa la tanda cuando se cierre (activador de una vez)   // datos de pago a la Agenda (10_AgendaCuentas.gs)
 
     // --- LÓGICA DE BUFFER Y AGRUPACIÓN ---
     const dataRange = sh.getDataRange().getValues();
@@ -155,6 +163,8 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({status: "nueva_fila"})).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
+    // falló a mitad: que el reintento de WAHA (mismo id) sí se procese
+    try { const p = JSON.parse(e.postData.contents).payload || {}; if (p.id) CacheService.getScriptCache().remove('msg_' + String(p.id).slice(0, 200)); } catch (x) {}
     return ContentService.createTextOutput(JSON.stringify({error: error.message})).setMimeType(ContentService.MimeType.JSON);
   }
   /*

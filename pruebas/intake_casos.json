@@ -1,0 +1,530 @@
+[
+ {
+  "nombre": "saludo solo",
+  "texto": "Hola buenas tardes",
+  "intenciones": [
+   "saludo"
+  ],
+  "tipos": [
+   "saludo"
+  ],
+  "mensajes": [
+   "Hola buenas tardes como estás"
+  ]
+ },
+ {
+  "nombre": "saludo de mañana",
+  "texto": "Buen día hermano",
+  "hora": 9,
+  "mensajes": [
+   "Hola buenos días como estás"
+  ]
+ },
+ {
+  "nombre": "saludo ya hecho",
+  "texto": "Hola",
+  "yaSaludo": true,
+  "tipos": []
+ },
+ {
+  "nombre": "pide tasa",
+  "texto": "Hola pana buenas tardes todo bien.??\nCuanto esta la tasa.??",
+  "intenciones": [
+   "saludo",
+   "tasa"
+  ],
+  "tipos": [
+   "saludo",
+   "tasa"
+  ],
+  "mensajes": [
+   "0.52"
+  ]
+ },
+ {
+  "nombre": "tasa con errores",
+  "texto": "Cuánto está la taza",
+  "intenciones": [
+   "tasa"
+  ],
+  "tipos": [
+   "tasa"
+  ]
+ },
+ {
+  "nombre": "remesa",
+  "texto": "En cuanto tienes la remesa",
+  "intenciones": [
+   "tasa"
+  ],
+  "tipos": [
+   "tasa"
+  ]
+ },
+ {
+  "nombre": "pesos a bs",
+  "texto": "Si envio 30.000 pesos cuanto llega?",
+  "intenciones": [
+   "calculo"
+  ],
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "15.600 bs"
+  ]
+ },
+ {
+  "nombre": "pesos a bs en mil",
+  "texto": "cuanto llegaria con 100 mil",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "52.000 bs"
+  ]
+ },
+ {
+  "nombre": "bs a pesos",
+  "texto": "Cuánto debo transferirte para que lleguen a Venezuela 2.300,00 Bolivares?",
+  "intenciones": [
+   "calculo"
+  ],
+  "no": [
+   "comprobante",
+   "avisa_pago"
+  ],
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "4.400 pesos"
+  ]
+ },
+ {
+  "nombre": "bs a pesos en mil",
+  "texto": "Quería mandar 13 mil bolívares cuánto sería en pesos",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "25.000 pesos"
+  ]
+ },
+ {
+  "nombre": "dólares BCV",
+  "texto": "Me puedes decir cuánto es en pesos para que lleguen $60 a Venezuela",
+  "intenciones": [
+   "calculo",
+   "usd"
+  ],
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "89.100 pesos"
+  ]
+ },
+ {
+  "nombre": "dólares a base de euro",
+  "texto": "Tendrás para enviar 310$ a base de euro",
+  "intenciones": [
+   "disponibilidad",
+   "calculo",
+   "usd"
+  ],
+  "tipos": [
+   "disponible",
+   "calculo"
+  ],
+  "mensajes": [
+   "536.500 pesos"
+  ]
+ },
+ {
+  "nombre": "disponible",
+  "texto": "Buenas tardes rey estás laburando?",
+  "intenciones": [
+   "saludo",
+   "disponibilidad"
+  ],
+  "tipos": [
+   "saludo",
+   "disponible"
+  ]
+ },
+ {
+  "nombre": "hasta qué hora",
+  "texto": "Perfecto\nHasta q hora se puede mandar dinero ?",
+  "intenciones": [
+   "disponibilidad"
+  ],
+  "tipos": [
+   "disponible"
+  ]
+ },
+ {
+  "nombre": "pide alias",
+  "texto": "Cuando puedas me pasas el alias pana",
+  "intenciones": [
+   "pide_alias"
+  ],
+  "tipos": [
+   "alias"
+  ],
+  "mensajes": [
+   "Puedes transferir a este alias",
+   "John.ray.astro"
+  ]
+ },
+ {
+  "nombre": "a dónde te paso",
+  "texto": "Dale / A donde te paso??",
+  "intenciones": [
+   "pide_alias"
+  ],
+  "tipos": [
+   "alias"
+  ]
+ },
+ {
+  "nombre": "alias con monto chico",
+  "texto": "Bien mano gracias te puedo mandar 70 me pasa un alias",
+  "tipos": [
+   "disponible",
+   "alias"
+  ],
+  "mensajes": [
+   "John.ray.astro"
+  ]
+ },
+ {
+  "nombre": "alias mitad y mitad",
+  "texto": "Me pasas el alias? voy a enviar 300.000 pesos",
+  "tipos": [
+   "alias"
+  ],
+  "mensajes": [
+   "Puedes transferir a estos alias",
+   "John.ray.astro",
+   "John.ray.naranja",
+   "Envía mitad y mitad"
+  ]
+ },
+ {
+  "nombre": "250 mil justos no se dividen",
+  "texto": "pasame el alias, son 250.000",
+  "tipos": [
+   "alias"
+  ],
+  "mensajes": [
+   "Puedes transferir a este alias"
+  ]
+ },
+ {
+  "nombre": "comprobante solo",
+  "texto": "[Mensaje sin texto]",
+  "media": true,
+  "intenciones": [
+   "comprobante"
+  ],
+  "tipos": [
+   "en_proceso"
+  ],
+  "mensajes": [
+   "Ok fino te aviso apenas tenga el capturé"
+  ]
+ },
+ {
+  "nombre": "comprobante con datos",
+  "texto": "[Mensaje sin texto]\n0102 04121234567 12345678\nA esta cuenta",
+  "media": true,
+  "intenciones": [
+   "comprobante",
+   "datos_cuenta",
+   "destino_ref"
+  ],
+  "tipos": [
+   "en_proceso"
+  ]
+ },
+ {
+  "nombre": "comprobante a la de siempre",
+  "texto": "[Mensaje sin texto]\nA la cta de siempre por fa",
+  "media": true,
+  "intenciones": [
+   "comprobante",
+   "destino_ref"
+  ],
+  "tipos": [
+   "en_proceso"
+  ]
+ },
+ {
+  "nombre": "pide capture no es comprobante",
+  "texto": "Apenas tengas capture me lo envías bro",
+  "intenciones": [
+   "pide_capture"
+  ],
+  "no": [
+   "comprobante",
+   "avisa_pago"
+  ],
+  "tipos": []
+ },
+ {
+  "nombre": "pasame el capture",
+  "texto": "Me pasas el capture 🙏",
+  "intenciones": [
+   "pide_capture"
+  ],
+  "no": [
+   "comprobante"
+  ],
+  "tipos": []
+ },
+ {
+  "nombre": "datos sin foto",
+  "texto": "Banesco\n0412-555-0101\n12.345.678\nMe lo pasa a ese pago movil por fa",
+  "intenciones": [
+   "datos_cuenta",
+   "destino_ref"
+  ],
+  "no": [
+   "comprobante"
+  ],
+  "manual": false
+ },
+ {
+  "nombre": "al mismo número",
+  "texto": "Buen día pana por favor para mandar esto al mismo número gracias",
+  "intenciones": [
+   "saludo",
+   "quiere_enviar",
+   "destino_ref",
+   "gracias"
+  ]
+ },
+ {
+  "nombre": "división",
+  "texto": "Mano puedes mandar 60 a Venezuela 40 a una y 20 a otra",
+  "intenciones": [
+   "division"
+  ],
+  "manual": true
+ },
+ {
+  "nombre": "incidente",
+  "texto": "Una consulta dice que no llego",
+  "intenciones": [
+   "incidente"
+  ],
+  "manual": true,
+  "tipos": []
+ },
+ {
+  "nombre": "falta plata",
+  "texto": "Disculpa la molestia bro pero falta plata yo te pase 25 Luca",
+  "intenciones": [
+   "incidente"
+  ],
+  "manual": true
+ },
+ {
+  "nombre": "Colombia",
+  "texto": "Buenas tarde amigo cuánto son 100 mil peso argentino en peso colombiano",
+  "intenciones": [
+   "otra_ruta"
+  ],
+  "manual": true,
+  "tipos": [
+   "saludo"
+  ]
+ },
+ {
+  "nombre": "PIX",
+  "texto": "[Mensaje sin texto]\n12345678900 ese es mi pix",
+  "media": true,
+  "intenciones": [
+   "otra_ruta"
+  ],
+  "manual": true
+ },
+ {
+  "nombre": "gracias",
+  "texto": "Gracias mi pana",
+  "intenciones": [
+   "gracias"
+  ],
+  "tipos": [],
+  "manual": false
+ },
+ {
+  "nombre": "confirma",
+  "texto": "Ok",
+  "intenciones": [
+   "confirma"
+  ],
+  "tipos": [],
+  "manual": false
+ },
+ {
+  "nombre": "difusión ajena",
+  "texto": "Buenas tardes gente volvimos con los mejores perros calientes, estaremos tomando pedido",
+  "manual": true,
+  "no": [
+   "calculo"
+  ]
+ },
+ {
+  "nombre": "ruta inversa (tiene Bs allá)",
+  "texto": "Bns días John 🙋\nTengo 21.000 BS en Banco de Venezuela. Cuántos pesos serían?",
+  "intenciones": [
+   "otra_ruta"
+  ],
+  "manual": true,
+  "no": [
+   "comprobante"
+  ]
+ },
+ {
+  "nombre": "ruta inversa en dos líneas",
+  "texto": "Tengo en Venezuela\n15.500 BS\nCuántos pesos son",
+  "manual": true
+ },
+ {
+  "nombre": "respuesta en dólares",
+  "texto": "Me dices cuantos dolares llegan a venezuela si envio 40 mil pesos",
+  "manual": true
+ },
+ {
+  "nombre": "cuánto es en pesos = bolívares",
+  "texto": "Tengo que enviar 13.070\nCuanto es en pesos corazon?",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "25.100 pesos"
+  ]
+ },
+ {
+  "nombre": "un millón",
+  "texto": "primero quiero saber cuánto llegaría con 1 millón de pesos",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "520.000 bs"
+  ]
+ },
+ {
+  "nombre": "Bs redondeados a la centena",
+  "texto": "Te voy a pasar 72.000\nCuánto le llegaría a la persona?",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "37.400 bs"
+  ]
+ },
+ {
+  "nombre": "Bueno no es saludo",
+  "texto": "Bueno bro",
+  "no": [
+   "saludo"
+  ]
+ },
+ {
+  "nombre": "quiere enviar sin pregunta: disponible, sin cálculo",
+  "texto": "Hola amigo buenas tardes, es para ver si me podría pasar 100000 para Venezuela?",
+  "tipos": [
+   "saludo",
+   "disponible"
+  ],
+  "no": [
+   "calculo"
+  ]
+ },
+ {
+  "nombre": "Ok fino una sola vez",
+  "texto": "[Mensaje sin texto]",
+  "media": true,
+  "enProceso": true,
+  "tipos": []
+ },
+ {
+  "nombre": "datos después de la foto",
+  "texto": "Banco provincial\nAna Pérez\nCédula V-1234567\nTeléfono 0414-5550000",
+  "fotoPendiente": true,
+  "tipos": [
+   "en_proceso"
+  ]
+ },
+ {
+  "nombre": "26/11 ruta inversa: te paso bolívares para pesos",
+  "texto": "Hola! Como estas? Disculpa te escriba tan temprano. Te podre pasar unos bolivares para q me los pases a pesos?",
+  "intenciones": [
+   "saludo",
+   "otra_ruta"
+  ],
+  "manual": true,
+  "tipos": [
+   "saludo"
+  ]
+ },
+ {
+  "nombre": "26/11 que llegue 15 = dólares BCV",
+  "texto": "Buen día ¿Cómo estás ?.\nSe puede cambiar para que llegue 15?",
+  "intenciones": [
+   "calculo",
+   "usd"
+  ],
+  "tipos": [
+   "saludo",
+   "disponible",
+   "calculo"
+  ],
+  "mensajes": [
+   "22.300 pesos"
+  ]
+ },
+ {
+  "nombre": "histórico: y que lleguen allá 30",
+  "texto": "Te puedo consultar para cambiar\nY que lleguen allá 30",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "44.500 pesos"
+  ]
+ },
+ {
+  "nombre": "26/11 Bien: charla, no pregunta",
+  "texto": "Bien",
+  "manual": false,
+  "tipos": []
+ },
+ {
+  "nombre": "26/11 Dale ya te aviso: charla",
+  "texto": "Dale. Ya te aviso el número de cuenta",
+  "manual": false,
+  "tipos": []
+ },
+ {
+  "nombre": "una pregunta corta sigue siendo para vos",
+  "texto": "Como a si?",
+  "manual": true
+ },
+ {
+  "nombre": "25/11 monto en Bs para el destino: sin borrador",
+  "texto": "Acá pana 8.000bs",
+  "tipos": []
+ },
+ {
+  "nombre": "Digo 10 mil (pesos): disponible",
+  "texto": "Digo 10 mil",
+  "tipos": [
+   "disponible"
+  ]
+ }
+]

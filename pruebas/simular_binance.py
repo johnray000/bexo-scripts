@@ -65,7 +65,8 @@ def llave(xml, rid, prendida):
 class Telefono:
     def __init__(self, lista='lista_ves', pantalla='p2p', moneda='VES', monto=None, pago=None, tab='vender',
                  frente='binance', embudo_falla=1, descarta_primera=True, llaves=None, orden_monto='5000',
-                 recuerda_metodo=False, precio_cambia=False):
+                 recuerda_metodo=False, precio_cambia=False, cortina_terca=False, reinicio_desconocido=False,
+                 marca='contador'):
         self.lista = lista
         self.apodo, self.orden_xml, self.orden_rid_txt = LISTAS[lista]
         self.s = dict(pantalla=pantalla, moneda=moneda, monto=monto, pago=pago, tab=tab, frente=frente,
@@ -73,7 +74,8 @@ class Telefono:
                       orden_monto=orden_monto, tocado_apodo=None,
                       aplicadas=dict(llaves or DE_FABRICA), panel={}, vista='arriba',
                       recuerda=recuerda_metodo, panel_metodo=None, casilla=False,
-                      precio_cambia=precio_cambia, refrescado=False)
+                      precio_cambia=precio_cambia, refrescado=False, cortina_terca=cortina_terca,
+                      reinicio_desconocido=reinicio_desconocido, reinicios=0, marca=marca)
         self.malos = []
 
     def xml(self):
@@ -94,7 +96,13 @@ class Telefono:
                            s['campo'] or 'Ingresa el monto total')
         if p == 'filtrar':
             if s['vista'] == 'metodos':   # bajado hasta "Método de Pago" (16:34): el xml no dice cuál, solo cuántos
-                return X['filtrar_metodos_elegido' if s['panel_metodo'] else 'filtrar_metodos']
+                # marca: cómo avisa el panel que hay uno elegido. 'contador' = "(1 seleccionado/s)" (16:34);
+                # 'nombre' = el nombre del método y 'oculta' = sigue diciendo "Todo" (NO grabadas: 17:21 se frenó
+                # con Pago Movil recordado sin que el script lo notara)
+                if not s['panel_metodo'] or s['marca'] == 'oculta':
+                    return X['filtrar_metodos']
+                x = X['filtrar_metodos_elegido']
+                return x.replace('(1 seleccionado/s)', s['panel_metodo']) if s['marca'] == 'nombre' else x
             if s['foco']:                 # con el teclado el panel se desplaza (grabación 03)
                 return cambiar(X['03'], '5000', '2131432527', s['campo'] or 'Ingresa el monto total')
             x = X['filtrar']
@@ -191,6 +199,8 @@ class Telefono:
         elif p == 'filtrar':
             if s['vista'] == 'metodos' and t in METODOS_PANEL:
                 s['panel_metodo'] = None if s['panel_metodo'] == t else t
+                if s['marca'] == 'oculta':
+                    s['marca'] = 'contador'   # la marca vieja se ve recién después de tocar
             elif s['vista'] == 'metodos' and t == 'Todo' and 900 < y < 1400:
                 s['panel_metodo'] = None
             elif clase == 'Switch':
@@ -223,6 +233,8 @@ class Telefono:
         s = self.s
         if k == 'KEYCODE_DEL' and s['foco']:
             s['campo'] = s['campo'][:-1]
+        elif k == 'KEYCODE_BACK' and s['frente'] == 'cortina':
+            s['frente'] = 'termux'                # Atrás con la cortina abierta: solo la cierra
         elif k == 'KEYCODE_BACK':
             if s['pantalla'] in ('activo', 'metodos', 'monto', 'filtrar', 'divisa', 'orden'):
                 s['pantalla'] = 'p2p'
@@ -248,8 +260,11 @@ class Telefono:
                     'cortina': 'mCurrentFocus=Window{88b51fd u0 NotificationShade}',
                     'termux': 'mCurrentFocus=Window{2 u0 com.termux/x}'}[s['frente']]
         elif a[:4] == ('shell', 'cmd', 'statusbar', 'collapse'):
-            if s['frente'] == 'cortina':
+            if s['frente'] == 'cortina' and not s['cortina_terca']:
                 s['frente'] = 'termux'
+        elif a[:3] == ('shell', 'am', 'force-stop'):
+            s['frente'], s['reinicios'] = 'termux', s['reinicios'] + 1
+            s['pantalla'] = 'libro' if s['reinicio_desconocido'] else 'inicio'
         elif a[:3] == ('shell', 'am', 'start') or a[:2] == ('shell', 'monkey'):
             if s['frente'] == 'termux':
                 s['frente'] = 'binance'
@@ -310,6 +325,10 @@ casos = [
     ('la lista venía con Banesco (el panel lo olvida): elige Pago Movil', 'orden True True True', dict(pago='Banesco')),
     ('el panel recuerda Pago Movil: no lo toca (si lo tocara, lo desmarcaría)', 'orden True True True',
      dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False)),
+    ('17:21: el panel recuerda Pago Movil y lo muestra con el nombre: no lo toca', 'orden True True True',
+     dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False, marca='nombre')),
+    ('17:21: el panel recuerda Pago Movil sin marca: lo desmarca, ve "Todo" y lo vuelve a tocar', 'orden True True True',
+     dict(pago='Pago Movil', recuerda_metodo=True, descarta_primera=False, marca='oculta')),
     ('el panel recuerda Banesco: se frena y pide dejarlo en Todo', 'dejalo en Todo',
      dict(pago='Banesco', recuerda_metodo=True)),
     ('quedó abierto "Seleccionar activo" (como 02:08)', 'orden True True True', dict(pantalla='activo')),
@@ -319,6 +338,12 @@ casos = [
     ('la orden trae otro monto: lo corrige', 'orden True True True', dict(orden_monto='1234')),
     ('el precio cambió al abrir la orden: Entendido, atrás, refrescar y de nuevo', 'orden True True True',
      dict(precio_cambia=True)),
+    ('cortina terca (collapse no anda, como 17:27): la cierra con Atrás', 'orden True True True',
+     dict(frente='cortina', cortina_terca=True)),
+    ('Binance en el libro de órdenes (pantalla no grabada): lo reinicia', 'orden True True True',
+     dict(pantalla='libro')),
+    ('después de reiniciar sigue sin conocer la pantalla: se frena (no reinicia en bucle)', 'Pantalla que no conozco',
+     dict(pantalla='libro', reinicio_desconocido=True)),
     ('quedó abierta una orden vieja', 'orden True True True', dict(pantalla='orden')),
 ]
 bien = sum(correr(*c[:2], **c[2]) for c in casos)
@@ -355,6 +380,12 @@ r = b.buscar_anuncios(5000.0, 'PagoMovil')
 ok_busca = [a['apodo'] for a in r] == ['wen2', 'Otro']
 print('  %s: %s' % ('BIEN' if ok_busca else 'MAL', [a['apodo'] for a in r]))
 if not ok_busca:
+    bien -= 1
+# --prueba arma el link con la plantilla LINK (24/11: una variable nueva con el mismo nombre la había pisado)
+pedido = [b.prueba(5000.0, 'PagoMovil', 1, arrancar=False)]
+ok_link = pedido == ['https://c2c.binance.com/es-LA/adv?code=2&monto=5000&pago=PagoMovil&alt=3']
+print('  %s: --prueba arma el link %s' % ('BIEN' if ok_link else 'MAL', pedido))
+if not ok_link:
     bien -= 1
 
 print('==== el apodo no está en la lista')

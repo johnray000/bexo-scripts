@@ -7,8 +7,29 @@
 //   NTFY_TOPIC + -cmd  → comandos para el teléfono: lo escucha telefono/escuchar_ntfy.py. El botón
 //                        "Armar en Binance" manda ahí el link del anuncio y el teléfono arma la orden (nunca la coloca).
 // ntfy.sh es un servidor público: el nombre del tema es la única protección. Nunca va un dato del cliente.
+// Google NO publica directo en ntfy.sh: sus IPs son compartidas y ntfy.sh corta por cupo diario (429, 16/11). Va por
+// el relay del VPS (POST /ntfy, vps/relay_binance.py), que publica con la IP propia del VPS.
 // ==========================================
 var NTFY_URL = 'https://ntfy.sh';
+
+/** Publica un JSON de ntfy (topic, title, message, …) por el relay del VPS; si el relay no anda, directo. */
+function publicarNtfy_(cuerpo) {
+  var payload = JSON.stringify(cuerpo), r;
+  try {
+    var token = PropertiesService.getScriptProperties().getProperty('RELAY_TOKEN');
+    r = UrlFetchApp.fetch(RELAY_URL + '/ntfy?token=' + encodeURIComponent(token),
+                          { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true });
+    if (r.getResponseCode() === 200) return true;
+    logError_('NTFY', 'relay ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  } catch (e) {
+    logError_('NTFY', 'relay ' + (e.message || e));
+  }
+  r = UrlFetchApp.fetch(NTFY_URL, { method: 'post', contentType: 'application/json', payload: payload,
+                                    muteHttpExceptions: true });   // último recurso (puede dar 429)
+  if (r.getResponseCode() < 300) return true;
+  logError_('NTFY', r.getResponseCode() + ' ' + r.getContentText().slice(0, 200));
+  return false;
+}
 
 function ntfyActivo_() {
   return !!CONFIG.NTFY_TOPIC;
@@ -22,19 +43,13 @@ function avisarNtfy_(titulo, texto, opciones) {
   if (!ntfyActivo_()) return false;
   opciones = opciones || {};
   try {
-    var r = UrlFetchApp.fetch(NTFY_URL, {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
-                                priority: opciones.prioridad || 3, tags: opciones.tags || [],
-                                actions: opciones.acciones || [] })
-    });
-    var c = r.getResponseCode();
-    if (c >= 200 && c < 300) return true;
-    logError_('NTFY', c + ' ' + r.getContentText().slice(0, 200));
+    return publicarNtfy_({ topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
+                           priority: opciones.prioridad || 3, tags: opciones.tags || [],
+                           actions: opciones.acciones || [] });
   } catch (e) {
     logError_('NTFY', e.message || e);
+    return false;
   }
-  return false;
 }
 
 /** Botón "Armar en Binance": manda el link al tema de comandos; el teléfono lo escucha y arma la orden. */
@@ -55,7 +70,7 @@ function parametroLink_(link, nombre) {
  */
 function avisarPreOrdenNtfy_(link, a, lineaReservas, prueba) {
   if (!link || !a) return false;
-  var titulo = (prueba ? '🧪 PRUEBA · ' : '💸 ') + a.apodo + ' · ' + parametroLink_(link, 'monto') + ' Bs · ' +
+  var titulo = (prueba ? 'PRUEBA · ' : '') + a.apodo + ' · ' + parametroLink_(link, 'monto') + ' Bs · ' +
                parametroLink_(link, 'pago');
   var texto = ['Precio ' + a.precio, lineaReservas || 'Sin reservas',
                'Tocá "Armar en Binance": el teléfono arma la orden y tilda la casilla; Realizar Orden lo tocás vos.']
@@ -69,4 +84,222 @@ function probarNtfy() {
   Logger.log(ntfyActivo_() ? (avisarNtfy_('Prueba desde Google', 'Si ves esto, el Apps Script llega a ntfy.')
                               ? 'Enviado a ntfy.' : 'ntfy NO lo aceptó: mirá Errores.')
                            : 'Falta la propiedad NTFY_TOPIC (el contenido de ~/.bexo-ntfy en el teléfono).');
+}
+
+// ---- Tarjeta por comprobante: revisás y aprobás desde la notificación ----
+// Cuando un comprobante en ARS queda leído, llega a ntfy: nombre corto, monto, Bs estimados, banco, hora, últimos 4 de
+// la referencia y % de lectura (ntfy.sh es público: nada de titular, teléfono ni cuenta completa).
+// "✅ Armar en Binance" llama al Apps Script (doGet ?p2p=armar), que elige el anuncio EN ESE MOMENTO (frases, reservas)
+// y manda el link al teléfono (tema -cmd). Así el anuncio está fresco cuando aprobás.
+var ARMAR_BLOQUEO_S = 90;   // un segundo toque del mismo botón dentro de este tiempo no busca otra vez
+
+var MAX_NOMBRE_TARJETA = 22;   // más largo rompe el título de la notificación
+
+/** El nombre del contacto sin el prefijo "BEXO" ("BEXO Juan Pérez García" → "Juan Pérez García"), cortado con "…". */
+function nombreTarjeta_(nombre) {
+  var t = String(nombre || '').replace(/^\s*bexo\b[\s\-_:.·|]*/i, '').replace(/\s+/g, ' ').trim() || '?';
+  return t.length > MAX_NOMBRE_TARJETA ? t.slice(0, MAX_NOMBRE_TARJETA - 1).trim() + '…' : t;
+}
+
+/** Últimos 4 caracteres de la referencia ("…1234"), o '' si no hay. */
+function finReferencia_(ref) {
+  var r = String(ref || '').replace(/\s/g, '');
+  return r ? '…' + r.slice(-4) : '';
+}
+
+/** "1.234.567" sin decimales, con punto de miles (para el título de la tarjeta). */
+function fmtEntero_(n) {
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/**
+ * La cuenta de destino del cliente, IGUAL que la pre-orden (11_PreOrden.gs): la que mandó en las últimas
+ * HORAS_DATOS_RECIENTES, si no la del titular que nombró en el chat, si no la de siempre. De ella sale el método
+ * (metodosParaCuenta_). 17/11: el botón usaba la columna CUENTA del comprobante (tu cuenta de cobro) y caía casi
+ * siempre en Banco de Venezuela.
+ */
+function destinoDelCliente_(nombre) {
+  var ctas = cuentasDelCliente_(nombre, leerAgenda_());
+  var sug = cuentaSugerida_(nombre, ctas);
+  sug.otras = ctas.otras.length - (sug.cuenta && sug.motivo !== 'reciente' ? 1 : 0);
+  return sug;
+}
+
+/** "→ PM Banesco …4567 · la de siempre" (recortado: ntfy.sh es público). */
+function lineaDestino_(sug) {
+  var c = sug && sug.cuenta;
+  if (!c) return '⚠️ Sin datos de cuenta: busca con todos los métodos';
+  var motivo = { reciente: 'mandó ahora', siempre: 'la de siempre',
+                 nombre: 'pidió a ' + String(c.titular || '').split(/\s+/)[0] }[sug.motivo] || '';
+  var otras = sug.otras > 0 ? ' · +' + sug.otras + ' cuenta' + (sug.otras === 1 ? '' : 's') : '';
+  return '→ ' + (c.tipo === 'PM' ? 'PM' : 'Transf') + ' ' + (BANCOS_VE[c.banco] || c.banco || '') + ' …' +
+         String(c.numero || '').slice(-4) + (motivo ? ' · ' + motivo : '') + otras;
+}
+
+function urlArmar_(id) {
+  var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
+  return base + '?p2p=armar&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
+}
+
+function urlFin_(id) {
+  var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
+  return base + '?p2p=fin&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
+}
+
+/**
+ * Botón "✅ FIN" del aviso final del recorrido: lo mismo que Confirmar en la página de la pre-orden (CONTADO,
+ * APROBADA, cuenta en Destino y un uso más en la Agenda), con la cuenta que se usó para armar.
+ */
+function finDesdeNtfy_(id) {
+  try {
+    var f = filaPorId_(hojaMovimientos_(), id);
+    if (!f) { avisarNtfy_('No encontré el comprobante', String(id), { prioridad: 4, tags: ['warning'] }); return 'no encontrado'; }
+    var nombre = String(f.datos[C.NOMBRE - 1] || f.datos[C.TELEFONO - 1]), monto = Number(f.datos[C.MONTO - 1]) || 0;
+    var sug = destinoDelCliente_(nombre);
+    try {
+      confirmarPreOrdenWeb(claveNext_(), id, monto, sug.cuenta ? sug.cuenta.clave : '', '');
+    } catch (e) {
+      if (/Ya estaba confirmada/.test(e.message || e)) {
+        avisarNtfy_('Ya estaba en CONTADO · ' + nombreTarjeta_(nombre), String(id), { prioridad: 2, tags: ['white_check_mark'] });
+        return 'ya estaba';
+      }
+      throw e;
+    }
+    avisarNtfy_('Contado · ' + nombreTarjeta_(nombre) + ' · ' + fmtEntero_(monto) + ' ARS', lineaDestino_(sug),
+                { prioridad: 2, tags: ['white_check_mark'] });
+    return 'contado';
+  } catch (e) {
+    logError_('NTFY_FIN', id + ' | ' + (e.message || e));
+    avisarNtfy_('Error en FIN', String(e.message || e).slice(0, 200), { prioridad: 4, tags: ['warning'] });
+    return 'error';
+  }
+}
+
+/**
+ * Tarjeta del comprobante en ntfy. n: { id, nombre, monto (ARS), institucion, ref, hora, confianza, driveId }.
+ * tasa: tasa neta (Bs por ARS). Devuelve true si ntfy la aceptó (false si ntfy no está configurado).
+ */
+function avisarComprobanteNtfy_(n, tasa, prueba) {
+  if (!ntfyActivo_() || !n || !n.id) return false;
+  var titulo = (prueba ? 'PRUEBA · ' : '') + nombreTarjeta_(n.nombre) + ' · ' + fmtEntero_(n.monto) + ' ARS → ' +
+               fmtEntero_(n.monto * tasa) + ' Bs';
+  var conf = Number(n.confianza);
+  var detalle = [n.institucion, n.hora, finReferencia_(n.ref) && 'ref ' + finReferencia_(n.ref),
+                 conf > 0 ? 'lectura ' + Math.round(conf <= 1 ? conf * 100 : conf) + ' %' : '']
+                .filter(String).join(' · ');
+  var sinCuenta = false;
+  try {
+    var sug = destinoDelCliente_(n.nombre);
+    sinCuenta = !sug.cuenta;
+    detalle = (detalle ? detalle + '\n' : '') + lineaDestino_(sug);
+  } catch (e) {
+    logError_('NTFY_DESTINO', e.message || e);
+  }
+  // clear: false → el botón queda y sirve para volver a armar (con 90 s de bloqueo contra el doble toque)
+  var acciones = [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: false }];
+  // 23_IntakeVivo.gs: sin datos de cuenta, el botón además pregunta "Confírmame a qué cuenta" (lo que hacés vos)
+  acciones.push(sinCuenta ? { action: 'http', label: '💬 Pedir cuenta', url: urlIntake_('cuenta', n.id), method: 'GET', clear: false }
+                          : { action: 'http', label: '💬 Ok fino', url: urlIntake_('okfino', n.id), method: 'GET', clear: false });
+  if (n.driveId) {
+    acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
+  }
+  // un solo emoji: el de la etiqueta (ntfy lo pone delante del título)
+  return avisarNtfy_(titulo, detalle || 'Comprobante leído',
+                     { prioridad: 4, tags: [prueba ? 'test_tube' : 'moneybag'], acciones: acciones });
+}
+
+/**
+ * El comprobante en ARS MÁS RECIENTE de Movimientos (por fecha de Recibido, no por posición: las filas nuevas entran
+ * arriba). soloPendientes: solo los que siguen en LEIDO (sin Confirmar). Devuelve el objeto de la tarjeta o null.
+ */
+function ultimoComprobanteArs_(soloPendientes) {
+  var datos = hojaMovimientos_().getDataRange().getValues();
+  var mejor = null, fechaMejor = -1;
+  for (var i = 1; i < datos.length; i++) {
+    var d = datos[i];
+    if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(Number(d[C.MONTO - 1]) > 0) || !d[C.ID - 1]) continue;
+    if (soloPendientes && String(d[C.ESTADO - 1]).trim() !== E_LEID) continue;
+    var f = d[C.RECIBIDO - 1] instanceof Date ? d[C.RECIBIDO - 1].getTime() : 0;
+    if (f <= fechaMejor) continue;
+    fechaMejor = f;
+    mejor = { id: String(d[C.ID - 1]), nombre: String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto: Number(d[C.MONTO - 1]),
+              institucion: String(d[C.INSTITUCION - 1] || ''), ref: d[C.REFERENCIA - 1], confianza: d[C.CONFIANZA - 1],
+              driveId: String(d[C.DRIVE_ID - 1] || ''),
+              hora: f ? Utilities.formatDate(d[C.RECIBIDO - 1], Session.getScriptTimeZone(), 'HH:mm') : '' };
+  }
+  return mejor;
+}
+
+/**
+ * Prueba manual desde el editor: manda la tarjeta (🧪) del comprobante en ARS más reciente de Movimientos. Si tocás
+ * "Armar en Binance", el teléfono arma una orden de verdad por ese monto (Realizar Orden lo tocás vos o no).
+ */
+function probarTarjetaNtfy() {
+  var n = ultimoComprobanteArs_(false);
+  if (!n) { Logger.log('No hay comprobantes en ARS en Movimientos.'); return; }
+  Logger.log(avisarComprobanteNtfy_(n, tasaNetaActual_(), true) ? 'Tarjeta enviada: ' + n.nombre + ' · ' + n.id
+                                                                 : 'No se envió (¿falta NTFY_TOPIC?)');
+}
+
+/**
+ * Para correr a mano desde el editor: vuelve a mandar a ntfy la tarjeta (de verdad, sin 🧪) del comprobante en ARS
+ * más reciente que sigue sin confirmar (LEIDO). Sirve cuando la tarjeta no llegó o el anuncio ya no está: el botón
+ * "✅ Armar en Binance" elige el anuncio en el momento en que lo tocás.
+ */
+function reenviarTarjetaPendiente() {
+  var n = ultimoComprobanteArs_(true);
+  if (!n) { Logger.log('No hay comprobantes en ARS sin confirmar.'); return; }
+  Logger.log(avisarComprobanteNtfy_(n, tasaNetaActual_(), false) ? 'Tarjeta reenviada: ' + n.nombre + ' · ' + n.hora
+                                                                  : 'No se envió (mirá Debug_Errores, NTFY)');
+}
+
+/** Manda un link al tema de comandos (lo escucha telefono/escuchar_ntfy.py). */
+function mandarAlTelefono_(link) {
+  return publicarNtfy_({ topic: CONFIG.NTFY_TOPIC + '-cmd', message: link });
+}
+
+/**
+ * El botón "✅ Armar en Binance" (doGet ?p2p=armar&id=…&k=…): busca el comprobante, elige el anuncio ahora (misma
+ * lógica que la pre-orden: textoAnuncio_ → prepararOrdenP2P_) y manda el link al teléfono. Avisa en ntfy qué eligió.
+ */
+function armarDesdeNtfy_(id) {
+  var cache = CacheService.getScriptCache();
+  if (cache.get('ARMAR_' + id)) return 'ya estaba armando';
+  cache.put('ARMAR_' + id, '1', ARMAR_BLOQUEO_S);
+  try {
+    var f = filaPorId_(hojaMovimientos_(), id);
+    if (!f) {
+      avisarNtfy_('No encontré el comprobante', String(id), { prioridad: 4, tags: ['warning'] });
+      return 'no encontrado';
+    }
+    var d = f.datos;
+    var nombre = String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto = Number(d[C.MONTO - 1]) || 0;
+    if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(monto > 0)) {
+      avisarNtfy_('No es un comprobante en ARS', nombreTarjeta_(nombre), { prioridad: 4, tags: ['warning'] });
+      return 'no ARS';
+    }
+    var sug = destinoDelCliente_(nombre);                     // la cuenta del cliente, no tu cuenta de cobro
+    var texto = textoAnuncio_(monto, nombre, sug.cuenta, false);
+    var link = linkAnuncioDe_(texto);
+    if (!link) {
+      avisarNtfy_('Sin anuncio · ' + nombreTarjeta_(nombre), String(texto).slice(0, 300), { prioridad: 4, tags: ['warning'] });
+      return 'sin anuncio';
+    }
+    // al teléfono va con el id y el botón FIN, para los avisos finales del recorrido ("🔁 Rearmar" / "✅ FIN")
+    if (!mandarAlTelefono_(link + (link.indexOf('?') === -1 ? '?' : '&') + 'mov=' + encodeURIComponent(id) +
+                           '&fin=' + encodeURIComponent(urlFin_(id)))) {
+      avisarNtfy_('No pude avisarle al teléfono', 'ntfy no aceptó el comando', { prioridad: 4, tags: ['warning'] });
+      return 'ntfy falló';
+    }
+    var u = JSON.parse(PropertiesService.getScriptProperties().getProperty('P2P_ULTIMA') || '{}');
+    var reservas = String(texto).split('\n').filter(function (l) { return l.indexOf('🔁') === 0; })[0] || 'Sin reservas';
+    avisarNtfy_('Armando · ' + (u.apodo || '?') + ' · ' + parametroLink_(link, 'monto') + ' Bs',
+                'Precio ' + (u.precio || '?') + ' · ' + parametroLink_(link, 'pago') + '\n' + lineaDestino_(sug) + '\n' + reservas,
+                { prioridad: 2, tags: ['hourglass'] });
+    return 'ok';
+  } catch (e) {
+    logError_('NTFY_ARMAR', id + ' | ' + (e.message || e));
+    avisarNtfy_('Error al armar', String(e.message || e).slice(0, 200), { prioridad: 4, tags: ['warning'] });
+    return 'error';
+  }
 }

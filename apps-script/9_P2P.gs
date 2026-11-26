@@ -458,7 +458,7 @@ function probarFiltroFrases() {
 /**
  * Entre los anuncios que aceptan exactamente montoVes, toma el de mejor precio;
  * si un trader conocido está a menos de TOLERANCIA_TRADER de ese precio, prefiere al de más órdenes con vos.
- * Los traders nuevos se descartan si su descripción rechaza terceros; los saltados con NEXT, siempre.
+ * Cualquier trader (conocido o nuevo) se descarta si su descripción rechaza terceros; los saltados con NEXT, siempre.
  * Devuelve { anuncio, descartados: [{apodo, motivo}] }.
  */
 function elegirAnuncioVes_(montoVes, traders, frases, saltados, forzar, metodos) {
@@ -498,16 +498,28 @@ function elegirAnuncioVesMetodo_(montoVes, metodo, traders, frases, saltados, fo
   var conocidos = ads.filter(function (a) {
     return traders[a.apodo] && a.precio >= mejor.precio * (1 - TOLERANCIA_TRADER);
   }).sort(function (x, y) { return traders[y.apodo] - traders[x.apodo]; });
-  if (conocidos.length) {
-    conocidos[0].ordenesConVos = traders[conocidos[0].apodo];
-    return conAlternativas_({ anuncio: conocidos[0], descartados: descartados }, ads, traders, frases);
-  }
   var memoria = leerMemoriaDescartes_();
+  // Los conocidos también pasan por el filtro de descripción: un trader con órdenes con vos puede
+  // haber cambiado su anuncio a "solo titulares" y entonces no sirve.
+  for (var c = 0; c < conocidos.length; c++) {
+    var k = conocidos[c];
+    k.ordenesConVos = traders[k.apodo];
+    if (memoria[k.adNo]) continue;
+    if (k.descripcion === undefined) k.descripcion = leerDescripcion_(k.adNo);
+    var mk = motivoDescarte_(k.descripcion, frases);
+    registrarFiltro_(k, mk);
+    if (!mk) {
+      guardarMemoriaDescartes_(memoria);
+      return conAlternativas_({ anuncio: k, descartados: descartados }, ads, traders, frases);
+    }
+    memoria[k.adNo] = { apodo: k.apodo, motivo: String(mk).slice(0, 60), fecha: Date.now(), veces: 1 };
+    descartados.push({ apodo: k.apodo, motivo: mk, descripcion: String(k.descripcion).slice(0, 400) });
+  }
   var revisados = 0;
   for (var i = 0; i < ads.length && revisados < MAX_DESCRIPCIONES; i++) {
     var a = ads[i];
     a.ordenesConVos = traders[a.apodo] || 0;
-    if (a.ordenesConVos) return conAlternativas_({ anuncio: a, descartados: descartados }, ads, traders, frases);
+    if (conocidos.indexOf(a) !== -1) continue;   // ya revisado arriba
     var m = memoria[a.adNo];
     if (m) {   // este mismo anuncio ya se descartó antes: se salta sin volver a leerlo
       m.veces++;
@@ -538,7 +550,7 @@ var MAX_DESCRIPCIONES_ALT = 4;   // descripciones extra que puede leer para enco
 
 /**
  * Agrega a r.alternativas hasta MAX_ALTERNATIVAS anuncios de reserva: los siguientes de la lista (orden de Binance)
- * de OTRO trader que pasan los mismos filtros que el elegido: trader conocido, o descripción sin frases de alerta.
+ * de OTRO trader que pasan los mismos filtros que el elegido: descripción sin frases de alerta (también los conocidos).
  * Los ya descartados (memoria) se saltan; las descripciones ya leídas en la búsqueda principal se reusan.
  */
 function conAlternativas_(r, ads, traders, frases) {
@@ -549,22 +561,20 @@ function conAlternativas_(r, ads, traders, frases) {
   for (var i = 0; i < ads.length && r.alternativas.length < MAX_ALTERNATIVAS; i++) {
     var a = ads[i];
     if (apodos.indexOf(a.apodo) !== -1) continue;
-    if (!traders[a.apodo]) {
-      if (memoria[a.adNo]) continue;
-      if (a.descripcion === undefined) {
-        if (leidas >= MAX_DESCRIPCIONES_ALT) continue;
-        leidas++;
-        a.descripcion = leerDescripcion_(a.adNo);
-        var motivo = motivoDescarte_(a.descripcion, frases);
-        registrarFiltro_(a, motivo);
-        if (motivo) {
-          memoria[a.adNo] = { apodo: a.apodo, motivo: String(motivo).slice(0, 60), fecha: Date.now(), veces: 1 };
-          cambio = true;
-          continue;
-        }
-      } else if (motivoDescarte_(a.descripcion, frases)) {
+    if (memoria[a.adNo]) continue;   // conocidos o nuevos: todos pasan por el filtro de descripción
+    if (a.descripcion === undefined) {
+      if (leidas >= MAX_DESCRIPCIONES_ALT) continue;
+      leidas++;
+      a.descripcion = leerDescripcion_(a.adNo);
+      var motivo = motivoDescarte_(a.descripcion, frases);
+      registrarFiltro_(a, motivo);
+      if (motivo) {
+        memoria[a.adNo] = { apodo: a.apodo, motivo: String(motivo).slice(0, 60), fecha: Date.now(), veces: 1 };
+        cambio = true;
         continue;
       }
+    } else if (motivoDescarte_(a.descripcion, frases)) {
+      continue;
     }
     apodos.push(a.apodo);
     r.alternativas.push(a);
@@ -794,6 +804,11 @@ function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.dash === '1') return dashboardP2PRespuesta_(p);   // 20_DashboardP2P.gs
   if (p.p2p === 'pre' && p.k === claveNext_()) return paginaPreOrden_(p);   // 11_PreOrden.gs
+  if (p.intake && p.k === claveNext_()) return rutaIntake_(p);                // botones del intake (23_IntakeVivo.gs)
+  if (p.p2p === 'fin' && p.k === claveNext_()) return ContentService.createTextOutput(finDesdeNtfy_(String(p.id || '')));   // 21_Ntfy.gs
+  if (p.p2p === 'armar' && p.k === claveNext_()) {                           // botón de ntfy (21_Ntfy.gs)
+    return ContentService.createTextOutput(armarDesdeNtfy_(String(p.id || '')));
+  }
   if (p.p2p !== 'next' || p.k !== claveNext_()) {
     return HtmlService.createHtmlOutput('No autorizado');
   }

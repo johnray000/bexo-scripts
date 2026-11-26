@@ -95,6 +95,8 @@ td.n,th.n{text-align:right}
 .live.stale .dot{background:var(--warn)}.live.err .dot{background:var(--bad)}
 .empty{color:var(--mut);font-size:13px;padding:8px 0}
 .pill{white-space:nowrap}
+.r-off td{opacity:.45}
+.r-off:hover td{opacity:.8}
 .cargadas{font-size:11.5px;color:var(--mut);margin:-4px 0 10px}
 .rueda td.pos{color:var(--ok)}.rueda td.neg{color:var(--bad)}
 @media (max-width:700px){.rueda th:nth-child(n+5),.rueda td:nth-child(n+5){display:none}.rueda th,.rueda td{padding:7px 4px}}
@@ -148,6 +150,7 @@ td.n,th.n{text-align:right}
       <div class="val ok" id="ganUSD">—</div>
       <div class="note" id="ganNota"></div>
       <div class="note" style="margin-top:10px;color:var(--tx)">Promedio: <b class="ok" id="porDia">—</b></div>
+      <div class="note" id="porVuelta"></div>
     </div>
     <div class="card">
       <div class="lbl">Margen actual</div>
@@ -174,7 +177,7 @@ td.n,th.n{text-align:right}
       <div>2. Debés menos de 50 USDT: podés bajar la venta 0,05 para vender más.</div>
       <div>3. Sin órdenes en 2 horas, en hora de movimiento (10 a 23 h): mové 0,05 hacia el mercado.</div>
       <div>4. Nunca pasar los límites de "punta a punta".</div>
-      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). OKX y Bybit: precio de la última orden de los últimos 7 días.</div>
+      <div class="note">Binance: precio en vivo de tus anuncios, buscados cada 10 min en el listado público (con tu puesto). Si no lo encuentro, dice "No sé" y muestra el precio de la última orden. Te reconoce por tu usuario de Binance, no por el n° de anuncio, así que sigue andando cuando Binance cierra uno y crea otro. OKX y Bybit: precio de la última orden de los últimos 7 días (no sé si lo cambiaste después).</div>
     </details>
   </div>
 
@@ -196,24 +199,31 @@ td.n,th.n{text-align:right}
     </div>
   </div>
 
-  <div class="grid row2">
-    <div class="card">
-      <h2>Ventas sin depósito encontrado <span>última semana</span></h2>
-      <table><thead><tr><th>Fecha</th><th>Exchange</th><th>Contraparte</th><th class="n">UYU</th></tr></thead><tbody id="sinDep"></tbody></table>
-    </div>
-    <div class="card">
-      <h2>Datos faltantes</h2>
-      <div id="avisos"></div>
-    </div>
+  <div class="card" style="margin-bottom:14px">
+    <h2>Últimas órdenes <span>así las leyó el tablero</span></h2>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Hora</th><th>Orden</th><th class="n">Cripto</th><th class="n">Monto</th><th class="n">Precio</th></tr></thead>
+      <tbody id="ultimas"></tbody>
+    </table></div>
+    <div class="note" style="margin-top:8px">Si alguna no coincide con lo que hiciste, no confíes en el resto: avisá.</div>
+  </div>
+
+  <div class="card">
+    <h2>Datos faltantes</h2>
+    <div id="avisos"></div>
   </div>
 
   <div class="card" style="margin-top:14px">
-    <h2>Balance de la rueda <span id="ruedaDesde">desde el inicio del ciclo</span></h2>
-    <div class="tbl-wrap"><table class="rueda">
-      <thead><tr><th>Moneda</th><th class="n">Entró USDT</th><th class="n">Salió USDT</th><th class="n">Neto</th><th class="n">Compra prom.</th><th class="n">Venta prom.</th></tr></thead>
-      <tbody id="rueda"></tbody>
-    </table></div>
+    <h2>Cómo va cada vuelta <span id="ruedaDesde">desde el inicio del ciclo</span></h2>
+    <div id="vueltas"></div>
     <div class="note" style="margin-top:8px" id="ruedaNota"></div>
+    <details class="rules">
+      <summary><b>Detalle por moneda</b></summary>
+      <div class="tbl-wrap"><table class="rueda">
+        <thead><tr><th>Moneda</th><th class="n">Compraste USDT</th><th class="n">Vendiste USDT</th><th class="n">Compra prom.</th><th class="n">Venta prom.</th></tr></thead>
+        <tbody id="rueda"></tbody>
+      </table></div>
+    </details>
   </div>
 
   <div class="foot">Se lee solo de Ordenes_P2P y Movs UY. Los números se recalculan cada 10 min.</div>
@@ -267,7 +277,10 @@ td.n,th.n{text-align:right}
     if (p.venta) punta(p);
     $('ganUSD').innerHTML = '$' + n(c.gananciaUSD) + '<small>USD</small>';
     $('ganNota').textContent = '≈ ' + n(c.gananciaUYU) + ' UYU · desde ' + c.desde + ' (' + c.dias + ' días)';
-    $('porDia').textContent = '≈ $' + n(c.porDiaUSD, 1) + ' por día';
+    $('porDia').textContent = c.diasTrabajados
+      ? '≈ $' + n(c.porDiaTrabajadoUSD, 1) + ' por día trabajado (' + c.diasTrabajados + ' de ' + c.dias + ' días)'
+      : '≈ $' + n(c.porDiaUSD, 1) + ' por día';
+    $('porVuelta').textContent = c.por100USD ? '≈ $' + n(c.por100USD, 2) + ' por cada 100 USDT que vendés y recomprás' : '';
     $('margen').innerHTML = n(p.margen, 1) + '<small>%</small>';
     $('margenNota').textContent = 'Compra prom. ' + n(p.compra, 2) + ' · venta ' + n(p.venta, 2);
     $('margenBar').style.width = Math.min(100, (p.margen || 0) * 10) + '%';
@@ -276,37 +289,62 @@ td.n,th.n{text-align:right}
 
     var pend = c.pendiente || 0;
     var cls = pend > c.limitePendiente ? 'bad' : pend < 50 ? 'ok' : 'warn';
-    $('situacion').innerHTML = 'Situación: debés <b class="' + cls + '">' + n(pend) + ' USDT</b> de lo vendido en el ciclo. ' +
+    var dudoso = c.dudosas && c.pendienteMin !== c.pendienteMax;
+    $('situacion').innerHTML = 'Situación: debés <b class="' + cls + '">' + (dudoso ? n(c.pendienteMin) + ' a ' + n(c.pendienteMax) : n(pend)) + ' USDT</b> de lo vendido en el ciclo. ' +
+      (dudoso ? '<span class="warn">No sé el número exacto: hay ' + c.dudosas + ' órdenes sin moneda (' + n(c.dudaVenta, 0) + ' USDT vendidos, ' + n(c.dudaCompra, 0) +
+        ' comprados) que no sé si son UYU.</span> ' : '') +
       (pend > c.limitePendiente ? 'Prioridad: <b>comprar</b>, no bajar la venta.'
         : pend < 50 ? 'Vas parejo: podés <b>vender más</b>.' : 'Dentro de lo normal.');
 
-    $('cargadas').textContent = 'Órdenes cargadas hasta: ' + (d.cargadas || []).map(function (c) { return c.ex + ' ' + (c.hasta || '—'); }).join(' · ') +
-      '. Lo que hiciste después todavía no cuenta.';
+    // Cuándo llegó cada subida de órdenes. Si una está atrasada, se dice en rojo: los números no la incluyen.
+    var sub = d.subidas || [];
+    var malas = sub.filter(function (x) { return x.atrasada; });
+    $('cargadas').innerHTML = (malas.length ? '<div class="bad" style="font-weight:600;margin-bottom:4px">⚠ No confíes en estos números: ' +
+        malas.map(function (x) { return esc(x.fuente) + ' no sube órdenes desde ' + (x.cuando || 'nunca'); }).join(' · ') + '.</div>' : '') +
+      'Última subida de órdenes: ' + (sub.length ? sub.map(function (x) {
+        return '<span class="' + (x.atrasada ? 'bad' : '') + '">' + esc(x.fuente) + ' ' + (x.cuando || '—') + '</span>';
+      }).join(' · ') : (d.cargadas || []).map(function (c) { return esc(c.ex) + ' ' + (c.hasta || '—'); }).join(' · ')) +
+      '. Se suben cada 4 h: lo que hiciste después todavía no cuenta.';
     var ru = d.rueda || { lista: [] };
     $('ruedaDesde').textContent = 'desde ' + c.desde;
     $('rueda').innerHTML = ru.lista.map(function (m) {
       return '<tr><td><b>' + esc(m.mon) + '</b> <span class="note">' + m.ordenes + ' órd.</span></td><td class="n">' + n(m.entro, 2) + '</td><td class="n">' + n(m.salio, 2) +
-        '</td><td class="n ' + (m.neto >= 0 ? 'pos' : 'neg') + '">' + (m.neto > 0 ? '+' : '') + n(m.neto, 2) + '</td><td class="n">' + (m.pCompra ? n(m.pCompra, 2) : '—') +
-        '</td><td class="n">' + (m.pVenta ? n(m.pVenta, 2) : '—') + '</td></tr>';
+        '</td><td class="n">' + (m.pCompra ? n(m.pCompra, 2) : '—') + '</td><td class="n">' + (m.pVenta ? n(m.pVenta, 2) : '—') + '</td></tr>';
     }).join('');
-    $('ruedaNota').innerHTML = 'Neto total: <b class="' + (ru.neto >= 0 ? 'ok' : 'bad') + '">' + (ru.neto > 0 ? '+' : '') + n(ru.neto, 2) + ' USDT</b> ' +
-      (ru.neto >= 0 ? '(entró más de lo que salió: tenés más cripto que al empezar).' : '(salió más de lo que entró: usaste cripto que tenías de antes).') +
-      (ru.sinMoneda ? ' Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas.' : '');
+    $('vueltas').innerHTML = (d.vueltas || []).map(function (v) {
+      var cierre = Math.abs(v.falta) < 0.5 ? '<b class="ok">vuelta cerrada</b>'
+        : v.falta > 0 ? 'te faltan <b class="warn">' + n(v.falta, 2) + ' USDT</b> para cerrar la vuelta'
+        : 'repusiste <b class="ok">' + n(-v.falta, 2) + ' USDT</b> de más';
+      return '<div class="alert"><div><b>' + esc(v.nombre) + '</b> <span class="note">' + esc(v.cuenta) + ' · ' + v.ordenes + ' órd.</span><br>' +
+        'Vendiste ' + n(v.vendido, 2) + ' USDT y ' + esc(v.como.split('|')[0]) + ' ' + n(v.repuesto, 2) + ' ' + esc(v.como.split('|')[1] || '') + ': ' + cierre + '.</div></div>';
+    }).join('') || '<div class="empty">Sin órdenes en el ciclo.</div>';
+    $('ruedaNota').innerHTML = ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : '';
     $('recs').innerHTML = (d.anuncios || []).map(function (a) {
       var compra = a.tipo === 'Compra';
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
         : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>'
+        : a.accion === 'No sé' ? '<span class="pill p-warn">No sé</span>'
         : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
       var hace = a.minUltima == null ? 'sin órdenes esta semana'
         : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
-      var meta0 = a.vivo && a.puesto
-        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '<br>' + hace + ' · hoy ' + a.hoy
-        : hace + ' · hoy ' + a.hoy + (a.ex === 'Binance' ? '' : ' · precio de últ. orden');
+      // Solo "en vivo" si el precio vino del listado de Binance; si no, se dice que es el de la última orden.
+      var meta0 = a.fuente === 'vivo' && a.puesto
+        ? '<span class="ok">● en vivo</span> · puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') +
+          (a.metodos && a.metodos.length ? '<br>' + esc(a.metodos.join(', ')) + (a.cuantos > 1 ? ' · tenés ' + a.cuantos + ' anuncios acá' : '') : '') +
+          '<br>' + hace + ' · hoy ' + a.hoy
+        : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
-      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
+      // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público. En Bybit y OKX no puedo ver
+      // si el anuncio está activo (pocas órdenes no quiere decir pausado: el 25/11 había anuncios OKX activos y se
+      // apagaban por no tener órdenes en 2 días), así que se dice "no sé si está activo" y no se apaga.
+      var noListado = a.ex === 'Binance' && a.accion === 'No sé';
+      var off = noListado;
+      if (noListado) meta = '<span class="warn">○ no está en el listado de Binance</span><br>' + hace + ' · hoy ' + a.hoy;
+      if (a.ex !== 'Binance') meta = meta + '<br><span class="note">no puedo ver si está activo</span>';
+      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
         '<div class="note">' + meta + '</div></td>' +
-        '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + n(a.nuevo, 2) + '</td>' +
+        '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + (a.nuevo == null ? '—' : n(a.nuevo, 2)) + '</td>' +
         '<td class="note">' + esc(a.porque) + '</td></tr>';
     }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes UYU en los últimos 7 días.</td></tr>';
 
@@ -345,15 +383,19 @@ td.n,th.n{text-align:right}
     }).join('');
     $('cupoNota').textContent = d.movsHasta ? 'Depósitos de Movs UY cargados hasta el ' + d.movsHasta + '.' : 'Movs UY sin datos.';
 
-    $('sinDep').innerHTML = (d.sinDeposito || []).map(function (s) {
-      return '<tr><td>' + esc(s.fecha) + '</td><td>' + esc(s.ex) + '</td><td>' + esc(s.contra) + '</td><td class="n">' + n(s.monto) + '</td></tr>';
-    }).join('') || '<tr><td colspan="4" class="empty">Todas las ventas tienen su depósito.</td></tr>';
-
+    $('ultimas').innerHTML = (d.ultimasOrdenes || []).map(function (o) {
+      var mal = o.estado !== 'Completada';
+      return '<tr' + (mal ? ' style="opacity:.55"' : '') + '><td>' + esc(o.fecha) + '</td><td><b>' + esc(o.ex) + '</b> ' +
+        '<span class="' + (o.tipo === 'Compra' ? 'ok' : 'bad') + '">' + esc(o.tipo) + '</span>' + (mal ? ' <span class="note">' + esc(o.estado) + '</span>' : '') +
+        '</td><td class="n">' + n(o.cant, 2) + ' ' + esc(o.cripto) + '</td><td class="n">' + (o.mon ? (o.supuesto ? '<span class="warn">≈ ' : '') + n(o.monto) + ' ' + esc(o.mon) + (o.supuesto ? ' supuesto</span>' : '') : '<span class="warn">sin moneda</span>') +
+        '</td><td class="n">' + (o.precio ? n(o.precio, 2) : '—') + '</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">Sin órdenes.</td></tr>';
     var bz = (d.servidor || {}).binance;
     var avs = (d.avisos || []).slice();
-    if (bz && bz.buscados !== undefined) avs.unshift(bz.error && !bz.encontrados
+    if (bz && bz.grupos !== undefined) avs.unshift(bz.error && !bz.encontrados
       ? { nivel: 'warn', texto: 'Precios en vivo de Binance: ' + bz.error }
-      : { nivel: bz.encontrados ? 'ok' : 'warn', texto: 'Precios en vivo de Binance: ' + bz.encontrados + ' de ' + bz.buscados + ' anuncios encontrados.' });
+      : { nivel: bz.encontrados ? 'ok' : 'warn', texto: 'Precios en vivo de Binance' + (bz.usuario ? ' (usuario ' + bz.usuario + ')' : '') + ': ' +
+          bz.encontrados + ' anuncios tuyos visibles en el listado.' + (bz.error ? ' ' + bz.error : '') });
     if (avs.some(function (a) { return a.nivel !== 'ok'; })) avs = avs.filter(function (a) { return a.texto !== 'Todo cargado al día.'; });
     $('avisos').innerHTML = avs.map(function (a) {
       return '<div class="alert">' + (ICON[a.nivel] || ICON.warn) + '<div>' + esc(a.texto) + '</div></div>';
@@ -363,6 +405,9 @@ td.n,th.n{text-align:right}
     var edad = srv.hora ? (Date.now() / 1000 - srv.hora) / 60 : 999;
     $('live').className = 'live' + (!srv.ok ? ' err' : edad > 25 ? ' stale' : '');
     $('liveTxt').textContent = (srv.ok ? 'Actualizado ' : 'Sin conexión con la planilla · datos del ') + (d.generadoTexto || '—') + ' · cada 10 min';
+    var tel = srv.telefono || {};
+    if (tel.pedido && srv.hora < tel.pedido + 80 && Date.now() / 1000 - tel.pedido < 300)
+      $('liveTxt').textContent = 'Le pedí al teléfono que suba tus órdenes: en 1 o 2 min se actualiza solo';
   }
 
   function cargar(url) {

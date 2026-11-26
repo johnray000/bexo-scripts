@@ -3,11 +3,14 @@
 
 La app de Binance no avisa bien y, si no atendés a tiempo, las órdenes se cancelan y te cierran el anuncio
 (16/11: 9 ventas canceladas por compradores entre 12:23 y 14:46 → anuncios de venta cerrados por 1 día).
-Cada 30 s mira tus órdenes (key de solo lectura, la de ~/.subir-ordenes.env) y avisa con notificación + sonido + voz:
+Cada 2 min mira tus órdenes de Binance y de Bybit (keys de solo lectura de ~/.subir-ordenes.env; Bybit solo si está
+BYBIT_KEY) y avisa con notificación + sonido + voz (las de Bybit dicen "… en Bybit"):
   - COMPRA abierta en tu anuncio, esperando que pagues: pitidos agudos al máximo, repite cada 5 min.
     "YA ME ENTERÉ" la calla 30 min; si después sigue sin pagar, vuelve con más pitidos.
   - VENTA nueva en tu anuncio: un ding-ding ("caja registradora") al 75% del volumen. Si en 10 min no tocaste
-    "YA ME ENTERÉ", suena UNA vez más al máximo y nada más. Pagada, liberada o cancelada: no suena.
+    "YA ME ENTERÉ", suena UNA vez más al máximo y nada más.
+  - VENTA PAGADA (el comprador marcó "Pagado"): una escalera de notas al 75% y "Te pagaron 1500 por Prex. Revisá
+    y liberá". Si en 10 min no tocaste "YA ME ENTERÉ", una vez más al máximo. Liberada o cancelada: no suena.
 
   python alerta_compras.py            # queda corriendo (lo arranca telefono/alerta.sh)
   python alerta_compras.py --probar   # una sola vuelta, muestra lo que ve y suena una alarma de prueba
@@ -24,8 +27,9 @@ import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from subir_ordenes import firmar_y_pedir, hora_binance_ms, leer_env  # noqa: E402
+import bybit_ordenes  # noqa: E402
 
-CADA_S = 30
+CADA_S = 2 * 60                           # cada cuánto pregunta a Binance y a Bybit
 HORA_MS = 3600 * 1000
 VENTANA_VENTAS_H = 6                      # ventana de ventas que se piden a Binance
 HOME = os.path.expanduser('~')
@@ -38,6 +42,7 @@ SUBIR_VOLUMEN_S = 10 * 60                 # ...y si en 10 min no tocaste YA ME E
 AVISOS = {
     ('BUY', 'PENDING'): 'compra', ('BUY', 'TRADING'): 'compra',
     ('SELL', 'PENDING'): 'venta', ('SELL', 'TRADING'): 'venta',
+    ('SELL', 'BUYER_PAYED'): 'liberar',
 }
 TEXTOS = {
     'compra': dict(repetir=5 * 60, silencio=30 * 60,
@@ -46,6 +51,10 @@ TEXTOS = {
     'venta': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=1, silencio=7 * 24 * 3600,
                   titulo='💰 VENTA NUEVA: %s · abrí el chat', insiste='',
                   voz='Venta nueva de %s', voz_insiste=''),
+    # El comprador marcó "Pagado": revisá la cuenta y liberá. Otro sonido (escalera) para no confundirla con una venta.
+    'liberar': dict(repetir=SUBIR_VOLUMEN_S, veces=2, sonido=2, silencio=7 * 24 * 3600,
+                    titulo='✅ TE PAGARON %s · revisá y liberá', insiste='',
+                    voz='Te pagaron %s. Revisá y liberá', voz_insiste=''),
 }
 
 
@@ -190,10 +199,12 @@ def sonar(o, clase, insiste=False, fuerte=True):
     n = str(o.get('orderNumber'))
     t = TEXTOS[clase]
     monto, hablado = montos(o)
-    if clase == 'venta' and banco(o):
+    if t.get('sonido') and banco(o):
         monto, hablado = '%s por %s' % (monto, banco(o)), '%s por %s' % (hablado, banco(o))
+    if o.get('exchange'):
+        monto, hablado = '%s en %s' % (monto, o['exchange']), '%s en %s' % (hablado, o['exchange'])
     cant = '%s %s' % (o.get('amount'), o.get('asset'))
-    minutos = int((hora_binance_ms() - int(o.get('createTime') or 0)) / 60000)
+    minutos = int((time.time() * 1000 - int(o.get('createTime') or 0)) / 60000)
     notificar(n[-9:], t['insiste' if insiste else 'titulo'] % monto,
               '%s · abierta hace %d min · orden …%s' % (cant, minutos, n[-6:]),
               PITIDOS[insiste], t['voz_insiste' if insiste else 'voz'] % hablado, boton=marca_ya(n, clase),
@@ -222,7 +233,7 @@ def revisar_activas(activas, est, ahora, limpiar=True):
             continue
         # Al terminar el silencio suena enseguida; después, cada `repetir` hasta otro "YA ME ENTERÉ".
         if ahora - ultimo >= t['repetir'] or (ya and ultimo < ya + t['silencio']):
-            sonar(o, clase, insiste=bool(ya), fuerte=clase != 'venta' or ahora - primera >= SUBIR_VOLUMEN_S)
+            sonar(o, clase, insiste=bool(ya), fuerte=not t.get('sonido') or ahora - primera >= SUBIR_VOLUMEN_S)
             est.avisadas[n] = (clase, ahora, primera, veces + 1)
     if not limpiar:                         # Binance falló en una mitad: no borrar lo que no se pudo ver
         return
@@ -242,7 +253,7 @@ def revisar_activas(activas, est, ahora, limpiar=True):
 
 
 def vuelta(cfg, est):
-    """Una revisión. Si Binance falla en compras o en ventas, la otra mitad igual se revisa."""
+    """Una revisión de Binance (compras y ventas) y Bybit. Si una parte falla, las otras igual se revisan."""
     activas, error = [], None
     ventas = None
     for tipo, horas in (('BUY', 2), ('SELL', VENTANA_VENTAS_H)):
@@ -255,6 +266,12 @@ def vuelta(cfg, est):
             ventas = lista
         activas += [(o, AVISOS[(tipo, o.get('orderStatus'))]) for o in lista
                     if (tipo, o.get('orderStatus')) in AVISOS]
+    if cfg.get('BYBIT_KEY'):                 # Bybit: solo si está la key en el .env
+        try:
+            activas += [(o, AVISOS[(o['tradeType'], o['orderStatus'])]) for o in bybit_ordenes.pendientes(cfg)
+                        if o['advertisementRole'] != 'TAKER' and (o['tradeType'], o['orderStatus']) in AVISOS]
+        except (Exception, SystemExit) as e:
+            error = error or e
     revisar_activas(activas, est, time.time(), limpiar=error is None)
     if error:
         raise error
@@ -276,7 +293,16 @@ if __name__ == '__main__':
     if args.probar:
         est = Estado()
         activas, ventas = vuelta(cfg, est)
-        for clase in ('compra', 'venta'):
+        if cfg.get('BYBIT_KEY'):
+            try:
+                pend = bybit_ordenes.pendientes(cfg)
+                print('Bybit: %d órdenes sin terminar (%s)' % (len(pend), ', '.join(
+                    '%s %s %s' % (o['tradeType'], o['orderStatus'], o['advertisementRole']) for o in pend) or '-'))
+            except (Exception, SystemExit) as e:
+                print('Bybit: no pude leer las pendientes:', e)
+        else:
+            print('Bybit: falta BYBIT_KEY en el .env, no la miro')
+        for clase in ('compra', 'venta', 'liberar'):
             print('%-8s' % clase, sum(1 for _, c in activas if c == clase))
         print('Ventas de tus anuncios en las últimas %d h: %d (canceladas: %d)' % (
             VENTANA_VENTAS_H, len(ventas), sum(1 for o in ventas if o.get('orderStatus') in CANCELADAS)))
@@ -291,6 +317,9 @@ if __name__ == '__main__':
             print('No hay ventas en las últimas 72 h para ver los campos')
         sonar({'orderNumber': '000000000', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
                'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'venta')
+        time.sleep(2)
+        sonar({'orderNumber': '000000001', 'totalPrice': '1500', 'fiat': 'UYU', 'amount': '34.48',
+               'asset': 'USDT', 'createTime': hora_binance_ms(), 'payMethodName': 'Prex'}, 'liberar')
         sys.exit(0)
     est = Estado()
     print(time.strftime('%Y-%m-%d %H:%M'), 'alerta de compras y ventas arrancada', flush=True)
