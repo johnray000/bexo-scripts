@@ -7,6 +7,8 @@
 //    pone Moneda VES, reconoce la cuenta (MJ, MR, PMJ, PMR) desde lo que leyó DeepSeek (columna Raw_JSON) y,
 //    si quedó en REVISAR por la cuenta, pasa a LEIDO.
 //    ¿Es de verdad un VES > ARS? Solo si los Bs llegaron a una cuenta tuya (por número de cuenta, teléfono o cédula).
+//    Si la lectura general (4_LeerComprobantes, prompt de ARS, NO se toca) no trajo el destino, se hace UNA lectura
+//    aparte con PROMPT_VES (solo datos de quien recibe en Venezuela) y se guarda en Raw_JSON con lectura_ves: true.
 //    Si el comprobante muestra otro destino (el cliente te pasa los datos de una cuenta o te reenvía un pago a un
 //    tercero), Cuenta = TERCERO, queda en REVISAR y no lleva Tasa ni ARS (no suma). Si no se ve ningún destino,
 //    Cuenta = PMJ por defecto y queda en REVISAR para que lo mires vos.
@@ -96,6 +98,63 @@ function cuentaVe_(p) {
   return null;
 }
 
+// ---------- Lectura propia de los comprobantes en Bs (no toca el prompt general de 4_LeerComprobantes) ----------
+var MAX_LECTURAS_VES = 5;   // por vuelta de completarVes_, para no pasarse de tiempo
+var PROMPT_VES =
+  'Es un comprobante de pago de VENEZUELA (Pago Movil o transferencia en bolivares). Devuelve SOLO un objeto ' +
+  'JSON valido, sin markdown, con estas claves exactas:\n' +
+  '{"destino_telefono": string|null, "destino_cuenta": string|null, "destino_cedula": string|null, ' +
+  '"titular_destino": string|null, "banco_destino": string|null}\n' +
+  'REGLAS:\n' +
+  '- Todo es de QUIEN RECIBE el dinero (Receptor, Beneficiario, Destino, Destinatario), nunca de quien paga ' +
+  '(Origen, Cuenta origen, Pagador).\n' +
+  '- destino_telefono: telefono del receptor tal cual se ve, con asteriscos si esta enmascarado (ej 0416***2961).\n' +
+  '- destino_cuenta: numero de cuenta del receptor tal cual se ve (20 digitos o enmascarado, ej 0105****1238).\n' +
+  '- destino_cedula: cedula, documento o RIF del receptor tal cual se ve (ej V14***493, V-12309533).\n' +
+  '- Si un dato no se ve, null. No inventes.';
+
+/**
+ * Lee de nuevo la imagen con PROMPT_VES y suma lo encontrado al JSON de la fila (Raw_JSON), con lectura_ves: true
+ * para no repetirla. Devuelve el JSON completo (o el de antes si la lectura falla).
+ */
+function releerDestinoVes_(sh, fila, driveId, p) {
+  p = p || {};
+  try {
+    var b64 = Utilities.base64Encode(DriveApp.getFileById(driveId).getBlob().getBytes());
+    var res = UrlFetchApp.fetch(VISION_URL, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + VISION_KEY },
+      payload: JSON.stringify({
+        model: VISION_MODEL, max_tokens: 300, thinking: { type: 'disabled' },
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: PROMPT_VES },
+          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } }] }]
+      })
+    });
+    if (res.getResponseCode() !== 200) { logError_('VES_LECTURA', 'fila ' + fila + ' | HTTP ' + res.getResponseCode()); return p; }
+    var txt = JSON.parse(res.getContentText()).choices[0].message.content || '';
+    var v = JSON.parse(txt.substring(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
+    if (v.destino_cuenta || v.destino_telefono) {
+      p.destino_identificador = v.destino_cuenta || v.destino_telefono;
+      p.destino_tipo = v.destino_cuenta ? 'CUENTA' : 'TELEFONO';
+    }
+    if (v.destino_cuenta && v.destino_telefono) p.destino_telefono = v.destino_telefono;
+    if (v.destino_cedula) p.destino_cedula = v.destino_cedula;
+    if (v.titular_destino) p.titular_destino = v.titular_destino;
+    if (v.banco_destino) p.banco_destino = v.banco_destino;
+  } catch (e) {
+    // imagen borrada, respuesta rara…: se marca igual para no reintentarla en cada vuelta
+    logError_('VES_LECTURA', 'fila ' + fila + ' | ' + (e.message || e));
+    p.lectura_ves = 'fallo';
+    sh.getRange(fila, C.RAW).setValue(JSON.stringify(p));
+    return p;
+  }
+  p.lectura_ves = true;
+  sh.getRange(fila, C.RAW).setValue(JSON.stringify(p));
+  return p;
+}
+
 /** true si DeepSeek vio algún dato de quien recibe (teléfono, cuenta o cédula). El nombre solo no alcanza. */
 function tieneDestino_(p) {
   return !!p && soloDigitos_(String(p.destino_identificador || '') + String(p.destino_cedula || '')).length >= 4;
@@ -170,6 +229,11 @@ function completarFilaVes_(sh, d, fila, colT, colA, cache) {
   if (!esCuentaVe_(cuenta) && abierta) {
     var p = null;
     try { p = JSON.parse(d[C.RAW - 1] || 'null'); } catch (e) { p = null; }
+    // La lectura general no trajo una cuenta tuya: una sola vez, lectura con el prompt de Bs
+    if (!cuentaVe_(p) && !(p && p.lectura_ves) && d[C.DRIVE_ID - 1] && (cache.lecturas || 0) < MAX_LECTURAS_VES) {
+      cache.lecturas = (cache.lecturas || 0) + 1;
+      p = releerDestinoVes_(sh, fila, d[C.DRIVE_ID - 1], p);
+    }
     var cod = cuentaVe_(p);
     if (cod) {
       sh.getRange(fila, C.CUENTA).setValue(cod);
@@ -201,35 +265,6 @@ function completarFilaVes_(sh, d, fila, colT, colA, cache) {
   }
   var ars = arsDeBs_(bs, tasa);
   if (Number(d[colA - 1]) !== ars) sh.getRange(fila, colA).setValue(ars);
-}
-
-/**
- * Para correr UNA VEZ a mano desde el editor (después de subir el prompt nuevo): vuelve a leer con DeepSeek los
- * comprobantes en Bs que están en REVISAR sin una cuenta tuya reconocida (vacía, PMJ por defecto o TERCERO), así
- * aprovechan el teléfono / cédula del receptor. Solo cambia Raw_JSON y Cuenta; después completa Tasa y ARS.
- */
-function releerVesSinCuenta() {
-  var sh = hojaMovimientos_();
-  if (sh.getLastRow() < 2) return;
-  var datos = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
-  var n = 0, ok = 0;
-  for (var i = 0; i < datos.length; i++) {
-    var d = datos[i], p = null;
-    if (d[C.ESTADO - 1] !== E_REVI || !esMonedaVes_(d[C.MONEDA - 1]) || !d[C.DRIVE_ID - 1]) continue;
-    try { p = JSON.parse(d[C.RAW - 1] || 'null'); } catch (e) { p = null; }
-    if (cuentaVe_(p)) continue;   // ya se reconoce por los datos
-    n++;
-    try {
-      var blob = DriveApp.getFileById(d[C.DRIVE_ID - 1]).getBlob();
-      var nuevo = leerComprobante_(Utilities.base64Encode(blob.getBytes()));
-      if (!nuevo || !nuevo.es_comprobante) continue;
-      sh.getRange(i + 2, C.RAW).setValue(JSON.stringify(nuevo));
-      sh.getRange(i + 2, C.CUENTA).setValue('');   // que completarVes_ decida de nuevo con lo leído
-      ok++;
-    } catch (e) { logError_('VES_RELEER', 'fila ' + (i + 2) + ' | ' + (e.message || e)); }
-  }
-  completarVes_();
-  Logger.log('Releídos ' + ok + ' de ' + n + ' comprobantes en Bs sin cuenta reconocida');
 }
 
 /** ARS de una fila en Bs con un monto nuevo (lo usa Confirmar cuando corregís el monto). */
