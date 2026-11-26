@@ -182,8 +182,9 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   const { ctx } = cargar();
   for (const [frase, esperado] of [['Listo que estes muy bien! 👍🏻', 'cierre'], ['Quedó Listo, saludos! 👋🏻', 'cierre'],
                                    ['Listo, un abrazo! 🙌🏼', 'cierre'], ['listo un abrazo', 'cierre'], ['LISTO QUE ESTÉS MUY BIEN', 'cierre'],
-                                   ['Listo', 'otro'], ['Listo mí pana 👍🏼', 'otro'], ['listo, ahí te mando la cuenta', 'otro'],
-                                   ['saludos a tu mamá', 'otro'], ['Listo, un abrazo! 🙌🏼 y mañana te paso lo otro', 'otro'],
+                                   ['Listo mí pana 👍🏼', 'cierre'], ['Listo, un abrazo! 🙌🏼 y mañana te paso lo otro', 'cierre'],
+                                   ['Listo', 'otro'], ['listo, ahí te mando la cuenta', 'otro'], ['saludos a tu mamá', 'otro'],
+                                   ['Falta otra, ya te la paso', 'falta'],
                                    ['Ok fino te aviso apenas tenga el capturé', 'en_proceso'], ['Ya te digo', 'otro']])
     ver('"' + frase + '" → ' + esperado, ctx.tipoTuyo_(frase, false) === esperado, ctx.tipoTuyo_(frase, false));
   ctx.guardarEstadoChat_('5491155550001', { enProceso: Date.now(), foto: Date.now() });
@@ -192,6 +193,21 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ctx.guardarEstadoChat_('5491155550002', { enProceso: Date.now(), foto: Date.now() });
   ctx.cerrarOperacionIntake_('+54 9 11 5555-0002');
   ver('FIN cierra la operación', !ctx.estadoChat_('5491155550002').enProceso && !ctx.estadoChat_('5491155550002').foto);
+}
+{ // 11. capture + 1 h de silencio cierra; un "Falta…" lo mantiene abierto; una operación nueva no se cierra con el capture viejo
+  const { ctx, props } = cargar();
+  const T = '5491155550001', ahora = Date.now(), min = 60e3, poner = e => { props['IK_' + T] = JSON.stringify(e); };
+  poner({ enProceso: ahora - 90 * min, ultCaptura: ahora - 70 * min });
+  ver('capture hace 70 min sin nada más: cerrada', !ctx.estadoChat_(T).enProceso);
+  poner({ enProceso: ahora - 90 * min, ultCaptura: ahora - 20 * min });
+  ver('capture hace 20 min: sigue abierta (puede venir otro)', !!ctx.estadoChat_(T).enProceso);
+  poner({ enProceso: ahora - 200 * min, ultCaptura: ahora - 150 * min, ultFalta: ahora - 140 * min });
+  ver('capture y después "Falta…": sigue abierta', !!ctx.estadoChat_(T).enProceso);
+  poner({ enProceso: ahora - 5 * min, foto: ahora - 6 * min, ultCaptura: ahora - 300 * min });
+  ver('operación nueva: el capture de la anterior no la cierra', !!ctx.estadoChat_(T).enProceso);
+  ctx.guardarEstadoChat_(T, { enProceso: ahora - 30 * min });
+  ctx.registrarMensajeTuyo_(tuyo(T, '', { hasMedia: true }));
+  ver('tu capture queda anotado', Math.abs(JSON.parse(props['IK_' + T]).ultCaptura - Date.now()) < 5000);
 }
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);
