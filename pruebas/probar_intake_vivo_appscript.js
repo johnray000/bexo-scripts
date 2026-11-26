@@ -169,5 +169,19 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('uno de hace 20 min está colgado: lo cambia por uno nuevo', activadores.length === 1 &&
       Date.now() - Number(props.IK_AGENDADO) < 5000);
 }
+{ // 9. Dayana 26/11: tu capture cierra la operación; pregunta sin respuesta → aviso "revisar"
+  const { ctx, ntfy } = cargar();
+  ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', '[Mensaje sin texto]', true, true, hace(4000));
+  ctx.registrarMensajeTuyo_(tuyo('5491155550001', '', { hasMedia: true }));
+  const r = ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', '(3200.) 0102 04260494793\n14345535\nMe dices cuanto es ?', false, true, hace(-2));
+  ver('después de tu capture, los datos + "cuánto es" dan el cálculo en pesos', JSON.stringify(r.tipos) === '["calculo"]' &&
+      r.mensajes[0] === '6.200 pesos' && ntfy.length === 1 && /Enviar/.test(ntfy[0].actions[0].label), JSON.stringify(r.mensajes));
+  ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', 'Cuánto sería para que lleguen 80 soles a Perú?', false, true, hace(-2));
+  const a = ntfy[ntfy.length - 1];
+  ver('pregunta que va a mano: aviso "revisar" sin botón', ntfy.length === 2 && /pregunta algo · revisar/.test(a.title) &&
+      /a mano: otra ruta/.test(a.message) && !(a.actions || []).length, a.title);
+  ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', 'Gracias', false, true, hace(-2));
+  ver('sin pregunta: nada', ntfy.length === 2);
+}
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);
