@@ -102,7 +102,7 @@ function registrarMensajeTuyo_(payload) {
   est.ultJohn = ahora;
   if (tipo === 'saludo') est.ultSaludo = ahora; else est.ultRespuesta = ahora;
   if (tipo === 'en_proceso') { est.enProceso = ahora; est.foto = 0; }
-  if (tipo === 'cierre') est.enProceso = 0;
+  if (tipo === 'cierre' || tipo === 'foto') { est.enProceso = 0; est.foto = 0; }   // tu capture = pago hecho: cierra la operación
   guardarEstadoChat_(tel, est);
   hojaIntake_().appendRow([new Date(), tel, nombre, 'vos', texto || (media ? '[foto]' : ''), media, '', '', tipo, '']);
 }
@@ -174,6 +174,8 @@ function registrarTandaIntake_(tel, nombre, texto, media, esCliente, fecha) {
   var vieja = fecha && ahora - new Date(fecha).getTime() > INTAKE_BORRADOR_MAX_MIN * 60e3;
   if (modo === 'borrador' && !yaContestaste && !vieja && r.tipos.some(function (t) { return INTAKE_TIPOS_BORRADOR.indexOf(t) !== -1; })) {
     avisarBorradorIntake_(tel, nombre, texto, r);
+  } else if (modo === 'borrador' && !yaContestaste && !vieja && r.manual && r.motivo !== 'difusión' && preguntaIntake_(texto)) {
+    avisarRevisarIntake_(nombre, texto, r);   // red de seguridad: pregunta que el sistema no sabe contestar
   }
   return r;
 }
@@ -188,6 +190,19 @@ function textoCortoIntake_(t) {
 function urlIntake_(accion, id) {
   var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
   return base + '?intake=' + accion + '&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
+}
+
+/** ¿El cliente pregunta algo? (para avisarte aunque el sistema no sepa contestarlo) */
+function preguntaIntake_(texto) {
+  return /\?|cuant|me dices|me decis|me puedes|me podes|me podrias|se puede|puedo |podes|puedes|sabes si|consulta/.test(normIntake_(texto));
+}
+
+/** Aviso sin botón: el cliente preguntó algo que va a mano (cálculo raro, otra ruta, incidente…). */
+function avisarRevisarIntake_(nombre, texto, r) {
+  return avisarNtfy_(nombreTarjeta_(nombre) + ' pregunta algo · revisar',
+                     textoCortoIntake_(texto) + '\n→ a mano: ' + (r.motivo || 'no sé contestarlo') +
+                     (r.mensajes.length ? '\n→ ' + r.mensajes.join('\n→ ') : ''),
+                     { prioridad: 3, tags: ['question'] });
 }
 
 function avisarBorradorIntake_(tel, nombre, texto, r) {
