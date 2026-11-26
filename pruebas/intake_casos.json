@@ -528,14 +528,12 @@
   ]
  },
  {
-  "nombre": "Bs con datos de cuenta y foto anterior pendiente (Dayana 26/11)",
-  "texto": "(3200.)   0102   04260494793\n14345535\nMe dices cuanto es ?",
-  "fotoPendiente": true,
+  "nombre": "después de cerrar, una pregunta nueva es otra operación (Dayana 26/11)",
+  "texto": "Me dices porfa cuanto es 20 usd en pesos",
+  "fotoPendiente": false,
+  "enProceso": false,
   "tipos": [
    "calculo"
-  ],
-  "mensajes": [
-   "6.200 pesos"
   ]
  }
 ]
