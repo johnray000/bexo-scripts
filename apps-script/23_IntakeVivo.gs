@@ -36,16 +36,29 @@ function hojaIntake_() {
 }
 
 // ---------- estado de cada chat (lo que ya dijiste) ----------
+var INTAKE_CIERRE_CAPTURA_MIN = 60;   // tu capture + 1 h sin otro capture ni "Falta…" = operación cerrada
+
 function estadoChat_(tel) {
-  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('IK_' + tel) || '{}'); } catch (e) { return {}; }
+  var est;
+  try { est = JSON.parse(PropertiesService.getScriptProperties().getProperty('IK_' + tel) || '{}'); } catch (e) { est = {}; }
+  // Cierre por silencio: tu último capture es de esta operación (posterior a su inicio), pasó 1 h y no hubo un
+  // "Falta…" tuyo después. En tus chats, 9 de cada 10 captures que siguen a otro llegan dentro de los 45 min.
+  var inicio = Math.max(est.enProceso || 0, est.foto || 0);
+  if (inicio && est.ultCaptura >= inicio && Date.now() - est.ultCaptura > INTAKE_CIERRE_CAPTURA_MIN * 60e3 &&
+      !((est.ultFalta || 0) > est.ultCaptura)) {
+    est.enProceso = 0; est.foto = 0;
+  }
+  return est;
 }
 function guardarEstadoChat_(tel, est) {
   PropertiesService.getScriptProperties().setProperty('IK_' + tel, JSON.stringify(est));
 }
 
-// Las ÚNICAS frases que cierran una operación: el mensaje entero tiene que ser una de estas (sin importar emojis,
-// mayúsculas, tildes ni signos). Un "listo" suelto en una charla no cierra nada. Para sumar una, agregarla acá.
+// Tus despedidas: un mensaje tuyo que EMPIEZA con una de estas cierra la operación, aunque siga ("Listo, un abrazo!
+// 🙌🏼 y mañana te paso lo otro"). Sin importar emojis, mayúsculas, tildes ni signos. "Listo" solo o "listo, ahí te
+// mando…" no cierran. Sacadas de tus chats (ago-nov): Listo mí pana 85 veces, Listo un abrazo 77, que estes 13, Quedó 5.
 var FRASES_CIERRE = [
+  'Listo mí pana 👍🏼',
   'Listo que estes muy bien! 👍🏻',
   'Quedó Listo, saludos! 👋🏻',
   'Listo, un abrazo! 🙌🏼'
@@ -57,7 +70,7 @@ function soloLetrasIntake_(t) {
 
 function esDespedidaIntake_(texto) {
   var t = soloLetrasIntake_(texto);
-  return !!t && FRASES_CIERRE.some(function (f) { return soloLetrasIntake_(f) === t; });
+  return !!t && FRASES_CIERRE.some(function (f) { var p = soloLetrasIntake_(f); return t === p || t.indexOf(p + ' ') === 0; });
 }
 
 /** Qué fue tu mensaje (las mismas categorías que la repetición de pruebas). */
@@ -66,6 +79,7 @@ function tipoTuyo_(texto, media) {
   if (!t) return media ? 'foto' : '';
   if (/te aviso apenas tenga/.test(t)) return 'en_proceso';
   if (esDespedidaIntake_(texto)) return 'cierre';
+  if (/^falta\b/.test(t)) return 'falta';
   if (/^0[.,]\d{2,3}$/.test(t)) return 'tasa';
   if (/^[\d.,]+ ?(mil )?(pesos|bs|bolivares|dolares|\$)/.test(t)) return 'calculo';
   if (/^john\.|alias/.test(t)) return 'alias';
@@ -119,8 +133,10 @@ function registrarMensajeTuyo_(payload) {
   est.ultJohn = ahora;
   if (tipo === 'saludo') est.ultSaludo = ahora; else est.ultRespuesta = ahora;
   if (tipo === 'en_proceso') { est.enProceso = ahora; est.foto = 0; }
-  // cierra solo tu despedida (o FIN): un capture no, porque a veces van varios, falta plata o está dividido
+  // cierres: tu despedida (ya), tu capture + 1 h de silencio (ver estadoChat_) o FIN
   if (tipo === 'cierre') { est.enProceso = 0; est.foto = 0; }
+  if (media) est.ultCaptura = ahora;
+  if (tipo === 'falta') est.ultFalta = ahora;
   guardarEstadoChat_(tel, est);
   hojaIntake_().appendRow([new Date(), tel, nombre, 'vos', texto || (media ? '[foto]' : ''), media, '', '', tipo, '']);
 }
