@@ -13,13 +13,15 @@ Claude cambia los archivos acá, en GitHub, y vos los subís con un solo comando
 
 ## Subir un cambio (lo de todos los días)
 
-1. Sube el código y publica una nueva versión de la implementación web.
+1. Actualiza todo el teléfono desde `main` y sube el Apps Script (ver CLAUDE.md).
 
 ```
-sh ~/bexo-scripts/apps-script/subir.sh
+sh ~/bexo-scripts/actualizar.sh
 ```
 
-Hace cuatro cosas: baja lo último de GitHub, se fija que nadie haya cambiado el código a mano en el editor
+Al final llama a `subir.sh`, que hace esto:
+
+baja lo último de GitHub, se fija que nadie haya cambiado el código a mano en el editor
 de Google (si pasó, **no sube** y te avisa, para no perder ese cambio), sube el código y crea la nueva versión
 de la implementación (lo que antes era Implementar → Administrar implementaciones → ✏️ → Nueva versión).
 La URL de la implementación no cambia, así que WAHA/GOWS, Termux y el diagnóstico siguen funcionando igual.
