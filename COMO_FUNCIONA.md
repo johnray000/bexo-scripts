@@ -63,6 +63,11 @@ Lo que nunca hace solo: tocar **Realizar Orden** ni liberar (eso pide tu huella)
 - **Importante**: subí a Apps Script siempre desde la rama que tiene todo. Del 18 al 24/11 el intake estuvo apagado
   porque se subió desde `main` sin él; desde el 26/11 está todo en `main`.
 
+**Cómo viene (revisión del 26/11):** 46 tandas registradas (17/11 y del 24 al 26/11; del 18 al 24 estuvo apagado).
+Las fotos → "Ok fino" bien en todas. 8 borradores: 6 bien (disponibilidad, 40$ BCV → pesos, alias), 2 mejorables
+que ya se corrigieron el 26/11 junto con la ruta inversa y la charla corta; Yape/Plin (Perú) pasa a "otra ruta".
+Todavía **0 mensajes tuyos registrados**: sin eso `resumenIntake()` no puede medir el acierto (issue #57).
+
 Diseño completo y números de tus chats: documento "Bexo · Diseño del intake de WhatsApp" (Claude Docs).
 
 ## 4. Si algo falla
@@ -78,10 +83,14 @@ Diseño completo y números de tus chats: documento "Bexo · Diseño del intake 
 
 ## 5. Subir cambios
 
-1. En el teléfono: `git -C ~/bexo-scripts pull`
-2. Apps Script: `bash ~/bexo-scripts/apps-script/subir.sh` (sube y publica la versión nueva del /exec)
+Un solo comando en el teléfono, siempre desde `main` (ver CLAUDE.md):
 
-Lo del teléfono (`binance_orden.py`, `bexo_ntfy.py`) toma efecto con el `pull`: cada orden corre el código de nuevo.
+```
+sh ~/bexo-scripts/actualizar.sh
+```
+
+Pasa el teléfono a `main`, baja lo último, reinicia el que escucha ntfy y sube el Apps Script. Las ramas son solo
+para trabajar: lo que está listo se mergea a `main` ese día.
 
 ## 6. Herramientas sueltas
 
@@ -123,6 +132,5 @@ El repo es público: nada de datos de clientes en los issues.
 - #56 Varias órdenes para una misma operación ("Falta otra…").
 - #57 Intake: confirmar que tus mensajes llegan (`message.any`).
 - #58 Automatizar "Realizar Orden" (liberar sigue siendo con tu huella).
-- Merge a `main` al final, con todo probado.
 
 Estado al 24/11: el recorrido completo anda bien (`--prueba 5000 PagoMovil`) cuando no se atraviesa ningún pop-up.

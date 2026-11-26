@@ -4,7 +4,7 @@
 > lo de compartir el link desde WhatsApp (`termux-url-opener`, `enviarLinkSolo_`) ya no se usa: el disparo es el
 > botón "Armar en Binance" de la tarjeta en ntfy.
 
-Rama: `recorrido-binance` (todavía sin merge a `main`; regla del proyecto: una rama, un solo merge al final, probado).
+Desde el 26/11 todo esto está en `main` (PR #61); el teléfono se actualiza con `sh ~/bexo-scripts/actualizar.sh` (ver CLAUDE.md).
 
 ## Qué se quiere
 
@@ -25,7 +25,7 @@ bien; john lo pidió el 15/11 17:14) y john toca "Realizar Orden" él mismo.
 | `telefono/limpiar_telefono.py` | Libera espacio: menú con 7 grupos (pruebas y fallas en Descargas, capturas de pantalla recientes y viejas, fotos de WhatsApp recibidas y mandadas de más de 2 días, documentos de WhatsApp, tus archivos de Descargas de más de 30 días). Elegís números y escribís BORRAR. `--ver N` lista un grupo. Nunca borra los `*_entradas.csv` ni `okx_enlaces.txt`. Prueba: `pruebas/probar_limpiar_telefono.py`. |
 | `apps-script/21_Ntfy.gs` | Avisos a la app **ntfy** (propiedad `NTFY_TOPIC` = contenido de `~/.bexo-ntfy`). Cada pre-orden va a ntfy como "💸 apodo · monto Bs · método", precio, reservas y botón **"Armar en Binance"** (POST del link al tema `NTFY_TOPIC-cmd`). Sin datos del cliente. Sin `NTFY_TOPIC`, manda el link solo por WhatsApp como antes. `probarNtfy()` para probar. |
 | `apps-script/21_Ntfy.gs` (tarjeta) | **Así se aprueba (16/11):** por cada comprobante en ARS leído llega a ntfy una tarjeta recortada ("💸 Juan P. · 100.000 ARS → 59.000 Bs", banco · hora · ref …1234 · lectura %) con **✅ Armar en Binance** (GET a `?p2p=armar&id=…&k=`) y 🧾 Comprobante (Drive). Al tocar Armar, `armarDesdeNtfy_` elige el anuncio EN ESE MOMENTO (`textoAnuncio_`, frases, reservas), manda el link al tema `-cmd` y avisa qué eligió; doble toque bloqueado 90 s. El teléfono termina con aviso urgente "ORDEN LISTA ✅ · tocá Realizar Orden". Sin datos de más (ntfy.sh es público: john eligió ntfy.sh mostrando menos). `probarTarjetaNtfy()` manda la del último comprobante ARS. Prueba sin red: `node pruebas/probar_tarjeta_ntfy_appscript.js`. |
-| `vps/relay_binance.py` (`POST /ntfy`) | 16/11: ntfy.sh devolvió **429 (cupo diario)** a Google: sus IPs son compartidas. El Apps Script publica ahora por el relay del VPS (`publicarNtfy_`, mismo `RELAY_TOKEN`, solo temas `bexo-…`; si el relay falla, directo). Actualizar el VPS: `sudo RAMA=recorrido-binance bash arreglar_relay.sh` (guarda copia, prueba y vuelve atrás si falla). Prueba sin red: `python3 pruebas/probar_relay_ntfy.py`. |
+| `vps/relay_binance.py` (`POST /ntfy`) | 16/11: ntfy.sh devolvió **429 (cupo diario)** a Google: sus IPs son compartidas. El Apps Script publica ahora por el relay del VPS (`publicarNtfy_`, mismo `RELAY_TOKEN`, solo temas `bexo-…`; si el relay falla, directo). Actualizar el VPS: `sudo bash arreglar_relay.sh` (desde `main`) (guarda copia, prueba y vuelve atrás si falla). Prueba sin red: `python3 pruebas/probar_relay_ntfy.py`. |
 | Corrida 16/11 17:27 | La cadena entera anduvo (tarjeta → Apps Script → InverVictM + 2 reservas → teléfono), pero el teléfono se frenó: **la cortina quedó abierta** al tocar el botón de ntfy y `cmd statusbar collapse` no la cerró. Ahora `cerrar_cortina()`: collapse y, si sigue, Atrás (solo con la cortina al frente). Además Binance estaba en el **libro de órdenes** (no grabado): `reiniciar_binance()` (force-stop + inicio) una vez si la pantalla de Binance es desconocida, nunca con orden a medio armar. Tarjeta: nombre después de "BEXO" (máx. 22, con …) y un solo emoji (la etiqueta). |
 | 17/11: método equivocado | El botón "Armar" pasaba a `textoAnuncio_` la columna CUENTA del comprobante (tu cuenta de cobro) en vez de la cuenta de destino del cliente, y `metodosParaCuenta_` caía casi siempre en Banco de Venezuela. Ahora `destinoDelCliente_` = lo mismo que la pre-orden (`cuentasDelCliente_` + `cuentaSugerida_`), calculado al tocar. La tarjeta y el aviso "Armando" muestran el destino recortado ("→ PM Banesco …4567 · la de siempre", o ⚠️ sin datos). |
 | `bexo_ntfy.py` | Avisos a ntfy desde el teléfono (`publicar`), tema en `~/.bexo-ntfy`. `binance_orden.py` avisa ahí arranque, resultado (✅ / ⚠️ con prioridad alta) y frenos. |
@@ -146,7 +146,7 @@ confirmar, realizar, aceptar, haz clic, todo…). Nunca coloca la orden.
    (botón "Armar en Binance" en la notificación de la pre-orden → `escuchar_ntfy.py`). Probado el 15/11 18:51 que el
    botón http de ntfy llega a Termux. Pruebas sin red: `node pruebas/probar_ntfy_appscript.js`,
    `python3 pruebas/probar_ntfy_telefono.py`.
-6. Merge de `recorrido-binance` a `main` y en el teléfono `git -C ~/bexo-scripts checkout main`.
+6. ~~Merge de `recorrido-binance` a `main`~~ hecho el 26/11 (PR #61).
 
 ## Rearmar y FIN (17/11)
 

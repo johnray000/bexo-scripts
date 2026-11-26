@@ -526,5 +526,13 @@
   "tipos": [
    "disponible"
   ]
+ },
+ {
+  "nombre": "Yape (Perú) es otra ruta (26/11)",
+  "texto": "Papi pregunta  Si te puedo dar yape\nEso me lo mandó mi hija\nDale",
+  "intenciones": [
+   "otra_ruta"
+  ],
+  "manual": true
  }
 ]

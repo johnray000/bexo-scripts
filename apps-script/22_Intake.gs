@@ -48,7 +48,7 @@ var REGLAS_INTAKE = [
   ['division',      /((\d.*(a|para) (esta|esa|una).*(el resto|la otra|otra cuenta))|el resto a|divid|la mitad|dos cuentas|\d+ a una y)/],
   ['pide_capture',  /((me (pasas?|envias|mandas)|pasame) (el )?(capture|captur|comprobante)|apenas tengas (el )?captur|captur.* (te lo pasaron|me lo (envias|pasas))|confirmame si|ya (lo )?(enviaste|mandaste|hiciste)\?)/],
   ['incidente',     /(no (ha )?(llego|llegado|me llego|le llego|recib)|rebot|devuelv|devuelven|falta plata|falto plata|nada que|aun no (sabes|llega)|ayer no transferiste|sale (que hay )?error|me dice error|no existe)/],
-  ['otra_ruta',     /(colombia|brasil|brazil|\bpix\b|nequi|neki|peso colombiano|reais|peru|soles|chile|de venezuela (para|a)|desde venezuela|me van a enviar de|tengo (en venezuela)?[ /]*[\d.,]+ ?(mil )?(bs|bolivares)|(bs|bolivares) en (el )?(banco|venezuela|bdv)|en dolares\b|cuantos dolares|zelle|(te )?(podre|puedo|podria) (pasar|mandar|enviar|dar)(te)? (unos |algunos )?(bs|bolivares)|(bs|bolivares).{0,40}(me los|me lo) (pases|des|cambies|transfieras|mandes))/],
+  ['otra_ruta',     /(colombia|brasil|brazil|\bpix\b|nequi|neki|peso colombiano|reais|peru|soles|\byape\b|\bplin\b|chile|de venezuela (para|a)|desde venezuela|me van a enviar de|tengo (en venezuela)?[ /]*[\d.,]+ ?(mil )?(bs|bolivares)|(bs|bolivares) en (el )?(banco|venezuela|bdv)|en dolares\b|cuantos dolares|zelle|(te )?(podre|puedo|podria) (pasar|mandar|enviar|dar)(te)? (unos |algunos )?(bs|bolivares)|(bs|bolivares).{0,40}(me los|me lo) (pases|des|cambies|transfieras|mandes))/],
   ['difusion',      /(\bgente\b|a todos|mis amigos|familiares y contactos|tomando pedido|rifa|lanzamiento|promo(cion)?\b|sorteo|estaremos)/],
   ['gracias',       /(gracias|graciaz|graciaa|grax|bendicion|dios te)/]
 ];
