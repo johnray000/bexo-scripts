@@ -165,6 +165,7 @@ function finDesdeNtfy_(id) {
       }
       throw e;
     }
+    try { cerrarOperacionIntake_(f.datos[C.TELEFONO - 1]); } catch (e) { logError_('NTFY_FIN_INTAKE', e.message || e); }   // 23_IntakeVivo.gs
     avisarNtfy_('Contado · ' + nombreTarjeta_(nombre) + ' · ' + fmtEntero_(monto) + ' ARS', lineaDestino_(sug),
                 { prioridad: 2, tags: ['white_check_mark'] });
     return 'contado';
