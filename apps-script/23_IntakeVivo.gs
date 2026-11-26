@@ -43,13 +43,29 @@ function guardarEstadoChat_(tel, est) {
   PropertiesService.getScriptProperties().setProperty('IK_' + tel, JSON.stringify(est));
 }
 
+// Las ÚNICAS frases que cierran una operación: el mensaje entero tiene que ser una de estas (sin importar emojis,
+// mayúsculas, tildes ni signos). Un "listo" suelto en una charla no cierra nada. Para sumar una, agregarla acá.
+var FRASES_CIERRE = [
+  'Listo que estes muy bien! 👍🏻',
+  'Quedó Listo, saludos! 👋🏻',
+  'Listo, un abrazo! 🙌🏼'
+];
+
+function soloLetrasIntake_(t) {
+  return normIntake_(t).replace(/[^a-z0-9ñ ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function esDespedidaIntake_(texto) {
+  var t = soloLetrasIntake_(texto);
+  return !!t && FRASES_CIERRE.some(function (f) { return soloLetrasIntake_(f) === t; });
+}
+
 /** Qué fue tu mensaje (las mismas categorías que la repetición de pruebas). */
 function tipoTuyo_(texto, media) {
   var t = normIntake_(texto);
   if (!t) return media ? 'foto' : '';
   if (/te aviso apenas tenga/.test(t)) return 'en_proceso';
-  // tus despedidas cierran la operación: "Listo que estes muy bien! 👍🏻", "Quedó Listo, saludos! 👋🏻", "Listo, un abrazo! 🙌🏼"
-  if (/^(quedo )?listo\b|\bsaludos\b|un abrazo|que estes muy bien/.test(t)) return 'cierre';
+  if (esDespedidaIntake_(texto)) return 'cierre';
   if (/^0[.,]\d{2,3}$/.test(t)) return 'tasa';
   if (/^[\d.,]+ ?(mil )?(pesos|bs|bolivares|dolares|\$)/.test(t)) return 'calculo';
   if (/^john\.|alias/.test(t)) return 'alias';

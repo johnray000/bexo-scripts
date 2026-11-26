@@ -110,8 +110,8 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('Ok fino se manda', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'enviado' &&
       waha[0].text === 'Ok fino te aviso apenas tenga el capturé');
   ver('no se repite en la misma operación', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'ya estaba dicho' && waha.length === 1);
-  ctx.registrarMensajeTuyo_(tuyo('5491155550002', 'Listo mí pana 👍🏼'));
-  ver('después de tu "Listo" se puede de nuevo', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'enviado' && waha.length === 2);
+  ctx.registrarMensajeTuyo_(tuyo('5491155550002', 'Listo, un abrazo! 🙌🏼'));
+  ver('después de tu despedida se puede de nuevo', ctx.rutaIntake_({ intake: 'okfino', id: 'MOV-1' }).texto === 'enviado' && waha.length === 2);
   ver('Pedir cuenta con Ok fino ya dicho: solo la pregunta', ctx.rutaIntake_({ intake: 'cuenta', id: 'MOV-1' }).texto === 'enviado' &&
       waha.length === 3 && waha[2].text === 'Confírmame a qué cuenta', JSON.stringify(waha.map(w => w.text)));
   ver('Pedir cuenta no se repite', ctx.rutaIntake_({ intake: 'cuenta', id: 'MOV-1' }).texto === 'ya estaba dicho' && waha.length === 3);
@@ -181,7 +181,9 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
 { // 10. tus despedidas cierran la operación
   const { ctx } = cargar();
   for (const [frase, esperado] of [['Listo que estes muy bien! 👍🏻', 'cierre'], ['Quedó Listo, saludos! 👋🏻', 'cierre'],
-                                   ['Listo, un abrazo! 🙌🏼', 'cierre'], ['Listo mí pana 👍🏼', 'cierre'],
+                                   ['Listo, un abrazo! 🙌🏼', 'cierre'], ['listo un abrazo', 'cierre'], ['LISTO QUE ESTÉS MUY BIEN', 'cierre'],
+                                   ['Listo', 'otro'], ['Listo mí pana 👍🏼', 'otro'], ['listo, ahí te mando la cuenta', 'otro'],
+                                   ['saludos a tu mamá', 'otro'], ['Listo, un abrazo! 🙌🏼 y mañana te paso lo otro', 'otro'],
                                    ['Ok fino te aviso apenas tenga el capturé', 'en_proceso'], ['Ya te digo', 'otro']])
     ver('"' + frase + '" → ' + esperado, ctx.tipoTuyo_(frase, false) === esperado, ctx.tipoTuyo_(frase, false));
   ctx.guardarEstadoChat_('5491155550001', { enProceso: Date.now(), foto: Date.now() });
