@@ -411,6 +411,7 @@ function dashboardP2P_(vivos) {
       margen: compraHoy ? dashR_((ventaHoy / compraHoy - 1) * 100, 1) : 0, minimo: DASH_MARGEN_MIN * 100
     },
     anuncios: anuncios,
+    bitget: dashBitget_(zona),
     misAnunciosBinance: misAnunciosBinance,
     rutas: {
       uyu: { margen: pCompra ? dashR_((pVenta / pCompra - 1) * 100, 1) : 0, gananciaUSD: pVenta ? dashR_(ganUYU / pVenta, 0) : 0 },
@@ -438,4 +439,28 @@ function dashboardP2P_(vivos) {
     try { salida.revision = revisarBrujula_(ords, salida, desde, ahora, zona); } catch (e) { salida.revision = [{ estado: 'mal', prueba: 'revisión', detalle: String(e.message || e) }]; }
   }
   return salida;
+}
+
+/**
+ * Hitos para habilitar anuncios en Bitget. No hay API de Bitget: la hoja Bitget_Hitos la completa Claude cuando john
+ * le manda la captura del cartel "No se puede crear el anuncio". Se usa la última fila con datos.
+ * Columnas: Fecha | Órdenes completadas | Usuarios únicos | Tasa de finalización % | Volumen neto USDT | Alta de la cuenta
+ */
+function dashBitget_(zona) {
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Bitget_Hitos');
+    if (!sh || sh.getLastRow() < 2) return null;
+    var v = sh.getRange(sh.getLastRow(), 1, 1, 6).getValues()[0];
+    var fecha = v[0] instanceof Date ? v[0] : null;
+    if (!fecha) return null;
+    var num = function (x) { return typeof x === 'number' ? x : +String(x).replace(',', '.') || 0; };
+    return {
+      cargado: Math.round(fecha.getTime() / 1000),
+      ordenes: num(v[1]), usuarios: num(v[2]), tasa: num(v[3]), volumen: num(v[4]),
+      alta: v[5] instanceof Date ? Utilities.formatDate(v[5], zona, 'yyyy-MM-dd') : ''
+    };
+  } catch (e) {
+    logError_('dashBitget_', e.message || e);
+    return null;
+  }
 }
