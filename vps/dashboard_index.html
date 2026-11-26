@@ -126,6 +126,16 @@ td.n,th.n{text-align:right}
  .route .note{font-size:11px}
 }
 @media (max-width:560px){.kpis .card .val{font-size:22px}.lbl{font-size:10.5px}.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
+.bg-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:4px}
+.bg-h{background:#0f141b;border-radius:10px;padding:10px 12px}
+.bg-h .big{font-size:20px}
+.bg-h .bar{margin-top:8px}
+.bg-plan{margin-top:12px;font-size:13px}
+.bg-plan li{margin:3px 0}
+.bg-form{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:8px;align-items:end;margin-top:8px}
+.bg-form label{font-size:11.5px;color:var(--mut);display:flex;flex-direction:column;gap:3px}
+.bg-form input{background:#0f141b;border:1px solid var(--line);border-radius:6px;color:var(--tx);font:inherit;padding:6px 8px;width:100%}
+@media (max-width:700px){.bg-grid{grid-template-columns:1fr 1fr;gap:8px}.bg-form{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -137,6 +147,26 @@ td.n,th.n{text-align:right}
     </div>
     <button class="chip" id="btnAct" type="button">Actualizar ahora</button>
     <div class="live" id="live"><span class="dot"></span><span id="liveTxt">Cargando…</span></div>
+  </div>
+
+  <div class="card" id="bitget" style="margin-bottom:14px">
+    <h2>Habilitar anuncios en Bitget <span id="bgCargado">sin datos</span></h2>
+    <div class="why" id="bgEstado"></div>
+    <div class="bg-grid" id="bgHitos"></div>
+    <ol class="bg-plan" id="bgPlan"></ol>
+    <details class="rules" id="bgDet">
+      <summary><b>Cargar lo que dice Bitget</b></summary>
+      <div class="note">Copiá los 4 números del cartel "No se puede crear el anuncio" (P2P → Publicar anuncio). Bitget los actualiza cada 24 h. No hay conexión con Bitget: lo que ves arriba es solo lo que cargues acá.</div>
+      <form class="bg-form" id="bgForm">
+        <label>Órdenes completadas<input name="ordenes" inputmode="numeric" required></label>
+        <label>Usuarios únicos<input name="usuarios" inputmode="numeric" required></label>
+        <label>Tasa de finalización %<input name="tasa" inputmode="decimal" required></label>
+        <label>Volumen neto USDT<input name="volumen" inputmode="decimal" required></label>
+        <label>Alta de la cuenta (opcional)<input name="alta" type="date"></label>
+        <button class="chip" type="submit">Guardar</button>
+      </form>
+      <div class="note" id="bgMsg"></div>
+    </details>
   </div>
 
   <div class="grid kpis">
@@ -409,6 +439,70 @@ td.n,th.n{text-align:right}
     if (tel.pedido && srv.hora < tel.pedido + 80 && Date.now() / 1000 - tel.pedido < 300)
       $('liveTxt').textContent = 'Le pedí al teléfono que suba tus órdenes: en 1 o 2 min se actualiza solo';
   }
+
+  // ---------- Hitos de Bitget (cargados a mano: no hay API de Bitget conectada) ----------
+  var BG_META = [
+    { k: 'ordenes', t: 'Órdenes completadas', meta: 5, u: '' },
+    { k: 'usuarios', t: 'Usuarios únicos', meta: 5, u: '' },
+    { k: 'tasa', t: 'Tasa de finalización', meta: 80, u: '%' },
+    { k: 'volumen', t: 'Volumen neto', meta: 500, u: ' USDT' }
+  ];
+  function renderBitget(b) {
+    var hay = b && b.cargado;
+    var f = $('bgForm');
+    if (hay) BG_META.forEach(function (m) { f.elements[m.k].value = b[m.k]; });
+    if (hay && b.alta) f.elements.alta.value = b.alta;
+    var cuando = hay ? new Date(b.cargado * 1000) : null;
+    var horas = hay ? (Date.now() / 1000 - b.cargado) / 3600 : null;
+    $('bgCargado').innerHTML = hay ? 'cargado a mano el ' + cuando.toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) +
+      (horas > 48 ? ' · <span class="warn">hace ' + Math.round(horas / 24) + ' días</span>' : '') : 'sin datos';
+    if (!hay) {
+      $('bgEstado').innerHTML = '<span class="warn">Todavía no cargaste los números de Bitget.</span> Abrí "Cargar lo que dice Bitget" abajo.';
+      $('bgHitos').innerHTML = ''; $('bgPlan').innerHTML = '';
+      $('bgDet').open = true;
+      return;
+    }
+    var listos = 0;
+    $('bgHitos').innerHTML = BG_META.map(function (m) {
+      var v = +b[m.k] || 0, ok = v >= m.meta;
+      if (ok) listos++;
+      return '<div class="bg-h"><div class="lbl">' + m.t + '</div><div class="big ' + (ok ? 'ok' : '') + '">' + n(v) +
+        '<small class="note"> / ' + n(m.meta) + m.u + '</small></div><div class="bar"><i style="width:' + Math.min(100, v / m.meta * 100) +
+        '%;background:' + (ok ? 'var(--ok)' : 'var(--acc)') + '"></i></div></div>';
+    }).join('');
+    // Lo que falta, en órdenes: cada orden nueva tiene que ser con un usuario distinto para sumar "únicos".
+    var fO = Math.max(0, 5 - (b.ordenes || 0)), fU = Math.max(0, 5 - (b.usuarios || 0)), fV = Math.max(0, 500 - (b.volumen || 0));
+    var nOrd = Math.max(fO, fU, fV > 0 ? 1 : 0);
+    var plan = [];
+    if (nOrd) plan.push('Te faltan <b>' + nOrd + ' órdenes</b>, cada una con un usuario <b>distinto</b>' +
+      (fV > 0 ? ', de <b>≈ ' + n(Math.ceil(fV / nOrd)) + ' USDT</b> cada una para llegar a 500 USDT' : '') + '.');
+    if ((b.tasa || 0) < 80 && (b.ordenes || 0) > 0) plan.push('<span class="warn">Tasa de finalización baja:</span> no canceles órdenes; cada cancelación tuya la baja.');
+    if (b.alta) {
+      var dAlta = Math.floor((Date.now() - new Date(b.alta + 'T12:00:00')) / 864e5);
+      plan.push(dAlta >= 30 ? 'Cuenta con ' + dAlta + ' días: <span class="ok">cumple los 30 días</span>.'
+        : 'La cuenta tiene ' + dAlta + ' días: Bitget pide <b>30 días</b> de antigüedad (faltan ' + (30 - dAlta) + ').');
+    }
+    plan.push('Órdenes, usuarios y tasa cuentan los <b>últimos 30 días</b>; el volumen, los últimos 6 meses. Compras y ventas suman igual. Ninguna disputa.');
+    $('bgPlan').innerHTML = plan.map(function (x) { return '<li>' + x + '</li>'; }).join('');
+    $('bgEstado').innerHTML = listos === 4
+      ? '<b class="ok">Cumplís los 4 hitos.</b> Si Bitget todavía no te deja, esperá su actualización de 24 h. Como "Starter" el anuncio de compra va hasta 500 USDT.'
+      : 'Cumplís <b>' + listos + ' de 4</b>. Según lo que cargaste a mano, no según Bitget en vivo.';
+  }
+  function cargarBitget() {
+    fetch('bitget.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(renderBitget)
+      .catch(function () { $('bgEstado').innerHTML = '<span class="bad">No pude leer los hitos de Bitget guardados.</span>'; });
+  }
+  $('bgForm').onsubmit = function (e) {
+    e.preventDefault();
+    var f = e.target, datos = {};
+    ['ordenes', 'usuarios', 'tasa', 'volumen', 'alta'].forEach(function (k) { datos[k] = f.elements[k].value.trim(); });
+    $('bgMsg').textContent = 'Guardando…';
+    fetch('bitget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) { if (r.error) { $('bgMsg').textContent = 'No guardé: ' + r.error; return; } $('bgMsg').textContent = 'Guardado.'; $('bgDet').open = false; renderBitget(r); })
+      .catch(function () { $('bgMsg').textContent = 'No pude guardar (¿sin conexión?).'; });
+  };
+  cargarBitget();
 
   function cargar(url) {
     fetch(url || 'data.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(render)

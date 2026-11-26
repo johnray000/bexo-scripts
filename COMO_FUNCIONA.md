@@ -1,6 +1,6 @@
 # Cómo funciona hoy (24/11/2026)
 
-Guía corta para retomar. Rama `recorrido-binance` (sin merge a `main` todavía). El detalle técnico del recorrido
+Guía corta para retomar. El teléfono y el VPS usan siempre `main` (ver CLAUDE.md). El detalle técnico del recorrido
 está en `BINANCE_ORDEN.md`; esto es lo que hay que saber para usarlo.
 
 ## 1. Un comprobante, de punta a punta
@@ -38,8 +38,7 @@ Lo que nunca hace solo: tocar **Realizar Orden** ni liberar (eso pide tu huella)
   Sin él, tocar "Armar" no hace nada en el teléfono. Log: `~/escuchar_ntfy.log`; el del recorrido: `~/binance_orden.log`.
 - **ADB** (la Depuración inalámbrica). Después de reiniciar el teléfono Android la apaga: aparece la notificación
   fija con **RECONECTAR** (`adb_reconectar.sh`). Sin ADB el recorrido no puede tocar la pantalla.
-- **El código al día**: `git -C ~/bexo-scripts pull` (rama `recorrido-binance`:
-  `git -C ~/bexo-scripts branch --show-current`).
+- **El código al día**: `sh ~/bexo-scripts/actualizar.sh` (pasa a `main`, baja lo último y sube el Apps Script).
 - `~/.bexo-ntfy` con el tema de ntfy (nunca va al repo: es público).
 
 ## 3. El intake (lo que escriben los clientes antes del comprobante)
