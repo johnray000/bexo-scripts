@@ -228,3 +228,71 @@ function rutaIntake_(p) {
         : p.intake === 'cuenta' ? okFinoIntake_(id, true) : 'acción desconocida';
   return ContentService.createTextOutput(r);
 }
+
+// ---------- cuánto acierta (hoja Intake) ----------
+var INTAKE_TIPOS_MEDIDOS = ['saludo', 'disponible', 'tasa', 'calculo', 'alias', 'en_proceso'];
+
+/**
+ * Compara lo sugerido para cada tanda del cliente con lo que contestaste vos en los 30 min siguientes (filas "vos"),
+ * igual que la repetición de pruebas. filas = la hoja Intake (con encabezado). Devuelve los números.
+ */
+function medirIntake_(filas, dias, ahora) {
+  ahora = ahora || Date.now();
+  var desde = ahora - dias * 86400e3, r = { tandas: 0, vos: 0, aMano: {}, sinRespuesta: 0, tipos: {} };
+  INTAKE_TIPOS_MEDIDOS.forEach(function (t) { r.tipos[t] = { ok: 0, falto: 0, sobro: 0 }; });
+  var fecha = function (v) { return v instanceof Date ? v.getTime() : fechaIntake_(v); };
+  var datos = filas.slice(1).filter(function (f) { return fecha(f[0]) >= desde; });
+  datos.forEach(function (f, i) {
+    if (f[3] === 'vos') { r.vos++; return; }
+    if (f[3] !== 'cliente') return;
+    r.tandas++;
+    if (f[9]) r.aMano[f[9]] = (r.aMano[f[9]] || 0) + 1;
+    var t0 = fecha(f[0]), tuyos = {}, hubo = false;
+    for (var j = i + 1; j < datos.length; j++) {
+      var g = datos[j];
+      if (String(g[1]) !== String(f[1])) continue;
+      if (fecha(g[0]) - t0 > 30 * 60e3) break;
+      if (g[3] === 'cliente') break;                 // el cliente volvió a escribir: lo que sigue es otra tanda
+      if (g[3] === 'vos') { hubo = true; tuyos[g[8]] = true; }
+    }
+    if (!hubo) { r.sinRespuesta++; return; }        // sin tu respuesta registrada no se puede comparar
+    var sug = String(f[8] || '').split(' ');
+    INTAKE_TIPOS_MEDIDOS.forEach(function (t) {
+      var s = sug.indexOf(t) !== -1, v = !!tuyos[t];
+      if (s && v) r.tipos[t].ok++; else if (v) r.tipos[t].falto++; else if (s) r.tipos[t].sobro++;
+    });
+  });
+  return r;
+}
+
+/** "26/11/2026 14:39:03" (como lo muestra la hoja) → ms. */
+function fechaIntake_(v) {
+  var m = String(v).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) { var d = new Date(v).getTime(); return isNaN(d) ? 0 : d; }
+  return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)).getTime();
+}
+
+function textoMedicionIntake_(r, dias) {
+  var l = [r.tandas + ' tandas de clientes en ' + dias + ' días · ' + r.vos + ' mensajes tuyos registrados'];
+  if (!r.vos) l.push('⚠️ No llegan tus mensajes: sin eso no se puede medir (vps/webhook_tus_mensajes.py aplicar).');
+  else {
+    l.push('Respuesta · acierta / faltó / sobró:');
+    INTAKE_TIPOS_MEDIDOS.forEach(function (t) {
+      var e = r.tipos[t];
+      if (e.ok + e.falto + e.sobro) l.push('  ' + t + ': ' + e.ok + ' / ' + e.falto + ' / ' + e.sobro);
+    });
+    if (r.sinRespuesta) l.push(r.sinRespuesta + ' tandas sin respuesta tuya en 30 min (no cuentan)');
+  }
+  var m = Object.keys(r.aMano);
+  if (m.length) l.push('A mano: ' + m.map(function (k) { return k + ' ' + r.aMano[k]; }).join(' · '));
+  return l.join('\n');
+}
+
+/** Para el editor (o un activador semanal): manda a ntfy cómo viene el intake en los últimos 7 días. */
+function resumenIntake() {
+  var dias = 7, r = medirIntake_(hojaIntake_().getDataRange().getValues(), dias);
+  var texto = textoMedicionIntake_(r, dias);
+  Logger.log(texto);
+  avisarNtfy_('Intake · últimos ' + dias + ' días', texto, { prioridad: 2, tags: ['bar_chart'] });
+  return texto;
+}

@@ -249,7 +249,8 @@ def etapa_webhook(ses):
     else:
         anotar(3, OK, 'Webhook configurado al /exec de la planilla')
     if 'message.any' not in eventos:
-        anotar(3, AVISO, 'El webhook no manda tus mensajes (falta "message.any"): el intake no ve lo que contestás vos')
+        anotar(3, AVISO, 'El webhook no manda tus mensajes (falta "message.any"): el intake no ve lo que contestás vos. '
+                         'Arreglo: python3 vps/webhook_tus_mensajes.py aplicar')
     logs = docker('logs', '--since', '1h', 'waha')
     errs = len(re.findall(r'webhook[^\n]*(?:error|fail|timeout|ECONN)', logs, re.I))
     if errs:

@@ -459,5 +459,72 @@
   "tipos": [
    "en_proceso"
   ]
+ },
+ {
+  "nombre": "26/11 ruta inversa: te paso bolívares para pesos",
+  "texto": "Hola! Como estas? Disculpa te escriba tan temprano. Te podre pasar unos bolivares para q me los pases a pesos?",
+  "intenciones": [
+   "saludo",
+   "otra_ruta"
+  ],
+  "manual": true,
+  "tipos": [
+   "saludo"
+  ]
+ },
+ {
+  "nombre": "26/11 que llegue 15 = dólares BCV",
+  "texto": "Buen día ¿Cómo estás ?.\nSe puede cambiar para que llegue 15?",
+  "intenciones": [
+   "calculo",
+   "usd"
+  ],
+  "tipos": [
+   "saludo",
+   "disponible",
+   "calculo"
+  ],
+  "mensajes": [
+   "22.300 pesos"
+  ]
+ },
+ {
+  "nombre": "histórico: y que lleguen allá 30",
+  "texto": "Te puedo consultar para cambiar\nY que lleguen allá 30",
+  "tipos": [
+   "calculo"
+  ],
+  "mensajes": [
+   "44.500 pesos"
+  ]
+ },
+ {
+  "nombre": "26/11 Bien: charla, no pregunta",
+  "texto": "Bien",
+  "manual": false,
+  "tipos": []
+ },
+ {
+  "nombre": "26/11 Dale ya te aviso: charla",
+  "texto": "Dale. Ya te aviso el número de cuenta",
+  "manual": false,
+  "tipos": []
+ },
+ {
+  "nombre": "una pregunta corta sigue siendo para vos",
+  "texto": "Como a si?",
+  "manual": true
+ },
+ {
+  "nombre": "25/11 monto en Bs para el destino: sin borrador",
+  "texto": "Acá pana 8.000bs",
+  "tipos": []
+ },
+ {
+  "nombre": "Digo 10 mil (pesos): disponible",
+  "texto": "Digo 10 mil",
+  "tipos": [
+   "disponible"
+  ]
  }
 ]
