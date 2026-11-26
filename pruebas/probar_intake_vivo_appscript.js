@@ -158,5 +158,16 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('sin tus mensajes avisa cómo arreglarlo', /No llegan tus mensajes/.test(sinVos), sinVos);
   ver('lee la fecha como la muestra la hoja', ctx.fechaIntake_('26/11/2026 8:21:11') === new Date(2026, 10, 26, 8, 21, 11).getTime());
 }
+{ // 8. activador colgado (26/11: disparó contra una versión sin intakePorMensaje y bloqueó 3 horas)
+  const { ctx, activadores, props } = cargar();
+  ctx.agendarIntake_();
+  ver('agenda y anota la hora', activadores.length === 1 && Number(props.IK_AGENDADO) > 0);
+  ctx.agendarIntake_();
+  ver('uno reciente: no agenda otro', activadores.length === 1);
+  props.IK_AGENDADO = String(Date.now() - 20 * 60e3);
+  ctx.agendarIntake_();
+  ver('uno de hace 20 min está colgado: lo cambia por uno nuevo', activadores.length === 1 &&
+      Date.now() - Number(props.IK_AGENDADO) < 5000);
+}
 console.log(`${bien} de ${n} bien`);
 process.exit(bien === n ? 0 : 1);

@@ -113,8 +113,20 @@ var INTAKE_ESPERA_SEG = 75;   // la tanda se cierra a los 60 s (WINDOW_SEC) sin 
 function agendarIntake_(segundos) {
   try {
     if (modoIntake_() === 'apagado') return;
-    var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'intakePorMensaje'; });
-    if (!hay) ScriptApp.newTrigger('intakePorMensaje').timeBased().after((segundos || INTAKE_ESPERA_SEG) * 1000).create();
+    var props = PropertiesService.getScriptProperties();
+    var mios = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'intakePorMensaje'; });
+    // 26/11: un activador que disparó contra una versión sin esta función quedó colgado y bloqueó el intake
+    // 3 horas. Uno con más de 5 min ya debió correr: se borra y se agenda de nuevo.
+    var agendado = Number(props.getProperty('IK_AGENDADO')) || 0;
+    if (mios.length && Date.now() - agendado > 5 * 60e3) {
+      mios.forEach(function (t) { ScriptApp.deleteTrigger(t); });
+      logError_('INTAKE_AGENDAR', 'Activador colgado (' + Math.round((Date.now() - agendado) / 60e3) + ' min): se agenda de nuevo');
+      mios = [];
+    }
+    if (!mios.length) {
+      ScriptApp.newTrigger('intakePorMensaje').timeBased().after((segundos || INTAKE_ESPERA_SEG) * 1000).create();
+      props.setProperty('IK_AGENDADO', String(Date.now()));
+    }
   } catch (e) {
     logError_('INTAKE_AGENDAR', e.message || e);
   }
