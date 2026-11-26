@@ -99,8 +99,15 @@ function agendarLecturaRapida_() {
     if (Date.now() - ya < 60 * 1000) return;
     // Ya hay una lectura en camino: esta foto entra en esa. Se mira el activador de verdad, no solo la marca,
     // así una marca vieja (lectura que no llegó a correr) no deja fotos sin leer.
-    var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'lecturaPorComprobante'; });
-    if (hay) return;
+    var mios = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'lecturaPorComprobante'; });
+    // Un activador de hace más de 10 min ya debió correr: quedó colgado (p. ej. disparó contra una versión sin la
+    // función, 26/11) y bloquearía todas las lecturas. Se borra y se agenda de nuevo.
+    if (mios.length && Date.now() - ya > 10 * 60 * 1000) {
+      mios.forEach(function (t) { ScriptApp.deleteTrigger(t); });
+      logError_('AGENDAR_LECTURA', 'Activador colgado (' + Math.round((Date.now() - ya) / 60000) + ' min): se agenda de nuevo');
+      mios = [];
+    }
+    if (mios.length) return;
     // Con la regla vieja (10 min) esta foto se salteaba: queda anotado para confirmar que era esto
     if (Date.now() - ya < 10 * 60 * 1000) logError_('AGENDAR_LECTURA', 'Marca sin activador (' + Math.round((Date.now() - ya) / 1000) + ' s): se agenda igual');
     props.setProperty(PROP_LECTURA_AGENDADA, String(Date.now()));
