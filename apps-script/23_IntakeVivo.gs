@@ -103,7 +103,8 @@ function registrarMensajeTuyo_(payload) {
   est.ultJohn = ahora;
   if (tipo === 'saludo') est.ultSaludo = ahora; else est.ultRespuesta = ahora;
   if (tipo === 'en_proceso') { est.enProceso = ahora; est.foto = 0; }
-  if (tipo === 'cierre' || tipo === 'foto') { est.enProceso = 0; est.foto = 0; }   // tu capture = pago hecho: cierra la operación
+  // cierra solo tu despedida (o FIN): un capture no, porque a veces van varios, falta plata o está dividido
+  if (tipo === 'cierre') { est.enProceso = 0; est.foto = 0; }
   guardarEstadoChat_(tel, est);
   hojaIntake_().appendRow([new Date(), tel, nombre, 'vos', texto || (media ? '[foto]' : ''), media, '', '', tipo, '']);
 }

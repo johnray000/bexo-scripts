@@ -169,14 +169,14 @@ const urlId = u => decodeURIComponent(u.match(/id=([^&]+)/)[1]);
   ver('uno de hace 20 min está colgado: lo cambia por uno nuevo', activadores.length === 1 &&
       Date.now() - Number(props.IK_AGENDADO) < 5000);
 }
-{ // 9. Dayana 26/11: tu capture cierra la operación; lo que pregunta después es una operación nueva
+{ // 9. Dayana 26/11: un capture tuyo NO cierra (varios captures, falta plata, dividido), pero un cálculo nuevo igual sale
   const { ctx, ntfy } = cargar();
   ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', '[Mensaje sin texto]', true, true, hace(4000));
   ctx.registrarMensajeTuyo_(tuyo('5491155550001', '', { hasMedia: true }));
+  ver('tu capture no cierra la operación', !!ctx.estadoChat_('5491155550001').foto);
   const r = ctx.registrarTandaIntake_('5491155550001', 'BEXO Ana', 'Me dices porfa cuanto es 20 usd en pesos', false, true, hace(-2));
-  ver('después de tu capture, la pregunta nueva da el cálculo (no "Ok fino")', JSON.stringify(r.tipos) === '["calculo"]' &&
+  ver('con la operación abierta, una pregunta de cálculo igual da el cálculo (no "Ok fino")', JSON.stringify(r.tipos) === '["calculo"]' &&
       ntfy.length === 1, JSON.stringify(r.mensajes));
-  ver('tu capture dejó la operación cerrada', !ctx.estadoChat_('5491155550001').enProceso && !ctx.estadoChat_('5491155550001').foto);
 }
 { // 10. tus despedidas cierran la operación
   const { ctx } = cargar();
