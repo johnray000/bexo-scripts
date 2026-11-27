@@ -232,6 +232,31 @@ function dashboardP2P_(vivos) {
       a.mejor = v.mejor; a.metodos = v.metodos || []; a.cuantos = v.cuantos || 1;
     }
   });
+  // Bybit: el teléfono manda tus anuncios con su estado (bybit_ordenes.py, cada 4 h o con "Actualizar ahora").
+  // Si el dato tiene más de 6 h no se usa (se vuelve a "no sé si está activo").
+  var bybitAds = null;
+  try { bybitAds = JSON.parse(PropertiesService.getScriptProperties().getProperty('BYBIT_ANUNCIOS') || 'null'); } catch (e) { bybitAds = null; }
+  var bybitHace = bybitAds && bybitAds.cuando ? (ahora.getTime() - bybitAds.cuando) / 36e5 : null;
+  if (bybitAds && Array.isArray(bybitAds.lista) && bybitHace !== null && bybitHace < 6) {
+    var bGrupos = {};
+    bybitAds.lista.forEach(function (x) {
+      if (x.fiat !== 'UYU') return;
+      var g = x.tipo + '|' + x.cripto;
+      (bGrupos[g] = bGrupos[g] || []).push(x);
+    });
+    Object.keys(bGrupos).forEach(function (g) {   // anuncio activo sin órdenes esta semana: también aparece
+      var act = bGrupos[g].filter(function (x) { return x.estado === 'activo'; });
+      if (act.length && !porAnuncio['Bybit|' + g]) porAnuncio['Bybit|' + g] = { ex: 'Bybit', tipo: act[0].tipo, cripto: act[0].cripto, precio: act[0].precio, ultima: null, hoy: 0 };
+    });
+    Object.keys(porAnuncio).forEach(function (k) {
+      var a = porAnuncio[k];
+      if (a.ex !== 'Bybit') return;
+      var act = (bGrupos[a.tipo + '|' + a.cripto] || []).filter(function (x) { return x.estado === 'activo'; });
+      a.estado = act.length ? 'activo' : 'pausado';
+      a.estadoHace = Math.round(bybitHace * 10) / 10;
+      if (act.length && act[0].precio) a.precio = +act[0].precio;
+    });
+  }
   // "258" si el pendiente es seguro; "258 a 330" si hay órdenes sin moneda que podrían ser UYU.
   var pMin = Math.round(pendiente - dudaCompra), pMax = Math.round(pendiente + dudaVenta);
   var pendTxt = pMin === pMax ? String(pMin) : pMin + ' a ' + pMax;
@@ -246,6 +271,11 @@ function dashboardP2P_(vivos) {
                porque: 'No está en el listado público de Binance' + (a.revisados ? ' (revisé los ' + a.revisados + ')' : '') +
                        ': pausado, sin saldo o fuera de línea. El precio es el de la última orden.',
                minUltima: min, hoy: a.hoy, vivo: false, fuente: 'orden' };
+    }
+    if (a.estado === 'pausado') {
+      return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: 'Pausado', nuevo: null,
+               porque: a.ex + ' dice que no tenés este anuncio activo (dato de hace ' + a.estadoHace + ' h).',
+               minUltima: min, hoy: a.hoy, vivo: false, fuente: 'orden', estado: 'pausado', estadoHace: a.estadoHace };
     }
     var quieto = horaActiva && (min === null || min >= DASH_SIN_ORDENES_MIN);
     var r = { accion: 'Mantener', nuevo: a.precio, porque: '' };
@@ -279,7 +309,8 @@ function dashboardP2P_(vivos) {
     return { ex: a.ex, tipo: a.tipo, cripto: a.cripto, precio: dashR_(a.precio), accion: r.accion,
              nuevo: dashR_(r.nuevo), porque: r.porque, minUltima: min, hoy: a.hoy,
              vivo: !!a.vivo, puesto: a.puesto || null, total: a.total || null, completo: a.completo !== false,
-             mejor: a.mejor || null, metodos: a.metodos || null, cuantos: a.cuantos || null, fuente: a.visible ? 'vivo' : 'orden' };
+             mejor: a.mejor || null, metodos: a.metodos || null, cuantos: a.cuantos || null,
+             fuente: a.visible ? 'vivo' : a.estado === 'activo' ? 'anuncio' : 'orden', estado: a.estado || null, estadoHace: a.estadoHace || null };
   }).sort(function (a, b) { return (a.tipo === b.tipo ? 0 : a.tipo === 'Compra' ? -1 : 1) || a.ex.localeCompare(b.ex); });
 
   // Rutas

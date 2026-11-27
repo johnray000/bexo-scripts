@@ -3,8 +3,9 @@
 
 Corre en el teléfono: Bybit bloquea las IP de EE.UU., así que el VPS y Apps Script no sirven.
 Las órdenes se unen por número de orden con las que ya están (las del export no se repiten).
+También manda tus anuncios con su estado (activo/pausado) para que la Brújula apague los que no están activos.
 
-  python bybit_ordenes.py --probar        # no sube nada: muestra cuántas órdenes hay y las últimas 5
+  python bybit_ordenes.py --probar        # no sube nada: muestra cuántas órdenes hay, las últimas 5 y tus anuncios
   python bybit_ordenes.py --dias 120      # primera carga (todo lo que haya)
   python bybit_ordenes.py                 # lo de cada 4 horas (telefono/subir.sh): últimos 7 días
 
@@ -141,8 +142,36 @@ def pendientes(cfg):
     return lista
 
 
-def subir(cfg, lista):
-    cuerpo = json.dumps({'ordenesBybit': lista, 'token': cfg['ORDENES_TOKEN']}).encode()
+# Estado de tus anuncios en Bybit (status de /v5/p2p/item/personal/list): 10 en línea, 20 fuera de línea, 30 terminado.
+ESTADO_ANUNCIO = {10: 'activo', 20: 'pausado', 30: 'terminado'}
+
+
+def mis_anuncios(cfg):
+    """Tus anuncios de Bybit con su estado, para que la Brújula sepa si están activos. None si Bybit no responde
+    (así la Brújula dice "no sé" en vez de apagarlos)."""
+    try:
+        r = pedir(cfg, '/v5/p2p/item/personal/list', {})
+    except SystemExit as e:   # pedir() corta con SystemExit: acá no frena la subida de órdenes
+        print('Bybit anuncios: no pude leerlos (%s)' % e, flush=True)
+        return None
+    lista = []
+    for a in r.get('items') or []:
+        try:
+            estado = ESTADO_ANUNCIO.get(int(a.get('status')), str(a.get('status')))
+            lado = 'Compra' if str(a.get('side')) == '0' else 'Venta'
+            lista.append({'id': str(a.get('id') or ''), 'tipo': lado, 'cripto': a.get('tokenId') or '',
+                          'fiat': a.get('currencyId') or '', 'precio': float(a.get('price') or 0), 'estado': estado,
+                          'queda': float(a.get('lastQuantity') or 0)})
+        except (TypeError, ValueError):
+            continue
+    return lista
+
+
+def subir(cfg, lista, anuncios=None):
+    datos = {'ordenesBybit': lista, 'token': cfg['ORDENES_TOKEN']}
+    if anuncios is not None:
+        datos['anunciosBybit'] = anuncios
+    cuerpo = json.dumps(datos).encode()
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:   # Apps Script responde 302; urllib lo sigue
         return r.read().decode('utf-8', 'replace')
@@ -164,5 +193,11 @@ if __name__ == '__main__':
         for o in lista[:5]:
             print(time.strftime('%d/%m %H:%M', time.localtime(o['hora'] / 1000)), o['numero'], o['tipo'],
                   o['cantidad'], o['activo'], '=', o['total'], o['fiat'], '@', o['precio'], o['contraparte'], o['estado'])
+        anuncios = mis_anuncios(cfg)
+        print('Tus anuncios:', 'no pude leerlos' if anuncios is None else len(anuncios))
+        for a in anuncios or []:
+            print('  ', a['tipo'], a['cripto'], a['fiat'], a['precio'], a['estado'], 'queda', a['queda'])
     else:
-        print(time.strftime('%Y-%m-%d %H:%M'), 'Bybit:', len(lista), 'órdenes ->', subir(cfg, lista)[:300], flush=True)
+        anuncios = mis_anuncios(cfg)
+        print(time.strftime('%Y-%m-%d %H:%M'), 'Bybit:', len(lista), 'órdenes,',
+              'anuncios ?' if anuncios is None else '%d anuncios' % len(anuncios), '->', subir(cfg, lista, anuncios)[:300], flush=True)
