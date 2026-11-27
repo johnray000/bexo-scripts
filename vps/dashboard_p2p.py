@@ -10,6 +10,8 @@
     DASH_CLAVE=...
     DASH_PUERTO=8090
     DASH_NTFY_TEMA=bexo-...   (opcional: con esto "Actualizar ahora" le pide al teléfono que suba las órdenes)
+    DASH_OKX_APODO=...        (opcional: tu apodo de OKX, para buscar tus anuncios en el listado público)
+Prueba de OKX:  sudo python3 /opt/dashboard-p2p/dashboard_p2p.py --okx
 Lo instala vps/dashboard_instalar.sh como servicio systemd "dashboard-p2p".
 """
 import base64
@@ -32,6 +34,7 @@ CADA = int(os.environ.get('DASH_CADA_SEG', '600'))
 ULTIMO_PEDIDO = 0
 NTFY_TEMA = os.environ.get('DASH_NTFY_TEMA', '')   # el de ~/.bexo-ntfy del teléfono (opcional)
 TELEFONO = {'pedido': 0}
+OKX_APODO = os.environ.get('DASH_OKX_APODO', '').strip()
 ESPERADO = 'Basic ' + base64.b64encode(f'{USUARIO}:{CLAVE}'.encode()).decode()
 
 
@@ -129,6 +132,77 @@ def anuncios_binance_vivos():
 
 ESTADO_BINANCE = {}
 
+OKX_LIBRO = ('https://www.okx.com/v3/c2c/tradingOrders/books?quoteCurrency={fiat}&baseCurrency={cripto}&side={lado}'
+             '&paymentMethod=all&userType=all&showTrade=false&showFollow=false&showAlreadyTraded=false'
+             '&isAbleFilter=false&receivingAds=false')
+
+
+def libro_okx(cripto, lado, fiat='uyu'):
+    """Listado público P2P de OKX (sin login). lado 'sell' = anuncios que VENDEN cripto (tu Venta), 'buy' = tu Compra.
+    Devuelve la lista en el orden en que la muestra OKX (el primero es el mejor precio)."""
+    url = OKX_LIBRO.format(fiat=fiat, cripto=cripto.lower(), lado=lado)
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        res = json.load(r)
+    if str(res.get('code')) not in ('0', ''):
+        raise ValueError(f"OKX code {res.get('code')}: {res.get('msg') or res.get('error_message') or ''}"[:120])
+    return (res.get('data') or {}).get(lado) or []
+
+
+def anuncios_okx_vivos():
+    """Busca TUS anuncios de OKX en el listado público UYU por tu apodo (DASH_OKX_APODO). Mismo formato que Binance:
+    {"Venta|USDT": {visible: True, precio, puesto, total, mejor} | {visible: False, revisados}}.
+    Si OKX no responde o no sé tu apodo, ese grupo no va (el tablero sigue sin saber si está activo)."""
+    global ESTADO_OKX
+    ESTADO_OKX = {'usuario': OKX_APODO, 'grupos': 0, 'encontrados': 0, 'error': ''}
+    if not OKX_APODO:
+        ESTADO_OKX['error'] = 'falta tu apodo de OKX (DASH_OKX_APODO)'
+        return {}
+    yo = OKX_APODO.casefold()
+    vivos = {}
+    for cripto in ('USDT', 'USDC'):
+        for tipo, lado in (('Venta', 'sell'), ('Compra', 'buy')):
+            try:
+                lista = libro_okx(cripto, lado)
+            except Exception as e:  # noqa: BLE001
+                log(f'OKX {cripto} {lado}: {e}')
+                ESTADO_OKX['error'] = f'OKX no respondió: {e}'[:160]
+                continue
+            if not lista:   # listado vacío = no sé (puede ser un bloqueo, no que no tengas anuncio)
+                continue
+            ESTADO_OKX['grupos'] += 1
+            mias, mejor = [], None
+            for i, a in enumerate(lista, 1):
+                if str(a.get('nickName') or '').strip().casefold() == yo:
+                    mias.append({'precio': float(a.get('price') or 0), 'puesto': i})
+                elif mejor is None:
+                    mejor = float(a.get('price') or 0)
+            if mias:
+                vivos[f'{tipo}|{cripto}'] = dict(mias[0], tipo=tipo, cripto=cripto, visible=True, total=len(lista),
+                                                 mejor=mejor, cuantos=len(mias))
+                ESTADO_OKX['encontrados'] += 1
+            else:
+                vivos[f'{tipo}|{cripto}'] = {'tipo': tipo, 'cripto': cripto, 'visible': False, 'revisados': len(lista)}
+    log(f"OKX en vivo: {ESTADO_OKX['encontrados']} grupos con anuncio tuyo visible")
+    return vivos
+
+
+ESTADO_OKX = {}
+
+
+def probar_okx():
+    """sudo python3 dashboard_p2p.py --okx : muestra si OKX responde desde este VPS y quién publica en UYU."""
+    print('Tu apodo de OKX (DASH_OKX_APODO):', OKX_APODO or '(no está cargado)')
+    for tipo, lado in (('Venta', 'sell'), ('Compra', 'buy')):
+        try:
+            lista = libro_okx('USDT', lado)
+        except Exception as e:  # noqa: BLE001
+            print(f'{tipo} USDT/UYU: OKX NO RESPONDE desde este VPS ({e})')
+            continue
+        print(f'{tipo} USDT/UYU: {len(lista)} anuncios')
+        for i, a in enumerate(lista[:15], 1):
+            marca = '  <- vos' if OKX_APODO and str(a.get('nickName') or '').strip().casefold() == OKX_APODO.casefold() else ''
+            print(f"  {i:>2}. {a.get('price')}  {a.get('nickName')}{marca}")
 
 
 def actualizar(okx=False):
@@ -138,11 +212,14 @@ def actualizar(okx=False):
         vivos = anuncios_binance_vivos()
         if vivos:
             url += '&vivos=' + urllib.parse.quote(json.dumps(vivos, separators=(',', ':')))
+        okx_vivos = anuncios_okx_vivos()
+        if okx_vivos:
+            url += '&okxVivos=' + urllib.parse.quote(json.dumps(okx_vivos, separators=(',', ':')))
         with urllib.request.urlopen(url, timeout=90) as r:   # sigue solo la redirección de Google
             datos = json.loads(r.read().decode('utf-8'))
         if 'error' in datos:
             raise ValueError(datos['error'])
-        datos['servidor'] = {'ok': True, 'hora': int(time.time()), 'binance': ESTADO_BINANCE,
+        datos['servidor'] = {'ok': True, 'hora': int(time.time()), 'binance': ESTADO_BINANCE, 'okx': ESTADO_OKX,
                              'telefono': {'activo': bool(NTFY_TEMA), 'pedido': TELEFONO['pedido']}}
     except Exception as e:  # noqa: BLE001
         log(f'No pude actualizar: {e}')
@@ -232,6 +309,10 @@ class Pagina(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
+    import sys
+    if '--okx' in sys.argv:
+        probar_okx()
+        raise SystemExit(0)
     if not URL or not CLAVE:
         raise SystemExit('Falta DASH_URL o DASH_CLAVE en /etc/dashboard-p2p.env')
     threading.Thread(target=bucle, daemon=True).start()

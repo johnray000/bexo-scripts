@@ -63,6 +63,19 @@ if ! grep -q '^DASH_NTFY_TEMA=' "$ENV"; then
   esac
 fi
 
+# Opcional: tu apodo de OKX, para ver en el listado público si tus anuncios de OKX están activos.
+if ! grep -q '^DASH_OKX_APODO=' "$ENV"; then
+  echo ""
+  echo "Para saber si tus anuncios de OKX están activos, escribí tu apodo de OKX tal cual sale en el P2P"
+  echo "y Enter. Si no querés, solo Enter."
+  read -r APODO
+  case "$APODO" in
+    "") ;;
+    *[\"\$\`\\]*) echo "Ese apodo tiene caracteres raros: no lo guardé." ;;
+    *) printf 'DASH_OKX_APODO="%s"\n' "$APODO" >> "$ENV"; echo "Listo, guardado." ;;
+  esac
+fi
+
 cat > /etc/systemd/system/dashboard-p2p.service <<'EOF'
 [Unit]
 Description=Brújula P2P
@@ -120,3 +133,7 @@ if [ -n "$NUEVA" ]; then
   echo "Clave:      $DASH_CLAVE   (guardala; para verla de nuevo: sudo cat $ENV)"
 fi
 echo "Memoria:    $(systemctl show dashboard-p2p -p MemoryCurrent --value | awk '{printf "%.0f MB", $1/1048576}')"
+echo ""
+echo "Prueba de OKX (si responde desde este VPS y si encuentra tus anuncios):"
+set -a; . "$ENV"; set +a
+python3 "$DIR/dashboard_p2p.py" --okx || true
