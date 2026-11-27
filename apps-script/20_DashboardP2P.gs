@@ -464,6 +464,7 @@ function dashboardP2P_(vivos, okxVivos) {
       uyu: { margen: pCompra ? dashR_((pVenta / pCompra - 1) * 100, 1) : 0, gananciaUSD: pVenta ? dashR_(ganUYU / pVenta, 0) : 0 },
       ars: { precio: dashR_(dashP_(ars), 1), semanaARS: Math.round(arsSemana) },
       ves: { precio: dashR_(dashP_(ves), 1), semanaUSDT: dashR_(vesSemana, 0) },
+      remesas: dashRemesas_(dashP_(ars), dashP_(ves), vesSemana),
       usdc: { precio: dashR_(dashP_(usdc)), margen: usdc.length && ventaHoy ? dashR_((ventaHoy / dashP_(usdc) - 1) * 100, 1) : 0 }
     },
     calor: calor,
@@ -510,4 +511,32 @@ function dashBitget_(zona) {
     logError_('dashBitget_', e.message || e);
     return null;
   }
+}
+
+/**
+ * Remesas Argentina → Venezuela: el cliente paga pesos y recibe Bs a la tasa neta (hoja Tasas, la que le das).
+ * A vos te sale "real" Bs por peso = (Bs por USDT de tus últimas ventas VES) / (pesos por USDT de tus últimas compras ARS).
+ * Margen = real / neta - 1. Ganancia de la semana ≈ USDT pagados en Bs × (1 - neta / real).
+ * "mercado" = tasa bruta de la última lectura de la hoja Tasas (primer anuncio de Binance), para comparar.
+ */
+function dashRemesas_(pArs, pVes, vesSemana) {
+  var neta = 0, mercado = 0;
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(typeof HOJA_TASAS === 'string' ? HOJA_TASAS : 'Tasas');
+    if (sh && sh.getLastRow() >= 2) {
+      var enc = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+      var fila = sh.getRange(2, 1, 1, sh.getLastColumn()).getValues()[0];
+      neta = +fila[enc.indexOf('Tasa neta')] || 0;
+      mercado = +fila[enc.indexOf('Tasa')] || 0;
+    }
+  } catch (e) { logError_('dashRemesas_', e.message || e); }
+  var real = pArs && pVes ? pVes / pArs : 0;
+  if (!(neta > 0 && neta < 5)) neta = 0;
+  return {
+    real: dashR_(real, 4), neta: neta, mercado: dashR_(mercado, 4),
+    margen: real && neta ? dashR_((real / neta - 1) * 100, 1) : null,
+    margenMercado: mercado && neta ? dashR_((mercado / neta - 1) * 100, 1) : null,
+    semanaUSDT: Math.round(vesSemana),
+    gananciaUSDT: real && neta ? Math.round(vesSemana * (1 - neta / real)) : null
+  };
 }
