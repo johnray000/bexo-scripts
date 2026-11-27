@@ -3,8 +3,9 @@
 
 Corre en el teléfono: Bybit bloquea las IP de EE.UU., así que el VPS y Apps Script no sirven.
 Las órdenes se unen por número de orden con las que ya están (las del export no se repiten).
+También manda tus anuncios con su estado (activo/pausado) para que la Brújula apague los que no están activos.
 
-  python bybit_ordenes.py --probar        # no sube nada: muestra cuántas órdenes hay y las últimas 5
+  python bybit_ordenes.py --probar        # no sube nada: muestra cuántas órdenes hay, las últimas 5 y tus anuncios
   python bybit_ordenes.py --dias 120      # primera carga (todo lo que haya)
   python bybit_ordenes.py                 # lo de cada 4 horas (telefono/subir.sh): últimos 7 días
 
@@ -31,14 +32,17 @@ DIA_MS = 24 * 3600 * 1000
 ESTADOS = {50: 'COMPLETED', 40: 'CANCELLED', 80: 'CANCELLED', 30: 'IN_APPEAL', 100: 'IN_APPEAL'}
 
 _desfase_ms = None
+_desfase_cuando = 0
 
 
 def hora_bybit_ms():
-    """Hora según Bybit (si el reloj del teléfono está corrido, Bybit rechaza la firma)."""
-    global _desfase_ms
-    if _desfase_ms is None:
+    """Hora según Bybit (si el reloj del teléfono está corrido, Bybit rechaza la firma). Se vuelve a medir cada
+    10 min: la alarma corre días seguidos y el reloj del teléfono se corre."""
+    global _desfase_ms, _desfase_cuando
+    if _desfase_ms is None or time.time() - _desfase_cuando > 600:
         with urllib.request.urlopen(BASE + '/v5/market/time', timeout=20) as r:
             _desfase_ms = int(json.loads(r.read())['time']) - int(time.time() * 1000)
+        _desfase_cuando = time.time()
     return int(time.time() * 1000) + _desfase_ms
 
 
@@ -90,8 +94,84 @@ def ordenes(cfg, dias):
     } for o in lista]
 
 
-def subir(cfg, lista):
-    cuerpo = json.dumps({'ordenesBybit': lista, 'token': cfg['ORDENES_TOKEN']}).encode()
+def _buscar(obj, clave):
+    """Primer valor de `clave` en cualquier nivel de un JSON (Bybit anida el método de pago)."""
+    if isinstance(obj, dict):
+        if obj.get(clave):
+            return obj[clave]
+        obj = list(obj.values())
+    if isinstance(obj, list):
+        for v in obj:
+            hallado = _buscar(v, clave)
+            if hallado:
+                return hallado
+    return None
+
+
+_detalles = {}
+
+
+def pendientes(cfg):
+    """Órdenes P2P de Bybit sin terminar, con la forma de las de Binance para que la alarma las trate igual.
+    Estados de Bybit: 10 = esperando que pague el comprador, 20 = pagada (falta liberar). Si sos el anunciante
+    (makerUserId) va advertisementRole=MAKER; el detalle se pide una sola vez por orden."""
+    r = pedir(cfg, '/v5/p2p/order/pending/simplifyList', {'page': 1, 'size': POR_PAGINA})
+    lista = []
+    for o in r.get('items') or []:
+        n = str(o.get('id'))
+        if n not in _detalles:
+            try:
+                _detalles[n] = pedir(cfg, '/v5/p2p/order/info', {'orderId': n})
+            except SystemExit:
+                _detalles[n] = {}
+        d = _detalles[n]
+        if d.get('makerUserId') and d.get('userId'):
+            rol = 'MAKER' if str(d['makerUserId']) == str(d['userId']) else 'TAKER'
+        else:
+            rol = 'MAKER'                  # sin dato: mejor que suene de más que de menos
+        estado = {10: 'TRADING', 20: 'BUYER_PAYED'}.get(int(o.get('status') or 0), 'OTRO')
+        lista.append({'orderNumber': n, 'tradeType': 'BUY' if str(o.get('side')) == '0' else 'SELL',
+                      'orderStatus': estado, 'advertisementRole': rol, 'totalPrice': o.get('amount'),
+                      'fiat': o.get('currencyId') or '', 'amount': o.get('notifyTokenQuantity'),
+                      'asset': o.get('tokenId') or '', 'createTime': int(o.get('createDate') or 0),
+                      'payMethodName': _buscar(d, 'paymentName') or '', 'exchange': 'Bybit'})
+    vivas = {o['orderNumber'] for o in lista}
+    for n in list(_detalles):
+        if n not in vivas:
+            del _detalles[n]
+    return lista
+
+
+# Estado de tus anuncios en Bybit (status de /v5/p2p/item/personal/list): 10 en línea, 20 fuera de línea, 30 terminado.
+ESTADO_ANUNCIO = {10: 'activo', 20: 'pausado', 30: 'terminado'}
+
+
+def mis_anuncios(cfg):
+    """Tus anuncios de Bybit con su estado, para que la Brújula sepa si están activos. None si Bybit no responde
+    (así la Brújula dice "no sé" en vez de apagarlos)."""
+    try:
+        r = pedir(cfg, '/v5/p2p/item/personal/list', {})
+    except SystemExit as e:   # pedir() corta con SystemExit: acá no frena la subida de órdenes
+        print('Bybit anuncios: no pude leerlos (%s)' % e, flush=True)
+        return None
+    lista = []
+    for a in r.get('items') or []:
+        try:
+            estado = ESTADO_ANUNCIO.get(int(a.get('status')), str(a.get('status')))
+            lado = 'Compra' if str(a.get('side')) == '0' else 'Venta'
+            lista.append({'id': str(a.get('id') or ''), 'tipo': lado, 'cripto': a.get('tokenId') or '',
+                          'fiat': a.get('currencyId') or '', 'precio': float(a.get('price') or 0), 'estado': estado,
+                          'queda': float(a.get('lastQuantity') or 0)})
+        except (TypeError, ValueError):
+            continue
+    return lista
+
+
+def subir(cfg, lista, anuncios=None):
+    datos = {'ordenesBybit': lista, 'token': cfg['ORDENES_TOKEN']}
+    if anuncios is not None:
+        datos['anunciosBybit'] = anuncios
+    cuerpo = json.dumps(datos).encode()
     req = urllib.request.Request(cfg['WEBAPP_URL'], data=cuerpo, headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=120) as r:   # Apps Script responde 302; urllib lo sigue
         return r.read().decode('utf-8', 'replace')
@@ -113,5 +193,11 @@ if __name__ == '__main__':
         for o in lista[:5]:
             print(time.strftime('%d/%m %H:%M', time.localtime(o['hora'] / 1000)), o['numero'], o['tipo'],
                   o['cantidad'], o['activo'], '=', o['total'], o['fiat'], '@', o['precio'], o['contraparte'], o['estado'])
+        anuncios = mis_anuncios(cfg)
+        print('Tus anuncios:', 'no pude leerlos' if anuncios is None else len(anuncios))
+        for a in anuncios or []:
+            print('  ', a['tipo'], a['cripto'], a['fiat'], a['precio'], a['estado'], 'queda', a['queda'])
     else:
-        print(time.strftime('%Y-%m-%d %H:%M'), 'Bybit:', len(lista), 'órdenes ->', subir(cfg, lista)[:300], flush=True)
+        anuncios = mis_anuncios(cfg)
+        print(time.strftime('%Y-%m-%d %H:%M'), 'Bybit:', len(lista), 'órdenes,',
+              'anuncios ?' if anuncios is None else '%d anuncios' % len(anuncios), '->', subir(cfg, lista, anuncios)[:300], flush=True)

@@ -31,15 +31,36 @@ def _enviar(cuerpo):
         pass                               # un aviso que no llega no puede frenar el recorrido
 
 
-def publicar(titulo, texto, prioridad=3, tags=(), esperar=False):
+def publicar(titulo, texto, prioridad=3, tags=(), esperar=False, acciones=()):
     """Publica en el tema de ~/.bexo-ntfy. En un hilo aparte (no demora el recorrido); Python espera a que termine
-    antes de salir, así el último aviso llega igual. esperar=True: lo manda antes de volver."""
+    antes de salir, así el último aviso llega igual. esperar=True: lo manda antes de volver.
+    acciones: botones de ntfy (máximo 3), ver botones_orden()."""
     t = tema()
     if not t:
         return False
     cuerpo = {'topic': t, 'title': titulo, 'message': texto, 'priority': prioridad, 'tags': list(tags)}
+    if acciones:
+        cuerpo['actions'] = list(acciones)[:3]
     if esperar:
         _enviar(cuerpo)
     else:
         threading.Thread(target=_enviar, args=(cuerpo,)).start()
     return True
+
+
+def botones_orden(link):
+    """Botones del final del recorrido: "🔁 Rearmar" (vuelve a mandar el mismo link al tema de comandos: el teléfono
+    lo arma otra vez) y "✅ FIN" (si el link trae fin=…: el Apps Script pasa el comprobante a CONTADO)."""
+    t = tema()
+    if not t or not link:
+        return []
+    b = [{'action': 'http', 'label': '🔁 Rearmar', 'url': '%s/%s-cmd' % (NTFY_URL, t), 'method': 'POST',
+          'body': link, 'clear': False}]
+    try:
+        import urllib.parse
+        fin = (urllib.parse.parse_qs(urllib.parse.urlparse(link).query).get('fin') or [''])[0]
+    except ValueError:
+        fin = ''
+    if fin.startswith('https://'):
+        b.append({'action': 'http', 'label': '✅ FIN', 'url': fin, 'method': 'GET', 'clear': True})
+    return b

@@ -4,6 +4,9 @@
 Binance bloquea las IPs de Apps Script; este VPS sí llega.
 GET /anuncios?token=XXX&fiat=VES&tipo=SELL&pago=PagoMovil&filas=10&monto=50000   (público, sin clave)
 GET /contrapartes?token=XXX&dias=180   (tu historial; usa BINANCE_KEY/BINANCE_SECRET de SOLO LECTURA)
+POST /ntfy?token=XXX  cuerpo JSON de ntfy ({topic, title, message, priority, tags, actions}) → lo reenvía a ntfy.sh
+     desde la IP de este VPS (desde las IPs compartidas de Google, ntfy.sh corta por cupo diario: error 429).
+     Solo temas que empiezan con "bexo-".
 La clave de Binance vive solo en /etc/relay-binance.env: nunca sale del VPS.
 """
 import hashlib
@@ -133,6 +136,23 @@ def descripcion(adv_no):
     return hallar(datos)[:1000]
 
 
+NTFY = 'https://ntfy.sh'
+MAX_NTFY_BYTES = 8000
+
+
+def reenviar_ntfy(cuerpo):
+    """Publica en ntfy.sh el JSON que manda el Apps Script. Devuelve el código de ntfy."""
+    datos = json.loads(cuerpo)
+    if not isinstance(datos, dict) or not str(datos.get('topic', '')).startswith('bexo-'):
+        raise ValueError('tema no permitido')
+    req = urllib.request.Request(NTFY, data=json.dumps(datos).encode(), headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
 class Relay(BaseHTTPRequestHandler):
     # Una conexión que se abre y no manda nada (bots que escanean puertos) se corta a los 30 s.
     # Antes no tenía límite y, como atendía de a uno, dejaba colgado al relay para todos.
@@ -165,6 +185,20 @@ class Relay(BaseHTTPRequestHandler):
             self.responder(200, {'anuncios': anuncios})
         except Exception as e:
             self.responder(502, {'error': str(e)})
+
+    def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if q.get('token') != TOKEN or url.path != '/ntfy':
+            return self.responder(403, {'error': 'no autorizado'})
+        largo = int(self.headers.get('Content-Length') or 0)
+        if not 0 < largo <= MAX_NTFY_BYTES:
+            return self.responder(413, {'error': 'cuerpo vacío o muy grande'})
+        try:
+            codigo = reenviar_ntfy(self.rfile.read(largo))
+            return self.responder(200 if codigo < 300 else 502, {'ntfy': codigo})
+        except Exception as e:
+            return self.responder(400, {'error': str(e)})
 
     def responder(self, codigo, obj):
         cuerpo = json.dumps(obj).encode()

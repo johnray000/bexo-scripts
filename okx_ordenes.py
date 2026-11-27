@@ -264,11 +264,14 @@ HASTA = os.path.expanduser('~/.okx_hasta')   # la orden más nueva que ya llegó
 
 
 def desde_ms(dias):
-    """Desde cuándo leer: 1 hora antes de la última orden que ya llegó a la planilla, y nunca más de `dias` atrás."""
+    """Desde cuándo leer: 1 hora antes de la última orden que ya llegó a la planilla (aunque sea de hace más de
+    `dias` días: si una lectura falló, la siguiente recupera el hueco), pero nunca más de 14 días atrás.
+    Sin registro de la última, los últimos `dias` días."""
     tope = (time.time() - dias * 86400) * 1000
     try:
         with open(HASTA) as f:
-            return max(tope, int(f.read().strip()) - 3600 * 1000)
+            hasta = int(f.read().strip()) - 3600 * 1000
+        return max(min(tope, hasta), (time.time() - 14 * 86400) * 1000)
     except (OSError, ValueError):
         return tope
 

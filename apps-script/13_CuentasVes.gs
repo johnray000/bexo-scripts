@@ -5,7 +5,14 @@
 //    "Pesos" / "$", pone ARS.
 //    A las filas de Movimientos en bolívares les
 //    pone Moneda VES, reconoce la cuenta (MJ, MR, PMJ, PMR) desde lo que leyó DeepSeek (columna Raw_JSON) y,
-//    si quedó en REVISAR por la cuenta, pasa a LEIDO. Completa dos columnas al final:
+//    si quedó en REVISAR por la cuenta, pasa a LEIDO.
+//    ¿Es de verdad un VES > ARS? Solo si los Bs llegaron a una cuenta tuya (por número de cuenta, teléfono o cédula).
+//    Si la lectura general (4_LeerComprobantes, prompt de ARS, NO se toca) no trajo el destino, se hace UNA lectura
+//    aparte con PROMPT_VES (solo datos de quien recibe en Venezuela) y se guarda en Raw_JSON con lectura_ves: true.
+//    Si el comprobante muestra otro destino (el cliente te pasa los datos de una cuenta o te reenvía un pago a un
+//    tercero), Cuenta = TERCERO, queda en REVISAR y no lleva Tasa ni ARS (no suma). Si no se ve ningún destino,
+//    Cuenta = PMJ por defecto y queda en REVISAR para que lo mires vos.
+//    Completa dos columnas al final:
 //      Tasa = tasa bruta del día (hoja Tasas, columna "Tasa", la última lectura antes de que llegara el comprobante)
 //      ARS  = Bs ÷ Tasa × FACTOR_VES   (la cuenta que John hacía a mano para cargarlo como efectivo)
 //    La Tasa queda fija; el ARS se recalcula si corregís el monto.
@@ -21,6 +28,8 @@
 var FACTOR_VES = 1.10;   // ARS = Bs ÷ tasa bruta × 1,10
 var COL_TASA_VES = 'Tasa';
 var COL_ARS_VES = 'ARS';
+var CUENTA_VES_DEFECTO = 'PMJ';   // si el comprobante no muestra a qué cuenta llegó
+var CUENTA_TERCERO = 'TERCERO';   // los Bs fueron a una cuenta que no es tuya: no es un VES > ARS
 
 // Tus cuentas en Venezuela. cuenta = últimos 4 del número de cuenta; tel = últimos 4 del teléfono de Pago Móvil;
 // ci = cédula del titular (se usa solo si no aparece ni cuenta ni teléfono).
@@ -89,6 +98,68 @@ function cuentaVe_(p) {
   return null;
 }
 
+// ---------- Lectura propia de los comprobantes en Bs (no toca el prompt general de 4_LeerComprobantes) ----------
+var MAX_LECTURAS_VES = 5;   // por vuelta de completarVes_, para no pasarse de tiempo
+var PROMPT_VES =
+  'Es un comprobante de pago de VENEZUELA (Pago Movil o transferencia en bolivares). Devuelve SOLO un objeto ' +
+  'JSON valido, sin markdown, con estas claves exactas:\n' +
+  '{"destino_telefono": string|null, "destino_cuenta": string|null, "destino_cedula": string|null, ' +
+  '"titular_destino": string|null, "banco_destino": string|null}\n' +
+  'REGLAS:\n' +
+  '- Todo es de QUIEN RECIBE el dinero (Receptor, Beneficiario, Destino, Destinatario), nunca de quien paga ' +
+  '(Origen, Cuenta origen, Pagador).\n' +
+  '- destino_telefono: telefono del receptor tal cual se ve, con asteriscos si esta enmascarado (ej 0416***2961).\n' +
+  '- destino_cuenta: numero de cuenta del receptor tal cual se ve (20 digitos o enmascarado, ej 0105****1238).\n' +
+  '- destino_cedula: cedula, documento o RIF del receptor tal cual se ve (ej V14***493, V-12309533).\n' +
+  '- Si un dato no se ve, null. No inventes.';
+
+/**
+ * Lee de nuevo la imagen con PROMPT_VES y suma lo encontrado al JSON de la fila (Raw_JSON), con lectura_ves: true
+ * para no repetirla. Devuelve el JSON completo (o el de antes si la lectura falla).
+ */
+function releerDestinoVes_(sh, fila, driveId, p) {
+  p = p || {};
+  try {
+    var b64 = Utilities.base64Encode(DriveApp.getFileById(driveId).getBlob().getBytes());
+    var res = UrlFetchApp.fetch(VISION_URL, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'Authorization': 'Bearer ' + VISION_KEY },
+      payload: JSON.stringify({
+        model: VISION_MODEL, max_tokens: 300, thinking: { type: 'disabled' },
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: PROMPT_VES },
+          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } }] }]
+      })
+    });
+    if (res.getResponseCode() !== 200) { logError_('VES_LECTURA', 'fila ' + fila + ' | HTTP ' + res.getResponseCode()); return p; }
+    var txt = JSON.parse(res.getContentText()).choices[0].message.content || '';
+    var v = JSON.parse(txt.substring(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
+    if (v.destino_cuenta || v.destino_telefono) {
+      p.destino_identificador = v.destino_cuenta || v.destino_telefono;
+      p.destino_tipo = v.destino_cuenta ? 'CUENTA' : 'TELEFONO';
+    }
+    if (v.destino_cuenta && v.destino_telefono) p.destino_telefono = v.destino_telefono;
+    if (v.destino_cedula) p.destino_cedula = v.destino_cedula;
+    if (v.titular_destino) p.titular_destino = v.titular_destino;
+    if (v.banco_destino) p.banco_destino = v.banco_destino;
+  } catch (e) {
+    // imagen borrada, respuesta rara…: se marca igual para no reintentarla en cada vuelta
+    logError_('VES_LECTURA', 'fila ' + fila + ' | ' + (e.message || e));
+    p.lectura_ves = 'fallo';
+    sh.getRange(fila, C.RAW).setValue(JSON.stringify(p));
+    return p;
+  }
+  p.lectura_ves = true;
+  sh.getRange(fila, C.RAW).setValue(JSON.stringify(p));
+  return p;
+}
+
+/** true si DeepSeek vio algún dato de quien recibe (teléfono, cuenta o cédula). El nombre solo no alcanza. */
+function tieneDestino_(p) {
+  return !!p && soloDigitos_(String(p.destino_identificador || '') + String(p.destino_cedula || '')).length >= 4;
+}
+
 /** Tasas: [{fecha, tasa}] de la hoja Tasas (la más nueva primero), columna "Tasa" (bruta). */
 function leerTasasBrutas_() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJA_TASAS);
@@ -150,10 +221,19 @@ function completarVes_() {
 
 function completarFilaVes_(sh, d, fila, colT, colA, cache) {
   if (d[C.MONEDA - 1] !== 'VES') sh.getRange(fila, C.MONEDA).setValue('VES');
-  // Sin cuenta, o con una argentina que 4_LeerComprobantes adivinó por los últimos 4: se busca entre las de Venezuela
-  if (!esCuentaVe_(d[C.CUENTA - 1])) {
+  var cuenta = String(d[C.CUENTA - 1] || '').trim();
+  if (cuenta === CUENTA_TERCERO) return;   // no es un VES > ARS: sin Tasa ni ARS
+  // Sin cuenta, o con una argentina que 4_LeerComprobantes adivinó por los últimos 4: se busca entre las de Venezuela.
+  // Solo en filas abiertas (REVISAR / LEIDO): lo que ya contaste o descartaste no se toca.
+  var abierta = d[C.ESTADO - 1] === E_REVI || d[C.ESTADO - 1] === E_LEID;
+  if (!esCuentaVe_(cuenta) && abierta) {
     var p = null;
     try { p = JSON.parse(d[C.RAW - 1] || 'null'); } catch (e) { p = null; }
+    // La lectura general no trajo una cuenta tuya: una sola vez, lectura con el prompt de Bs
+    if (!cuentaVe_(p) && !(p && p.lectura_ves) && d[C.DRIVE_ID - 1] && (cache.lecturas || 0) < MAX_LECTURAS_VES) {
+      cache.lecturas = (cache.lecturas || 0) + 1;
+      p = releerDestinoVes_(sh, fila, d[C.DRIVE_ID - 1], p);
+    }
     var cod = cuentaVe_(p);
     if (cod) {
       sh.getRange(fila, C.CUENTA).setValue(cod);
@@ -161,6 +241,17 @@ function completarFilaVes_(sh, d, fila, colT, colA, cache) {
       if (d[C.ESTADO - 1] === E_REVI && Number(d[C.CONFIANZA - 1]) >= 0.8 && Number(d[C.MONTO - 1]) > 0) {
         sh.getRange(fila, C.ESTADO).setValue(E_LEID);
       }
+    } else if (tieneDestino_(p)) {
+      // Se ve a quién fue y no es tuyo: datos de una cuenta o pago a un tercero. Queda para que decidas vos.
+      sh.getRange(fila, C.CUENTA).setValue(CUENTA_TERCERO);
+      if (d[C.ESTADO - 1] !== E_REVI) sh.getRange(fila, C.ESTADO).setValue(E_REVI);
+      if (d[colT - 1] !== '') sh.getRange(fila, colT).setValue('');
+      if (d[colA - 1] !== '') sh.getRange(fila, colA).setValue('');
+      return;
+    } else {
+      // No se ve ningún destino: PMJ por defecto, en REVISAR (sin pre-orden hasta que lo mires)
+      sh.getRange(fila, C.CUENTA).setValue(CUENTA_VES_DEFECTO);
+      if (d[C.ESTADO - 1] !== E_REVI) sh.getRange(fila, C.ESTADO).setValue(E_REVI);
     }
   }
   var bs = Number(d[C.MONTO - 1]) || 0;

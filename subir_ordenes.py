@@ -38,19 +38,25 @@ def leer_env():
 
 
 _desfase_ms = None
+_desfase_cuando = 0
+RESINCRONIZAR_S = 10 * 60
 
 
-def hora_binance_ms():
-    """Hora según Binance: si el reloj del teléfono está adelantado, Binance rechaza la firma (-1021)."""
-    global _desfase_ms
-    if _desfase_ms is None:
+def hora_binance_ms(forzar=False):
+    """Hora según Binance: si el reloj del teléfono está adelantado, Binance rechaza la firma (-1021).
+    La diferencia se vuelve a medir cada 10 min: el reloj del teléfono se corre (o Android lo corrige de golpe al
+    despertar) y la alarma, que corre días seguidos, quedaba con la diferencia vieja y daba -1021 sin parar."""
+    global _desfase_ms, _desfase_cuando
+    if forzar or _desfase_ms is None or time.time() - _desfase_cuando > RESINCRONIZAR_S:
         with urllib.request.urlopen('https://api.binance.com/api/v3/time', timeout=10) as r:
             _desfase_ms = json.load(r)['serverTime'] - int(time.time() * 1000)
+        _desfase_cuando = time.time()
     # 2 s de margen hacia atrás: Binance acepta hasta 10 s de atraso (recvWindow) pero ni 1 s de adelanto.
     return int(time.time() * 1000) + _desfase_ms - 2000
 
 
-def firmar_y_pedir(cfg, params):
+def firmar_y_pedir(cfg, params, _reintento=True):
+    base = params
     params = dict(params, recvWindow=10000, timestamp=hora_binance_ms())
     query = urllib.parse.urlencode(params)
     firma = hmac.new(cfg['BINANCE_SECRET'].encode(), query.encode(), hashlib.sha256).hexdigest()
@@ -61,7 +67,11 @@ def firmar_y_pedir(cfg, params):
             return json.load(r)
     except urllib.error.HTTPError as e:
         # Binance explica el error en el cuerpo (code y msg); sin esto solo se ve "400".
-        raise SystemExit('Binance %s: %s' % (e.code, e.read()[:300].decode('utf-8', 'replace')))
+        cuerpo = e.read()[:300].decode('utf-8', 'replace')
+        if '-1021' in cuerpo and _reintento:   # hora corrida: medir de nuevo y probar una vez más
+            hora_binance_ms(forzar=True)
+            return firmar_y_pedir(cfg, base, _reintento=False)
+        raise SystemExit('Binance %s: %s' % (e.code, cuerpo))
 
 
 def ordenes(cfg, dias):

@@ -271,6 +271,7 @@ function traerMovimientosOKX() {
     escribirOrdenesP2P_(sh, filas);
     Logger.log('OKX: %s movimientos, %s órdenes nuevas, %s unidas a filas que ya estaban, %s canceladas',
                movs.length, nuevas, unidas, canceladas);
+    PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_OKX', String(Date.now()));   // lo muestra la Brújula
     return { movimientos: movs.length, nuevas: nuevas, unidas: unidas, canceladas: canceladas };
   } catch (e) {
     logError_('traerMovimientosOKX', e.message || e);
@@ -322,7 +323,8 @@ function completarOrdenesOKX_(lista) {
       return;
     }
     // Candidatas: mismo tipo, cripto y cantidad, creada en ese minuto (las del export, con segundos) o,
-    // si vino de la API sin hora de creación exacta: compra → cerrada hasta 3 h después; venta → el mismo minuto.
+    // si vino de la API sin hora de creación exacta: compra → cerrada hasta 8 h después; venta → el mismo minuto.
+    // (Eran 3 h: la compra de 21 USDT del 16/11 se cerró 3 h 13 min después y quedó duplicada y sin moneda.)
     var fila = null, dif = Infinity, completa = false;
     filas.forEach(function (f) {
       if (f[0] !== 'OKX' || f[C_['Ref app']] || f[C_['Tipo']] !== tipo || f[C_['Cripto']] !== o.cripto ||
@@ -330,7 +332,7 @@ function completarOrdenesOKX_(lista) {
       var d = new Date(f[C_['Creada']]).getTime() - t;
       var entra;
       if (f[C_['Fuente']] === 'export') entra = d >= 0 && d < 60000;
-      else if (tipo === 'Compra') entra = o.estado === 'Completada' && d >= -60000 && d <= 3 * 3600 * 1000;
+      else if (tipo === 'Compra') entra = o.estado === 'Completada' && d >= -60000 && d <= 8 * 3600 * 1000;
       else entra = d >= -60000 && d <= 3 * 60000;
       if (entra && Math.abs(d) < dif) { dif = Math.abs(d); fila = f; completa = f[C_['Fuente']] === 'export'; }
     });
@@ -355,6 +357,7 @@ function completarOrdenesOKX_(lista) {
     porRef[ref] = fila;
   });
   escribirOrdenesP2P_(sh, filas);
+  PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_OKX_APP', String(Date.now()));
   return { ok: true, recibidas: lista.length, unidas: unidas, agregadas: agregadas, yaEstaban: yaEstaban };
 }
 

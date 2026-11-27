@@ -99,8 +99,15 @@ function agendarLecturaRapida_() {
     if (Date.now() - ya < 60 * 1000) return;
     // Ya hay una lectura en camino: esta foto entra en esa. Se mira el activador de verdad, no solo la marca,
     // así una marca vieja (lectura que no llegó a correr) no deja fotos sin leer.
-    var hay = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'lecturaPorComprobante'; });
-    if (hay) return;
+    var mios = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'lecturaPorComprobante'; });
+    // Un activador de hace más de 10 min ya debió correr: quedó colgado (p. ej. disparó contra una versión sin la
+    // función, 26/11) y bloquearía todas las lecturas. Se borra y se agenda de nuevo.
+    if (mios.length && Date.now() - ya > 10 * 60 * 1000) {
+      mios.forEach(function (t) { ScriptApp.deleteTrigger(t); });
+      logError_('AGENDAR_LECTURA', 'Activador colgado (' + Math.round((Date.now() - ya) / 60000) + ' min): se agenda de nuevo');
+      mios = [];
+    }
+    if (mios.length) return;
     // Con la regla vieja (10 min) esta foto se salteaba: queda anotado para confirmar que era esto
     if (Date.now() - ya < 10 * 60 * 1000) logError_('AGENDAR_LECTURA', 'Marca sin activador (' + Math.round((Date.now() - ya) / 1000) + ' s): se agenda igual');
     props.setProperty(PROP_LECTURA_AGENDADA, String(Date.now()));
@@ -154,7 +161,12 @@ function enviarPreOrdenes(siempre) {
       var monto = Number(d[C.MONTO - 1]) || 0;
       if (!(monto > 0)) continue;
       var n = { id: String(d[C.ID - 1]), nombre: String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]),
-                monto: monto, cuenta: d[C.CUENTA - 1] };
+                monto: monto, cuenta: d[C.CUENTA - 1],
+                // para la tarjeta de ntfy (21_Ntfy.gs): solo lo que se muestra recortado
+                institucion: String(d[C.INSTITUCION - 1] || ''), ref: d[C.REFERENCIA - 1], confianza: d[C.CONFIANZA - 1],
+                driveId: String(d[C.DRIVE_ID - 1] || ''),
+                hora: d[C.RECIBIDO - 1] instanceof Date ?
+                      Utilities.formatDate(d[C.RECIBIDO - 1], Session.getScriptTimeZone(), 'HH:mm') : '' };
       if (ves) {
         var tv = Number(d[colT - 1]) || tasaBrutaPara_(d[C.RECIBIDO - 1], tasas = tasas || leerTasasBrutas_());
         if (!tv) continue;   // sin tasa no se puede calcular; queda para la próxima vuelta
@@ -185,7 +197,8 @@ function enviarPreOrdenes(siempre) {
         var msj = mensajePreOrden_(n, tasa, agenda);
         ok = whatsAppConfirmado_(msj.orden);
         if (ok && msj.datos) whatsAppConfirmado_(msj.datos);
-        if (ok) avisarPreOrdenTelefono_(msj.orden);   // ntfy con botón "Armar en Binance" (o el link solo)
+        // ntfy: la tarjeta del comprobante con "✅ Armar en Binance" (21_Ntfy.gs); sin ntfy, el link solo por WhatsApp
+        if (ok && !avisarComprobanteNtfy_(n, tasa)) avisarPreOrdenTelefono_(msj.orden);
       }
       if (ok) marcarEnviada_(n.id);   // si no, queda ENVIANDO y se reintenta sola
     } catch (e) {
