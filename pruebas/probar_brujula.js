@@ -135,9 +135,8 @@ caso('Las órdenes canceladas no cuentan en lo que debés', () => {
 });
 
 caso('Página: se apaga solo lo comprobado (Binance no listado o Bybit pausado; OKX nunca, 25/11 y 27/11)', () => {
-  const m = HTML.match(/var off = ([^;]+);/);
-  igual(m && m[1].trim(), 'noListado || pausado', 'condición de apagado');
-  igual(/var pausado = a\.estado === 'pausado';/.test(HTML), true, 'pausado sale del estado que manda el Apps Script');
+  const m = HTML.match(/var apagado = function \(a\) \{ return ([^;]+); \};/);
+  igual(m && m[1].trim(), "(a.ex === 'Binance' && a.accion === 'No sé') || a.estado === 'pausado'", 'condición de apagado');
 });
 
 const adsBybit = (hace, lista) => ({ BYBIT_ANUNCIOS: JSON.stringify({ cuando: AHORA.getTime() - hace * 36e5, lista }) });
