@@ -535,5 +535,22 @@
   "tipos": [
    "calculo"
   ]
+ },
+ {
+  "nombre": "\"Aque cta te paso?\" pide el alias (Jairo 27/11)",
+  "texto": "Aque cta te paso?",
+  "intenciones": [
+   "pide_alias"
+  ],
+  "tipos": [
+   "alias"
+  ]
+ },
+ {
+  "nombre": "\"Cuál cta te paso\" pide el alias",
+  "texto": "Cual cta te paso",
+  "intenciones": [
+   "pide_alias"
+  ]
  }
 ]
