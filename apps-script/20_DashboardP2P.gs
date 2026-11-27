@@ -536,6 +536,8 @@ function dashRemesas_(pArs, pVes, vesSemana) {
     real: dashR_(real, 4), neta: neta, mercado: dashR_(mercado, 4),
     margen: real && neta ? dashR_((real / neta - 1) * 100, 1) : null,
     margenMercado: mercado && neta ? dashR_((mercado / neta - 1) * 100, 1) : null,
+    // Por cada 100.000 ARS del cliente: USDT que comprás con esos pesos menos USDT que vendés para darle sus Bs.
+    por100k: pArs && pVes && neta ? dashR_(100000 / pArs - 100000 * neta / pVes, 1) : null,
     semanaUSDT: Math.round(vesSemana),
     gananciaUSDT: real && neta ? Math.round(vesSemana * (1 - neta / real)) : null
   };

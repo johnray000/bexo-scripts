@@ -54,9 +54,11 @@ td.n,th.n{text-align:right}
 .alert{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #1d2430;font-size:13px}
 .alert:last-child{border-bottom:0}
 .alert svg{flex:none;margin-top:2px}
-.route{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:10px 0;border-bottom:1px solid #1d2430}
-.route:last-child{border-bottom:0}
-.route .r{font-weight:600}.route .m{text-align:right;font-variant-numeric:tabular-nums}
+.route{display:flex;flex-direction:column;gap:4px;padding:12px 0;min-width:0}
+.route .r{font-weight:600;font-size:13px;color:var(--mut)}
+.route .m{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+.route .note{font-size:12.5px;line-height:1.4}
+.route .sub{color:var(--mut);font-size:12px}
 .why{font-size:13.5px;margin:-4px 0 10px}
 .p-up{background:#e6edf3;color:#0d1117}
 .tag{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:4px;margin-right:8px}
@@ -83,14 +85,15 @@ td.n,th.n{text-align:right}
 .pp-sum{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
 .pp-box{background:#0f141b;border-radius:10px;padding:10px 12px}
 .big{font-size:22px;font-weight:650;font-variant-numeric:tabular-nums}
-.routes4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 20px}
-.routes4 .route{border-bottom:0;border-top:1px solid #1d2430}
+.routes4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 24px}
+@media (max-width:1000px){.routes4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.routes4 .route{border-top:1px solid #1d2430}
 .mnow{font-style:normal;display:inline-flex;align-items:baseline;gap:8px;background:#12301f;border:1px solid #1f5a33;border-radius:999px;padding:4px 12px}
 .mnow b{font-size:18px;color:var(--ok);font-variant-numeric:tabular-nums}
 .mnow small{font-size:11.5px;color:#9fd8ae;font-weight:500;font-variant-numeric:tabular-nums}
 .foot{margin-top:18px;color:var(--mut);font-size:12px}
-@media (max-width:1100px){.kpis .wide{grid-column:span 2}.routes4{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.row2,.row3{grid-template-columns:1fr}}
-@media (max-width:560px){.routes4{grid-template-columns:1fr}.page{padding:16px}.kpis{grid-template-columns:1fr 1fr;gap:10px}.val{font-size:24px}.card{padding:13px}.hm{grid-template-columns:28px repeat(16,minmax(0,1fr));gap:2px}.hm-h{font-size:8px}.tbl-wrap{overflow-x:auto}}
+@media (max-width:1100px){.kpis .wide{grid-column:span 2}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.row2,.row3{grid-template-columns:1fr}}
+@media (max-width:560px){.page{padding:16px}.kpis{grid-template-columns:1fr 1fr;gap:10px}.val{font-size:24px}.card{padding:13px}.hm{grid-template-columns:28px repeat(16,minmax(0,1fr));gap:2px}.hm-h{font-size:8px}.tbl-wrap{overflow-x:auto}}
 .chip{cursor:pointer;font:inherit;font-size:12px}
 .live.stale .dot{background:var(--warn)}.live.err .dot{background:var(--bad)}
 .empty{color:var(--mut);font-size:13px;padding:8px 0}
@@ -129,8 +132,7 @@ td.n,th.n{text-align:right}
  .r-buy td:first-child,.r-sell td:first-child{box-shadow:none}
  .recs tr.r-buy{box-shadow:inset 3px 0 0 var(--buy)}.recs tr.r-sell{box-shadow:inset 3px 0 0 var(--sell)}
  .hm-c{height:14px}
- .routes4{grid-template-columns:1fr 1fr!important;gap:0 12px}
- .route .note{font-size:11px}
+ .routes4{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
 }
 @media (max-width:560px){.kpis .card .val{font-size:22px}.lbl{font-size:10.5px}.zm{font-size:0!important}.mnow{flex-wrap:wrap;gap:2px 6px}h2{gap:8px;flex-wrap:wrap}.top .chip{order:3}}
 .tarea{position:relative;margin-bottom:14px;border:1px solid #b8742a;border-radius:14px;padding:16px 18px;
@@ -396,7 +398,7 @@ td.n,th.n{text-align:right}
     var r = d.rutas || {};
     var ruta = function (t, m, mc, a, b) {
       return '<div class="route"><div class="r">' + t + '</div><div class="m ' + (mc || '') + '">' + m + '</div>' +
-        '<div class="note">' + a + '</div><div class="note m">' + (b || '') + '</div></div>';
+        '<div class="note">' + a + '</div>' + (b ? '<div class="note sub">' + b + '</div>' : '') + '</div>';
     };
     $('rutas').innerHTML =
       ruta('Uruguay (UYU)', n(r.uyu && r.uyu.margen, 1) + '%', 'ok', 'Vendés a ' + n(c.pVenta, 2) + ' y recomprás a ' + n(c.pCompra, 2), '$' + n(r.uyu && r.uyu.gananciaUSD) + ' ciclo') +
@@ -406,14 +408,14 @@ td.n,th.n{text-align:right}
         var m = r.remesas || {};
         if (m.margen == null) return ruta('Remesas AR → VE', '—', '', m.neta ? 'Faltan órdenes ARS o VES recientes para calcular lo que te sale' : 'Sin tasa neta en la hoja Tasas', '');
         return ruta('Remesas AR → VE', n(m.margen, 1) + '%', m.margen >= 3 ? 'ok' : m.margen >= 0 ? 'warn' : 'bad',
-          'Te sale ' + n(m.real, 3) + ' Bs por peso y al cliente le das ' + n(m.neta, 3),
-          m.mercado ? 'mercado hoy ' + n(m.mercado, 3) + (m.margenMercado != null ? ' (' + n(m.margenMercado, 1) + '%)' : '') : '');
+          m.por100k != null ? 'Ganás ≈ <b>' + n(m.por100k, 1) + ' USDT</b> por cada 100.000 ARS que te mandan' : '',
+          m.margenMercado != null ? 'Con el precio de mercado de hoy sería ' + n(m.margenMercado, 1) + '%' : '');
       })() +
       (function () {
         var m = r.remesas || {};
         return ruta('Remesas: últimos 7 días', m.gananciaUSDT != null ? '≈ ' + n(m.gananciaUSDT) + ' USDT' : '—', m.gananciaUSDT > 0 ? 'ok' : '',
           'Pagaste ' + n(m.semanaUSDT) + ' USDT en Bs y compraste ' + n(r.ars && r.ars.semanaARS) + ' ARS',
-          m.gananciaUSDT != null ? 'ganancia con el margen de al lado' : '');
+          m.gananciaUSDT != null ? 'Estimado con el margen de remesas' : '');
       })();
 
     var dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
