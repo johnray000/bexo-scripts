@@ -134,9 +134,33 @@ caso('Las órdenes canceladas no cuentan en lo que debés', () => {
   igual(correr(filas, {}).ciclo.pendiente, correr(base, {}).ciclo.pendiente, 'pendiente');
 });
 
-caso('Página: solo se apaga lo que Binance confirma (Bybit/OKX nunca, 25/11)', () => {
+caso('Página: se apaga solo lo comprobado (Binance no listado o Bybit pausado; OKX nunca, 25/11 y 27/11)', () => {
   const m = HTML.match(/var off = ([^;]+);/);
-  igual(m && m[1].trim(), 'noListado', 'condición de apagado');
+  igual(m && m[1].trim(), 'noListado || pausado', 'condición de apagado');
+  igual(/var pausado = a\.estado === 'pausado';/.test(HTML), true, 'pausado sale del estado que manda el Apps Script');
+});
+
+const adsBybit = (hace, lista) => ({ BYBIT_ANUNCIOS: JSON.stringify({ cuando: AHORA.getTime() - hace * 36e5, lista }) });
+
+caso('27/11: Bybit dice que la compra está pausada y la venta activa: la compra se apaga, la venta usa el precio del anuncio', () => {
+  const r = correr(base, {}, adsBybit(1, [
+    { id: '1', tipo: 'Compra', cripto: 'USDT', fiat: 'UYU', precio: 41.2, estado: 'pausado' },
+    { id: '2', tipo: 'Venta', cripto: 'USDT', fiat: 'UYU', precio: 44.1, estado: 'activo' }]));
+  const c = fila(r, 'Bybit', 'Compra')[0], v = fila(r, 'Bybit', 'Venta')[0];
+  igual([c.estado, c.accion, c.nuevo], ['pausado', 'Pausado', null], 'compra Bybit');
+  igual([v.estado, v.precio, v.fuente], ['activo', 44.1, 'anuncio'], 'venta Bybit');
+});
+
+caso('Bybit: dato de más de 6 h u OKX: no se sabe, no se apaga', () => {
+  const r = correr(base, {}, adsBybit(7, [{ id: '1', tipo: 'Compra', cripto: 'USDT', fiat: 'UYU', precio: 41.2, estado: 'pausado' }]));
+  igual([fila(r, 'Bybit', 'Compra')[0].estado, fila(r, 'OKX', 'Compra')[0].estado], [null, null], 'estados');
+});
+
+caso('Bybit: anuncio activo sin órdenes esta semana también aparece', () => {
+  const r = correr(base, {}, adsBybit(1, [{ id: '3', tipo: 'Compra', cripto: 'USDC', fiat: 'UYU', precio: 40.5, estado: 'activo' }]));
+  const u = fila(r, 'Bybit', 'Compra', 'USDC')[0];
+  igual(u && [u.estado, u.precio], ['activo', 40.5], 'compra USDC Bybit');
+  igual(fila(r, 'Bybit', 'Compra', 'USDT')[0].estado, 'pausado', 'compra USDT sin anuncio activo');
 });
 
 const rev = (r, prueba) => r.revision.filter((x) => x.prueba === prueba)[0] || {};

@@ -55,6 +55,11 @@ function recibirOrdenesBybit_(data) {
     lock.waitLock(30000);
     var r = agregarBybitOrdenesP2P_(data.ordenesBybit || []);
     PropertiesService.getScriptProperties().setProperty('ORDENES_ULTIMA_BYBIT', String(Date.now()));   // lo muestra la Brújula
+    // Tus anuncios con su estado (activo/pausado): la Brújula apaga los que Bybit dice que no están activos.
+    if (Array.isArray(data.anunciosBybit)) {
+      PropertiesService.getScriptProperties().setProperty('BYBIT_ANUNCIOS',
+        JSON.stringify({ cuando: Date.now(), lista: data.anunciosBybit.slice(0, 40) }));
+    }
     return salida(r);
   } catch (e) {
     logError_('recibirOrdenesBybit_', e.message || e);

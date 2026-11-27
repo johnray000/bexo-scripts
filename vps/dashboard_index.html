@@ -360,6 +360,7 @@ td.n,th.n{text-align:right}
       var pill = a.accion === 'Subir' ? '<span class="pill p-up">▲ Subir</span>'
         : a.accion === 'Bajar' ? '<span class="pill p-down">▼ Bajar</span>'
         : a.accion === 'No sé' ? '<span class="pill p-warn">No sé</span>'
+        : a.accion === 'Pausado' ? '<span class="pill p-off">Pausado</span>'
         : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
       var hace = a.minUltima == null ? 'sin órdenes esta semana'
         : 'última orden hace ' + (a.minUltima < 90 ? a.minUltima + ' min' : Math.round(a.minUltima / 60) + ' h');
@@ -370,13 +371,17 @@ td.n,th.n{text-align:right}
           '<br>' + hace + ' · hoy ' + a.hoy
         : hace + ' · hoy ' + a.hoy + ' · <span class="warn">precio de últ. orden</span>';
       var meta = meta0;
-      // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público. En Bybit y OKX no puedo ver
-      // si el anuncio está activo (pocas órdenes no quiere decir pausado: el 25/11 había anuncios OKX activos y se
-      // apagaban por no tener órdenes en 2 días), así que se dice "no sé si está activo" y no se apaga.
+      // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público, o Bybit dice que está pausado
+      // (lo manda el teléfono con la API de Bybit). En OKX no puedo ver si el anuncio está activo (pocas órdenes no
+      // quiere decir pausado: el 25/11 había anuncios OKX activos), así que se dice "no sé" y no se apaga.
       var noListado = a.ex === 'Binance' && a.accion === 'No sé';
-      var off = noListado;
+      var pausado = a.estado === 'pausado';
+      var off = noListado || pausado;
+      var deHace = a.estadoHace != null ? ' <span class="note">(hace ' + (a.estadoHace < 1 ? 'menos de 1 h' : Math.round(a.estadoHace) + ' h') + ')</span>' : '';
       if (noListado) meta = '<span class="warn">○ no está en el listado de Binance</span><br>' + hace + ' · hoy ' + a.hoy;
-      if (a.ex !== 'Binance') meta = meta + '<br><span class="note">no puedo ver si está activo</span>';
+      else if (pausado) meta = '<span class="warn">○ pausado en ' + esc(a.ex) + '</span>' + deHace + '<br>' + hace + ' · hoy ' + a.hoy;
+      else if (a.estado === 'activo') meta = '<span class="ok">● activo en ' + esc(a.ex) + '</span>' + deHace + '<br>' + hace + ' · hoy ' + a.hoy;
+      else if (a.ex !== 'Binance') meta = meta + '<br><span class="note">no puedo ver si está activo</span>';
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
         '</span><b>' + esc(a.ex) + '</b> ' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') +
         '<div class="note">' + meta + '</div></td>' +
