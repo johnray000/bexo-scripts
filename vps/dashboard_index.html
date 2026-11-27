@@ -99,8 +99,10 @@ td.n,th.n{text-align:right}
 .r-off:hover td{opacity:.7}
 .anu{display:flex;align-items:center;white-space:nowrap}
 .anu .tag{margin-right:8px}
-.punto{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.22);margin-right:8px;flex:none}
-.anu-sub{display:flex;gap:10px;flex-wrap:wrap;margin-top:3px}
+.punto{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.22);margin-right:10px;flex:none}
+.punto.vacio{background:none;box-shadow:none}
+.par{color:var(--mut);font-size:12.5px}
+.anu-sub{display:flex;gap:10px;flex-wrap:wrap;margin-top:3px;padding-left:22px}
 .ult{font-size:11px;color:var(--mut)}
 .cargadas{font-size:11.5px;color:var(--mut);margin:-4px 0 10px}
 .rueda td.pos{color:var(--ok)}.rueda td.neg{color:var(--bad)}
@@ -384,8 +386,8 @@ td.n,th.n{text-align:right}
       var vivoBin = a.puesto && (a.fuente === 'vivo' || a.estado === 'activo')
         ? '<span class="ult">puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '</span>' : '';
       var punto = enLinea(a) ? '<span class="punto" title="Activo' + (a.estadoHace != null ? ' (dato de hace ' + (a.estadoHace < 1 ? 'menos de 1 h' : Math.round(a.estadoHace) + ' h') + ')' : '') + '"></span>' : '';
-      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><div class="anu"><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
-        '</span>' + punto + '<b>' + esc(a.ex) + '</b>&nbsp;' + esc(a.cripto === 'USDC' ? 'USDC' : 'UYU') + '</div>' +
+      return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><div class="anu">' + (punto || '<span class="punto vacio"></span>') + '<span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
+        '</span><b>' + esc(a.ex) + '</b>&nbsp;<span class="par">' + esc(a.cripto || 'USDT') + '/UYU</span></div>' +
         '<div class="anu-sub">' + hace + vivoBin + '</div></td>' +
         '<td class="n">' + n(a.precio, 2) + '</td><td>' + pill + '</td><td class="n">' + (a.nuevo == null ? '—' : n(a.nuevo, 2)) + '</td>' +
         '<td class="note">' + esc(a.porque) + '</td></tr>';
@@ -398,10 +400,21 @@ td.n,th.n{text-align:right}
     };
     $('rutas').innerHTML =
       ruta('Uruguay (UYU)', n(r.uyu && r.uyu.margen, 1) + '%', 'ok', 'Vendés a ' + n(c.pVenta, 2) + ' y recomprás a ' + n(c.pCompra, 2), '$' + n(r.uyu && r.uyu.gananciaUSD) + ' ciclo') +
-      ruta('Argentina (ARS)', n(r.ars && r.ars.precio, 1), '', 'Precio de compra de USDT en ARS (últimas)', n(r.ars && r.ars.semanaARS) + ' ARS en 7 días') +
-      ruta('Remesas Venezuela', n(r.ves && r.ves.precio, 1), '', 'Bs por USDT que pagás (últimas)', n(r.ves && r.ves.semanaUSDT) + ' USDT en 7 días') +
       ruta('Recompra con USDC', r.usdc && r.usdc.precio ? n(r.usdc.margen, 1) + '%' : '—', 'ok',
-        r.usdc && r.usdc.precio ? 'En Binance comprás USDC a ' + n(r.usdc.precio, 2) + ' con UYU' : 'Sin compras de USDC con UYU', '');
+        r.usdc && r.usdc.precio ? 'En Binance comprás USDC a ' + n(r.usdc.precio, 2) + ' con UYU' : 'Sin compras de USDC con UYU', '') +
+      (function () {   // Remesas AR → VE: margen entre lo que te sale y la tasa que le das al cliente
+        var m = r.remesas || {};
+        if (m.margen == null) return ruta('Remesas AR → VE', '—', '', m.neta ? 'Faltan órdenes ARS o VES recientes para calcular lo que te sale' : 'Sin tasa neta en la hoja Tasas', '');
+        return ruta('Remesas AR → VE', n(m.margen, 1) + '%', m.margen >= 3 ? 'ok' : m.margen >= 0 ? 'warn' : 'bad',
+          'Te sale ' + n(m.real, 3) + ' Bs por peso y al cliente le das ' + n(m.neta, 3),
+          m.mercado ? 'mercado hoy ' + n(m.mercado, 3) + (m.margenMercado != null ? ' (' + n(m.margenMercado, 1) + '%)' : '') : '');
+      })() +
+      (function () {
+        var m = r.remesas || {};
+        return ruta('Remesas: últimos 7 días', m.gananciaUSDT != null ? '≈ ' + n(m.gananciaUSDT) + ' USDT' : '—', m.gananciaUSDT > 0 ? 'ok' : '',
+          'Pagaste ' + n(m.semanaUSDT) + ' USDT en Bs y compraste ' + n(r.ars && r.ars.semanaARS) + ' ARS',
+          m.gananciaUSDT != null ? 'ganancia con el margen de al lado' : '');
+      })();
 
     var dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
     var cal = d.calor || [];
