@@ -21,7 +21,7 @@ const RealDate = Date;
 const GUARDADO = [];
 const AHORA = new RealDate(2026, 10, 17, 22, 21);   // 17/11/2026 22:21
 
-function correr(filas, vivos, props, extra) {
+function correr(filas, vivos, props, extra, okxVivos) {
   const pad = (n) => String(n).padStart(2, '0');
   const fmt = (d, f) => {
     if (f === 'H') return String(d.getHours());
@@ -41,7 +41,7 @@ function correr(filas, vivos, props, extra) {
     Date: class extends RealDate { constructor(...a) { super(...(a.length ? a : [AHORA.getTime()])); } static now() { return AHORA.getTime(); } }
   };
   const fn = new Function(...Object.keys(ctx), GS + (extra || '') + '\nreturn dashboardP2P_;');
-  return fn(...Object.values(ctx))(vivos || {});
+  return fn(...Object.values(ctx))(vivos || {}, okxVivos || {});
 }
 
 const casos = [];
@@ -148,6 +148,15 @@ caso('27/11: Bybit dice que la compra está pausada y la venta activa: la compra
   const c = fila(r, 'Bybit', 'Compra')[0], v = fila(r, 'Bybit', 'Venta')[0];
   igual([c.estado, c.accion, c.nuevo], ['pausado', 'Pausado', null], 'compra Bybit');
   igual([v.estado, v.precio, v.fuente], ['activo', 44.1, 'anuncio'], 'venta Bybit');
+});
+
+caso('27/11: OKX en el listado público: la compra está (activa, con precio y puesto) y la venta no (apagada)', () => {
+  const r = correr(base.concat([F('OKX', '15/11/2026 10:00', 'Venta', 'USDT', 20, 'UYU', 879.8, 43.99)]), {}, {}, '', {
+    'Compra|USDT': { tipo: 'Compra', cripto: 'USDT', visible: true, precio: 41.3, puesto: 2, total: 9, mejor: 41.5 },
+    'Venta|USDT': { tipo: 'Venta', cripto: 'USDT', visible: false, revisados: 12 } });
+  const c = fila(r, 'OKX', 'Compra')[0], v = fila(r, 'OKX', 'Venta')[0];
+  igual([c.estado, c.precio, c.puesto, c.total], ['activo', 41.3, 2, 9], 'compra OKX');
+  igual(v && [v.estado, v.accion, v.nuevo], ['pausado', 'Pausado', null], 'venta OKX');
 });
 
 caso('Bybit: dato de más de 6 h u OKX: no se sabe, no se apaga', () => {

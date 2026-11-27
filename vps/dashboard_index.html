@@ -361,8 +361,8 @@ td.n,th.n{text-align:right}
     }).join('') || '<div class="empty">Sin órdenes en el ciclo.</div>';
     $('ruedaNota').innerHTML = ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : '';
     // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público, o Bybit dice que está pausado
-    // (lo manda el teléfono con la API de Bybit). En OKX no puedo ver si el anuncio está activo (pocas órdenes no
-    // quiere decir pausado: el 25/11 había anuncios OKX activos), así que no se apaga ni lleva punto.
+    // (lo manda el teléfono con la API de Bybit), o OKX no lo muestra en su listado público (lo busca el VPS por tu
+    // apodo). Sin dato no se apaga ni lleva punto: pocas órdenes no quiere decir pausado (25/11).
     var apagado = function (a) { return (a.ex === 'Binance' && a.accion === 'No sé') || a.estado === 'pausado'; };
     var enLinea = function (a) { return a.estado === 'activo' || (a.ex === 'Binance' && a.fuente === 'vivo'); };
     var lista = (d.anuncios || []).map(function (a, i) { return { a: a, i: i, off: apagado(a) }; })
@@ -381,7 +381,7 @@ td.n,th.n{text-align:right}
         : a.accion === 'Revisar' ? '<span class="pill p-bad">Revisar</span>' : '<span class="pill p-off">Mantener</span>';
       // Última orden, chica y en su propia línea: "⏱ 45 h" (el detalle completo queda en el tooltip).
       var hace = '<span class="ult" title="' + (a.minUltima == null ? 'Sin órdenes en los últimos 7 días' : 'Última orden hace ' + hAbrev(a.minUltima)) + '">⏱ ' + hAbrev(a.minUltima) + '</span>';
-      var vivoBin = a.ex === 'Binance' && a.fuente === 'vivo' && a.puesto
+      var vivoBin = a.puesto && (a.fuente === 'vivo' || a.estado === 'activo')
         ? '<span class="ult">puesto ' + a.puesto + (a.total ? ' de ' + a.total + (a.completo === false ? '+' : '') : '') + (a.mejor ? ' · mejor otro ' + n(a.mejor, 2) : '') + '</span>' : '';
       var punto = enLinea(a) ? '<span class="punto" title="Activo' + (a.estadoHace != null ? ' (dato de hace ' + (a.estadoHace < 1 ? 'menos de 1 h' : Math.round(a.estadoHace) + ' h') + ')' : '') + '"></span>' : '';
       return '<tr class="' + (compra ? 'r-buy' : 'r-sell') + (off ? ' r-off' : '') + '"><td><div class="anu"><span class="tag ' + (compra ? 't-buy">Compra' : 't-sell">Venta') +
