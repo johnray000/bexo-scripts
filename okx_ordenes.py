@@ -106,6 +106,12 @@ def _conectar():
     return False
 
 
+def cerrar_cortina():
+    """Sube la cortina de notificaciones. Al tocar un botón de una notificación de Termux la cortina queda abajo,
+    tapa la app y uiautomator lee la cortina en vez de la app (y los toques caen en las notificaciones)."""
+    adb('shell', 'cmd', 'statusbar', 'collapse')
+
+
 def bloqueado():
     w = adb('shell', 'dumpsys', 'window')
     return 'mDreamingLockscreen=true' in w or 'mShowingLockscreen=true' in w or 'isKeyguardShowing=true' in w

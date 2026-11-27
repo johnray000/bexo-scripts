@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos, tocar  # noqa: E402
+from okx_ordenes import adb, bloqueado, cerrar_cortina, conectar, tamano_pantalla, textos, tocar  # noqa: E402
 from prex import avisar, esperar, guardar_pantalla, mandar, vibrar, DESCARGAS  # noqa: E402
 
 PAQUETE = 'com.uy.itau.appitauuypf'
@@ -128,7 +128,10 @@ def esperar_huella():
 
 
 def abrir_entradas():
+    cerrar_cortina()                      # si quedó abajo después de tocar el botón de la notificación
     adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
+    time.sleep(1.5)
+    cerrar_cortina()
     avisar('Itaú', 'Poné tu huella en Itaú. Después no toques la pantalla.')
     vibrar()
     if not esperar_huella():

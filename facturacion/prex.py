@@ -26,7 +26,7 @@ import urllib.request
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from okx_ordenes import adb, bloqueado, conectar, tamano_pantalla, textos, tocar  # noqa: E402
+from okx_ordenes import adb, bloqueado, cerrar_cortina, conectar, tamano_pantalla, textos, tocar  # noqa: E402
 from subir_ordenes import leer_env  # noqa: E402
 
 PAQUETE = 'air.Prex'
@@ -123,8 +123,9 @@ def esperar_huella():
         if any(t == 'Movimientos' for t, _, _, _ in lista):
             return True
         if time.time() - ultimo_toque > 10:
+            cerrar_cortina()
             for t, x, y, _ in lista:
-                if BOTON_HUELLA.search(t) and y > 0:
+                if BOTON_HUELLA.search(t) and y > 0 and not t.startswith('Poné tu huella'):   # no nuestro aviso
                     adb('shell', 'input', 'tap', str(x), str(y))
                     ultimo_toque = time.time()
                     print('Toqué "%s" para que aparezca la huella' % t, flush=True)
@@ -138,7 +139,10 @@ def esperar_huella():
 
 
 def abrir_movimientos():
+    cerrar_cortina()                      # si quedó abajo después de tocar el botón de la notificación
     adb('shell', 'monkey', '-p', PAQUETE, '-c', 'android.intent.category.LAUNCHER', '1')
+    time.sleep(1.5)
+    cerrar_cortina()
     avisar('Prex', 'Poné tu huella en Prex. Después no toques la pantalla.')
     vibrar()
     if not esperar_huella():
