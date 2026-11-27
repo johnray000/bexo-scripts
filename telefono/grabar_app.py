@@ -4,7 +4,8 @@
   python ~/bexo-scripts/telefono/grabar_app.py mercantil        # 120 s
   python ~/bexo-scripts/telefono/grabar_app.py mercantil 180    # más tiempo
 
-Guarda cada pantalla nueva (xml + captura) en Descargas/grabacion_<nombre>_HHMMSS/ y un resumen.txt con qué app
+Guarda cada pantalla nueva (xml + captura) en Descargas/grabacion_<nombre>_HHMMSS/ y un resumen.txt, y al final
+deja Descargas/grabacion_<nombre>_HHMMSS.tgz listo para mandar con qué app
 estaba al frente y los textos de cada pantalla. Vibra largo al empezar, cortito con cada pantalla y dos veces al terminar.
 Después de cada toque esperá la vibración cortita (2-3 s). Solo mira: no toca nada.
 Ojo: las apps de bancos a veces dan la captura en negro (la protegen); el xml igual sirve.
@@ -12,6 +13,7 @@ La carpeta tiene tus saldos y cuentas: mandala por acá, nunca al repo (limpiar_
 """
 import os
 import sys
+import tarfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,7 +54,10 @@ def grabar(nombre, segundos=120, espera_inicio=5):
     b.vibrar(300)
     time.sleep(0.6)
     b.vibrar(300)
-    print('Listo: %d pantallas en Descargas/%s' % (n, carpeta_n))
+    tgz = os.path.join(b.LOG_DIR, carpeta_n + '.tgz')   # listo para mandar, sin otro comando
+    with tarfile.open(tgz, 'w:gz') as t:
+        t.add(carpeta, arcname=carpeta_n)
+    print('Listo: %d pantallas. Mandá Descargas/%s.tgz' % (n, carpeta_n))
     return carpeta, n
 
 
