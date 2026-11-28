@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 PAQUETE = 'com.mercantilbanco.mercantilmovil'
 ESPERA_HUELLA_S = 120
 ESPERA_LISTO_S = 240
-PAUSA = 1.5
+PAUSA = 0.8
 
 
 class Frenado(Exception):
@@ -62,11 +62,17 @@ class Telefono:
         self.b.adb('shell', 'input', 'keyevent', *(['67'] * n))
 
     def bajar(self):
-        self.b.adb('shell', 'input', 'swipe', '540', '1800', '540', '900', '400')
+        # 28/11: deslizar en la mitad de abajo cayó sobre el teclado y abrió su configuración. Se desliza arriba,
+        # y siempre con el teclado cerrado.
+        self.ocultar_teclado()
+        self.b.adb('shell', 'input', 'swipe', '540', '1300', '540', '500', '400')
+        time.sleep(0.6)
 
     def ocultar_teclado(self):
+        # Con el teclado abierto, Atrás solo lo cierra (ESC no lo cerraba en Gboard, 28/11)
         if 'mInputShown=true' in self.b.adb('shell', 'dumpsys', 'input_method'):
-            self.b.adb('shell', 'input', 'keyevent', '111')   # ESC: cierra el teclado sin volver atrás
+            self.b.adb('shell', 'input', 'keyevent', '4')
+            time.sleep(0.4)
 
     def abrir(self):
         if not self.b.conectar():
@@ -246,10 +252,11 @@ def poner_monto(ns, monto):
     if not m or bs(m.t) is None or abs(bs(m.t) - monto) >= 0.01:
         frenar('El monto quedó "%s" y no Bs %s. Revisalo a mano' % (m.t if m else '?', fmt(monto)), 'monto')
     T.ocultar_teclado()
-    return T.pantalla()
+    return ns
 
 
 def poner_texto(ns, rotulo, valor, que):
+    T.ocultar_teclado()
     c = campo(ns, rotulo)
     if not c:
         T.bajar()
@@ -258,15 +265,16 @@ def poner_texto(ns, rotulo, valor, que):
     if not c:
         frenar('No encontré el campo %s' % que, 'formulario')
     T.tocar(c.x, c.y)
-    T.borrar(16)
+    if digitos(c.t):                        # solo si ya tenía algo (vacío muestra "Ingresa un número…")
+        T.borrar(16)
     T.escribir(valor)
     T.esperar(PAUSA)
     ns = T.pantalla()
     c = campo(ns, rotulo)
     if not c or digitos(c.t) != digitos(valor):
-        frenar('El %s quedó "%s" y no %s' % (que, c.t if c else '?', valor), que.replace(' ', '_'))
+        frenar('El campo %s quedó "%s" y no %s' % (que, c.t if c else '?', valor), que.replace(' ', '_'))
     T.ocultar_teclado()
-    return T.pantalla()
+    return ns
 
 
 def elegir_de_lista(ns, rotulo, empieza, que):

@@ -118,6 +118,8 @@ class Fake:
             ns = [n for n in X['form_bajo_bancos'] if not (n.t == 'Buscar...' or re.match(r'^0\d{3} - ', n.t))]
             if self.boton:                           # INVENTADO
                 ns = ns + [N(self.boton, 540, 2150, 'Button', '', True, None)]
+        if s['foco'] and not s['bajo']:              # 28/11: el teclado abierto tapa la mitad de abajo
+            ns = [n for n in ns if n.y < 1560]
         for rot, clave, filtro in (('Teléfono celular:', 'tel', lambda n: n.clase == 'EditText'),
                                    ('Documento de identidad:', 'ced', lambda n: n.clase == 'EditText'),
                                    ('Banco destino:', 'banco', lambda n: n.clase != 'EditText' and n.t),
@@ -180,7 +182,9 @@ class Fake:
             self.s['monto'] = '0,00'
 
     def bajar(self):
-        if self.s['p'] == 'form':
+        if self.s['foco']:                           # 28/11: deslizar con el teclado abierto abrió su configuración
+            self.s['p'] = 'config_teclado'
+        elif self.s['p'] == 'form':
             self.s['bajo'] = True
 
     def ocultar_teclado(self):
