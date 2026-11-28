@@ -360,8 +360,11 @@ td.n,th.n{text-align:right}
       var cierre = Math.abs(v.falta) < 0.5 ? '<b class="ok">vuelta cerrada</b>'
         : v.falta > 0 ? 'te faltan <b class="warn">' + n(v.falta, 2) + ' USDT</b> para cerrar la vuelta'
         : 'repusiste <b class="ok">' + n(-v.falta, 2) + ' USDT</b> de más';
+      var rem = v.nombre === 'Remesas';
+      var dest = rem && v.destinos && v.destinos.length
+        ? '<div class="note" style="margin-top:3px">Pagado por destino: ' + v.destinos.map(function (x) { return '<b>' + esc(x.moneda) + '</b> ' + n(x.usdt, 0) + ' USDT'; }).join(' · ') + '</div>' : '';
       return '<div class="alert"><div><b>' + esc(v.nombre) + '</b> <span class="note">' + esc(v.cuenta) + ' · ' + v.ordenes + ' órd.</span><br>' +
-        'Vendiste ' + n(v.vendido, 2) + ' USDT y ' + esc(v.como.split('|')[0]) + ' ' + n(v.repuesto, 2) + ' ' + esc(v.como.split('|')[1] || '') + ': ' + cierre + '.</div></div>';
+        (rem ? 'Pagaste ' : 'Vendiste ') + n(v.vendido, 2) + ' USDT y ' + esc(v.como.split('|')[0]) + ' ' + n(v.repuesto, 2) + ' ' + esc(v.como.split('|')[1] || '') + ': ' + cierre + '.' + dest + '</div></div>';
     }).join('') || '<div class="empty">Sin órdenes en el ciclo.</div>';
     $('ruedaNota').innerHTML = ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : '';
     // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público, o Bybit dice que está pausado
@@ -401,7 +404,7 @@ td.n,th.n{text-align:right}
         '<div class="note">' + a + '</div>' + (b ? '<div class="note sub">' + b + '</div>' : '') + '</div>';
     };
     $('rutas').innerHTML =
-      ruta('Uruguay (UYU)', n(r.uyu && r.uyu.margen, 1) + '%', 'ok', 'Vendés a ' + n(c.pVenta, 2) + ' y recomprás a ' + n(c.pCompra, 2), '$' + n(r.uyu && r.uyu.gananciaUSD) + ' ciclo') +
+      ruta('Arbitraje Uruguay', n(r.uyu && r.uyu.margen, 1) + '%', 'ok', 'Vendés a ' + n(c.pVenta, 2) + ' y recomprás a ' + n(c.pCompra, 2), '$' + n(r.uyu && r.uyu.gananciaUSD) + ' ciclo') +
       ruta('Recompra con USDC', r.usdc && r.usdc.precio ? n(r.usdc.margen, 1) + '%' : '—', 'ok',
         r.usdc && r.usdc.precio ? 'En Binance comprás USDC a ' + n(r.usdc.precio, 2) + ' con UYU' : 'Sin compras de USDC con UYU', '') +
       (function () {   // Remesas AR → VE: margen entre lo que te sale y la tasa que le das al cliente
