@@ -6,6 +6,8 @@
 //   NTFY_TOPIC         → lo que ves en la app ntfy (pre-órdenes, avances y resultados del teléfono).
 //   NTFY_TOPIC + -cmd  → comandos para el teléfono: lo escucha telefono/escuchar_ntfy.py. El botón
 //                        "Armar en Binance" manda ahí el link del anuncio y el teléfono arma la orden (nunca la coloca).
+//                        "📲 Mercantil" manda "mercantil <id>" (sin datos): el teléfono le pide los datos al Apps Script
+//                        (doPost {pagoMovil}, con ORDENES_TOKEN) y arma el pago móvil hasta tu huella.
 // ntfy.sh es un servidor público: el nombre del tema es la única protección. Nunca va un dato del cliente.
 // Google NO publica directo en ntfy.sh: sus IPs son compartidas y ntfy.sh corta por cupo diario (429, 16/11). Va por
 // el relay del VPS (POST /ntfy, vps/relay_binance.py), que publica con la IP propia del VPS.
@@ -36,16 +38,18 @@ function ntfyActivo_() {
 }
 
 /**
- * Publica en NTFY_TOPIC. opciones: { prioridad: 1-5 (3 normal, 4 alta), tags: ['moneybag'], acciones: [...] }.
- * Devuelve true si ntfy lo aceptó.
+ * Publica en NTFY_TOPIC. opciones: { prioridad: 1-5 (3 normal, 4 alta), tags: ['moneybag'], acciones: [...] (máximo 3),
+ * click: link que se abre al tocar la notificación }. Devuelve true si ntfy lo aceptó.
  */
 function avisarNtfy_(titulo, texto, opciones) {
   if (!ntfyActivo_()) return false;
   opciones = opciones || {};
   try {
-    return publicarNtfy_({ topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
-                           priority: opciones.prioridad || 3, tags: opciones.tags || [],
-                           actions: opciones.acciones || [] });
+    var cuerpo = { topic: CONFIG.NTFY_TOPIC, title: titulo, message: texto,
+                   priority: opciones.prioridad || 3, tags: opciones.tags || [],
+                   actions: (opciones.acciones || []).slice(0, 3) };
+    if (opciones.click) cuerpo.click = opciones.click;
+    return publicarNtfy_(cuerpo);
   } catch (e) {
     logError_('NTFY', e.message || e);
     return false;
@@ -141,6 +145,11 @@ function urlArmar_(id) {
   return base + '?p2p=armar&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
 }
 
+function urlPagarPm_(id) {
+  var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
+  return base + '?p2p=pm&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
+}
+
 function urlFin_(id) {
   var base = PropertiesService.getScriptProperties().getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl();
   return base + '?p2p=fin&id=' + encodeURIComponent(id) + '&k=' + claveNext_();
@@ -188,25 +197,29 @@ function avisarComprobanteNtfy_(n, tasa, prueba) {
   var detalle = [n.institucion, n.hora, finReferencia_(n.ref) && 'ref ' + finReferencia_(n.ref),
                  conf > 0 ? 'lectura ' + Math.round(conf <= 1 ? conf * 100 : conf) + ' %' : '']
                 .filter(String).join(' · ');
-  var sinCuenta = false;
+  var sinCuenta = false, pm = false;
   try {
     var sug = destinoDelCliente_(n.nombre);
     sinCuenta = !sug.cuenta;
+    pm = esPagoMovil_(sug);
     detalle = (detalle ? detalle + '\n' : '') + lineaDestino_(sug);
   } catch (e) {
     logError_('NTFY_DESTINO', e.message || e);
   }
-  // clear: false → el botón queda y sirve para volver a armar (con 90 s de bloqueo contra el doble toque)
-  var acciones = [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: false }];
+  // clear: false → el botón queda y sirve para volver a armar (con 90 s de bloqueo contra el doble toque).
+  // ntfy muestra hasta 3 botones: con Pago Móvil van "✅ Binance" y "📲 Mercantil" (cortos, entran los dos) y el
+  // comprobante se abre tocando la notificación.
+  var acciones = pm ? [{ action: 'http', label: '✅ Binance', url: urlArmar_(n.id), method: 'GET', clear: false },
+                       { action: 'http', label: '📲 Mercantil', url: urlPagarPm_(n.id), method: 'GET', clear: false }]
+                    : [{ action: 'http', label: '✅ Armar en Binance', url: urlArmar_(n.id), method: 'GET', clear: false }];
   // 23_IntakeVivo.gs: sin datos de cuenta, el botón además pregunta "Confírmame a qué cuenta" (lo que hacés vos)
   acciones.push(sinCuenta ? { action: 'http', label: '💬 Pedir cuenta', url: urlIntake_('cuenta', n.id), method: 'GET', clear: false }
                           : { action: 'http', label: '💬 Ok fino', url: urlIntake_('okfino', n.id), method: 'GET', clear: false });
-  if (n.driveId) {
-    acciones.push({ action: 'view', label: '🧾 Comprobante', url: 'https://drive.google.com/file/d/' + n.driveId + '/view' });
-  }
+  var drive = n.driveId ? 'https://drive.google.com/file/d/' + n.driveId + '/view' : '';
+  if (drive && acciones.length < 3) acciones.push({ action: 'view', label: '🧾 Comprobante', url: drive });
   // un solo emoji: el de la etiqueta (ntfy lo pone delante del título)
   return avisarNtfy_(titulo, detalle || 'Comprobante leído',
-                     { prioridad: 4, tags: [prueba ? 'test_tube' : 'moneybag'], acciones: acciones });
+                     { prioridad: 4, tags: [prueba ? 'test_tube' : 'moneybag'], acciones: acciones, click: drive });
 }
 
 /**
@@ -302,5 +315,89 @@ function armarDesdeNtfy_(id) {
     logError_('NTFY_ARMAR', id + ' | ' + (e.message || e));
     avisarNtfy_('Error al armar', String(e.message || e).slice(0, 200), { prioridad: 4, tags: ['warning'] });
     return 'error';
+  }
+}
+
+// ==========================================
+// PAGO MÓVIL POR MERCANTIL (botón "📲 Mercantil" de la tarjeta; el recorrido es mercantil_pago.py en el teléfono)
+// ==========================================
+var PM_BLOQUEO_S = 600;   // 10 min: un segundo toque no arma otro pago (desde el teléfono, "🔁 Reintentar" sí)
+
+/** La cuenta sugerida del cliente es un Pago Móvil (lo único que paga mercantil_pago.py). */
+function esPagoMovil_(sug) {
+  return !!(sug && sug.cuenta && sug.cuenta.tipo === 'PM');
+}
+
+/** Bs a pagar: monto en ARS × tasa neta, en Bs enteros (igual que el monto del link de Binance). */
+function montoBsPm_(montoArs) {
+  return Math.round(montoArs * tasaNetaActual_());
+}
+
+/** El comprobante en ARS y su Pago Móvil, o { error } con el motivo. */
+function pagoMovilDe_(id) {
+  var f = filaPorId_(hojaMovimientos_(), id);
+  if (!f) return { error: 'No encontré el comprobante ' + id };
+  var d = f.datos, nombre = String(d[C.NOMBRE - 1] || d[C.TELEFONO - 1]), monto = Number(d[C.MONTO - 1]) || 0;
+  if (String(d[C.MONEDA - 1]).trim().toUpperCase() !== 'ARS' || !(monto > 0)) {
+    return { error: 'No es un comprobante en ARS', nombre: nombre };
+  }
+  var sug = destinoDelCliente_(nombre);
+  if (!esPagoMovil_(sug)) return { error: 'La cuenta del cliente no es un Pago Móvil', nombre: nombre, sug: sug };
+  return { nombre: nombre, montoArs: monto, bs: montoBsPm_(monto), sug: sug };
+}
+
+/**
+ * El botón "📲 Mercantil" (doGet ?p2p=pm&id=…&k=…): le manda al teléfono "mercantil <id>" (sin datos del cliente:
+ * ntfy.sh es público) y avisa qué va a pagar. El teléfono pide los datos con datosPagoMovil_.
+ */
+function pagarPmDesdeNtfy_(id) {
+  var cache = CacheService.getScriptCache();
+  if (cache.get('PAGARPM_' + id)) {
+    avisarNtfy_('Mercantil: ya lo mandé al teléfono', 'Hace menos de 10 min. Si se frenó, usá "🔁 Reintentar" de su aviso.',
+                { prioridad: 3, tags: ['hourglass'] });
+    return 'ya estaba';
+  }
+  try {
+    var p = pagoMovilDe_(id);
+    if (p.error) {
+      avisarNtfy_('Mercantil: no lo armo · ' + nombreTarjeta_(p.nombre || id), p.error + (p.sug ? '\n' + lineaDestino_(p.sug) : ''),
+                  { prioridad: 4, tags: ['warning'] });
+      return 'no';
+    }
+    if (!mandarAlTelefono_('mercantil ' + id)) {
+      avisarNtfy_('No pude avisarle al teléfono', 'ntfy no aceptó el comando', { prioridad: 4, tags: ['warning'] });
+      return 'ntfy falló';
+    }
+    cache.put('PAGARPM_' + id, '1', PM_BLOQUEO_S);
+    avisarNtfy_('Mercantil · ' + nombreTarjeta_(p.nombre) + ' · ' + fmtEntero_(p.bs) + ' Bs',
+                fmtEntero_(p.montoArs) + ' ARS · ' + lineaDestino_(p.sug) + '\nEl teléfono arma el pago: la plata sale con tu huella.',
+                { prioridad: 2, tags: ['hourglass'] });
+    return 'ok';
+  } catch (e) {
+    logError_('NTFY_PM', id + ' | ' + (e.message || e));
+    avisarNtfy_('Error al armar el pago móvil', String(e.message || e).slice(0, 200), { prioridad: 4, tags: ['warning'] });
+    return 'error';
+  }
+}
+
+/**
+ * Lo llama doPost cuando el teléfono manda {pagoMovil: id, token}: los datos para mercantil_pago.py. Viajan por el
+ * Apps Script (con ORDENES_TOKEN) y no por ntfy.
+ */
+function datosPagoMovil_(data) {
+  var salida = function (obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  };
+  var token = PropertiesService.getScriptProperties().getProperty('ORDENES_TOKEN');
+  if (!token || data.token !== token) return salida({ error: 'no autorizado' });
+  try {
+    var id = String(data.pagoMovil), p = pagoMovilDe_(id);
+    if (p.error) return salida({ error: p.error });
+    var c = p.sug.cuenta;
+    return salida({ ok: true, id: id, nombre: nombreTarjeta_(p.nombre), telefono: c.numero,
+                    cedula: String(c.cedula).replace(/\D/g, ''), banco: c.banco, monto: p.bs, fin: urlFin_(id) });
+  } catch (e) {
+    logError_('PM_DATOS', e.message || e);
+    return salida({ error: String(e.message || e) });
   }
 }

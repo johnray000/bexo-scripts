@@ -3,6 +3,9 @@
 
   python ~/bexo-scripts/mercantil_pago.py --telefono 04141234567 --cedula 12345678 --banco 0102 --monto 5000
 
+Normalmente no se corre a mano: lo dispara el botón "📲 Mercantil" de la tarjeta del comprobante en ntfy
+(telefono/escuchar_ntfy.py le pasa los datos, más --mov y --fin para los botones del final).
+
 Qué hace (pantallas grabadas el 27/11, grabaciones mercantil y mercantil2):
   1. Abre Mercantil, toca "Identificación biométrica" y espera tu huella (no la reemplaza).
   2. Abre "Cuentas" en el Resumen financiero y lee el saldo de cada Cuenta Corriente.
@@ -27,6 +30,7 @@ PAQUETE = 'com.mercantilbanco.mercantilmovil'
 ESPERA_HUELLA_S = 120
 ESPERA_LISTO_S = 240
 PAUSA = 0.8
+PAGADOS = os.path.expanduser('~/.mercantil_pagados')   # ids de comprobantes ya pagados (uno por línea)
 
 
 class Frenado(Exception):
@@ -88,14 +92,48 @@ class Telefono:
             f.write(self.b.volcar(15, 1))
         return base
 
-    def avisar(self, titulo, texto, prioridad=3):
-        self.b.avisar(titulo, texto, prioridad)
+    def avisar(self, titulo, texto, prioridad=3, acciones=()):
+        self.b.avisar(titulo, texto, prioridad, ntfy=False)       # notificación de Termux
+        import bexo_ntfy
+        bexo_ntfy.publicar(titulo, texto, prioridad, acciones=acciones)
 
     def esperar(self, s):
         time.sleep(s)
 
 
 T = None   # el teléfono en uso
+
+
+# ---------- lo que va a ntfy (servidor público: nada completo del cliente) ----------
+def tapar(texto):
+    """Los números largos (teléfono, cédula) quedan en sus últimos 4: "04164702961" → "…2961"."""
+    return re.sub(r'\d{7,}', lambda m: '…' + m.group(0)[-4:], str(texto))
+
+
+def botones(mov='', fin='', reintentar=False):
+    """🔁 Reintentar (manda "mercantil <id>" otra vez al tema de comandos) y ✅ FIN (pasa el comprobante a CONTADO)."""
+    import bexo_ntfy
+    t, b = bexo_ntfy.tema(), []
+    if reintentar and mov and t:
+        b.append({'action': 'http', 'label': '🔁 Reintentar', 'url': '%s/%s-cmd' % (bexo_ntfy.NTFY_URL, t),
+                  'method': 'POST', 'body': 'mercantil ' + mov, 'clear': True})
+    if fin.startswith('https://'):
+        b.append({'action': 'http', 'label': '✅ FIN', 'url': fin, 'method': 'GET', 'clear': True})
+    return b
+
+
+def ya_pagado(mov, archivo=None):
+    try:
+        with open(archivo or PAGADOS) as f:
+            return bool(mov) and mov in (l.split()[0] for l in f if l.strip())
+    except OSError:
+        return False
+
+
+def marcar_pagado(mov, ref, archivo=None):
+    if mov:
+        with open(archivo or PAGADOS, 'a') as f:
+            f.write('%s %s %s\n' % (mov, ref or '-', time.strftime('%d/%m %H:%M')))
 
 
 # ---------- ayudas ----------
@@ -392,7 +430,7 @@ def esperar_listo():
     return ''
 
 
-def pagar(telefono, cedula, banco, monto, tel=None):
+def pagar(telefono, cedula, banco, monto, tel=None, mov='', fin=''):
     global T
     T = tel or Telefono()
     telefono, cedula, banco = digitos(telefono), digitos(cedula), digitos(banco)[:4]
@@ -413,12 +451,16 @@ def pagar(telefono, cedula, banco, monto, tel=None):
         frenar('En "Verifica tu operación" no coincide: %s. NO toques Aceptar' % ', '.join(fallas), 'verifica')
     aceptar_y_pedir_huella(monto, telefono, cedula, banco, cuenta)
     T.avisar('Mercantil: revisado ✅ · poné tu huella para enviar',
-             'Bs %s a %s (%s) desde %s' % (fmt(monto), telefono, banco, cuenta), 5)
+             'Bs %s a %s (%s) desde %s' % (fmt(monto), tapar(telefono), banco, cuenta), 5)
     ref = esperar_listo()
     if ref is None:
-        T.avisar('Mercantil: no vi el "¡Listo!"', 'Pasaron %d s. Revisá en la app si salió.' % ESPERA_LISTO_S, 4)
+        # sin Reintentar: puede que el pago haya salido igual
+        T.avisar('Mercantil: no vi el "¡Listo!"', 'Pasaron %d s. Revisá en la app si salió; si salió, tocá FIN.'
+                 % ESPERA_LISTO_S, 4, botones(mov, fin))
         return 'sin listo'
-    T.avisar('Mercantil: pago hecho ✅', 'Bs %s a %s · ref %s · desde %s' % (fmt(monto), telefono, ref, cuenta), 4)
+    marcar_pagado(mov, ref)
+    T.avisar('Mercantil: pago hecho ✅', 'Bs %s a %s · ref %s · desde %s' % (fmt(monto), tapar(telefono), ref, cuenta),
+             4, botones(mov, fin))
     return 'ok ' + ref
 
 
@@ -428,13 +470,18 @@ def main():
     p.add_argument('--cedula', required=True)
     p.add_argument('--banco', required=True, help='código de 4 dígitos, p. ej. 0102')
     p.add_argument('--monto', required=True, type=float, help='en Bs, p. ej. 5000')
+    p.add_argument('--mov', default='', help='id del comprobante (lo pone escuchar_ntfy.py)')
+    p.add_argument('--fin', default='', help='link del botón FIN (lo pone escuchar_ntfy.py)')
     a = p.parse_args()
+    if ya_pagado(a.mov):
+        sys.exit('El comprobante %s ya está pagado (%s): no lo pago de nuevo.' % (a.mov, PAGADOS))
     try:
-        print(pagar(a.telefono, a.cedula, a.banco, a.monto))
+        print(pagar(a.telefono, a.cedula, a.banco, a.monto, mov=a.mov, fin=a.fin))
     except Frenado as e:
         print('Frenado:', e)
         try:
-            T.avisar('Mercantil: me frené ⚠️', str(e), 4)
+            # se frenó antes de tu huella: la plata no salió y se puede reintentar
+            T.avisar('Mercantil: me frené ⚠️', tapar(e), 4, botones(a.mov, a.fin, reintentar=True))
         except Exception:  # noqa: BLE001
             pass
         sys.exit(1)
