@@ -171,6 +171,10 @@ class Fake:
     def ancho(self):
         return 1080
 
+    def escribir_lento(self, texto):
+        for c in texto:
+            self.escribir(c)
+
     def borrar(self, n=14):
         if self.s['foco'] == 'monto' and self.borrar_anda:
             self.s['monto'] = '0,00'
