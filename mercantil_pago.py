@@ -51,6 +51,13 @@ class Telefono:
     def escribir(self, texto):
         self.b.adb('shell', 'input', 'text', texto)
 
+    def escribir_lento(self, texto, pausa=0.4):
+        """De a un dígito: el campo del monto reformatea con cada tecla y si llegan juntas se come alguna
+        (28/11: "600000" quedó 600,00)."""
+        for c in texto:
+            self.b.adb('shell', 'input', 'text', c)
+            time.sleep(pausa)
+
     def borrar(self, n=14):
         self.b.adb('shell', 'input', 'keyevent', *(['67'] * n))
 
@@ -232,7 +239,7 @@ def poner_monto(ns, monto):
         m = campo_monto(T.pantalla())
         if not m or bs(m.t) != 0:
             frenar('El monto no queda en 0,00 ("%s"): no escribo encima' % (m.t if m else '?'), 'monto')
-    T.escribir('%d' % round(monto * 100))
+    T.escribir_lento('%d' % round(monto * 100))
     T.esperar(PAUSA)
     ns = T.pantalla()
     m = campo_monto(ns)
