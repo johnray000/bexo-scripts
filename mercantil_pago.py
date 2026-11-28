@@ -45,6 +45,9 @@ class Telefono:
     def tocar(self, x, y):
         self.b.adb('shell', 'input', 'tap', str(x), str(y))
 
+    def ancho(self):
+        return self.b.tamano_pantalla()[0]
+
     def escribir(self, texto):
         self.b.adb('shell', 'input', 'text', texto)
 
@@ -139,7 +142,9 @@ def entrar():
             return ns
         bio = nodo(ns, 'Identificación biométrica')
         if bio and not hay(ns, 'Toca el sensor de huellas digitales') and time.time() - ultimo > 20:
-            T.tocar(bio.x, bio.y)            # abre el cartel de la huella (tocar seguido lo cancela)
+            # 28/11: el texto no se toca; el botón es el ícono de la huella a su derecha, en la misma fila
+            # (grabación: [896,986][1026,1116] en una pantalla de 1080 → x = 89 % del ancho)
+            T.tocar(int(T.ancho() * 0.89), bio.y)
             ultimo = time.time()
         T.esperar(2)
     frenar('No llegué al Resumen financiero en %d s (¿huella?)' % ESPERA_HUELLA_S, 'huella')
@@ -207,24 +212,34 @@ def campo(ns, debajo_de):
     return min(cand, key=lambda n: n.y - r.y) if cand else None
 
 
-def poner_monto(ns, monto):
-    """El campo 'Enviar Bs.' (0,00). Se escribe en pesos enteros y se relee; si la app lo toma en céntimos, se reescribe."""
+def campo_monto(ns):
     rot = nodo(ns, 'Enviar Bs.')
     m = [n for n in ns if n.clase == 'EditText' and rot and 0 < n.y - rot.y < 220]
+    return m[0] if m else None
+
+
+def poner_monto(ns, monto):
+    """El campo 'Enviar Bs.' es tipo caja registradora: los dos últimos dígitos son los céntimos (28/11: escribir
+    "6000" no dio 6.000,00, y la tecla de borrar no limpió). Se escribe UNA vez en céntimos ("600000") sobre el
+    campo en 0,00; si no se puede dejar en 0,00 o queda otro número, se frena. Con plata no se reintenta."""
+    m = campo_monto(ns)
     if not m:
         frenar('No encontré el campo del monto', 'formulario')
-    for texto in ('%d' % round(monto), '%d' % round(monto * 100)):
-        T.tocar(m[0].x, m[0].y)
-        T.borrar()
-        T.escribir(texto)
+    T.tocar(m.x, m.y)
+    if bs(m.t) != 0:
+        T.borrar(20)
         T.esperar(PAUSA)
-        ns = T.pantalla()
-        rot = nodo(ns, 'Enviar Bs.')
-        m = [n for n in ns if n.clase == 'EditText' and rot and 0 < n.y - rot.y < 220]
-        if m and bs(m[0].t) is not None and abs(bs(m[0].t) - monto) < 0.01:
-            T.ocultar_teclado()
-            return T.pantalla()
-    frenar('El monto quedó "%s" y no Bs %s' % (m[0].t if m else '?', fmt(monto)), 'monto')
+        m = campo_monto(T.pantalla())
+        if not m or bs(m.t) != 0:
+            frenar('El monto no queda en 0,00 ("%s"): no escribo encima' % (m.t if m else '?'), 'monto')
+    T.escribir('%d' % round(monto * 100))
+    T.esperar(PAUSA)
+    ns = T.pantalla()
+    m = campo_monto(ns)
+    if not m or bs(m.t) is None or abs(bs(m.t) - monto) >= 0.01:
+        frenar('El monto quedó "%s" y no Bs %s. Revisalo a mano' % (m.t if m else '?', fmt(monto)), 'monto')
+    T.ocultar_teclado()
+    return T.pantalla()
 
 
 def poner_texto(ns, rotulo, valor, que):

@@ -52,15 +52,17 @@ def renombrar_cuentas(ns, saldos):
 
 
 class Fake:
-    def __init__(self, saldos=None, boton='Continuar', monto_centimos=False, huella_ok=True, john_acepta=True,
-                 verifica_cambia=None, banco_en_lista=True):
+    def __init__(self, saldos=None, boton='Continuar', monto_pesos=False, huella_ok=True, john_acepta=True,
+                 verifica_cambia=None, banco_en_lista=True, monto_inicial='0,00', borrar_anda=True):
         self.saldos = saldos or dict(CUENTAS)
         primera = list(self.saldos)[0]
-        self.s = dict(p='cerrada', polls=0, monto='0,00', tel='Ingresa un número de celular', ced='Número de documento',
+        self.s = dict(p='cerrada', polls=0, monto=monto_inicial, tel='Ingresa un número de celular', ced='Número de documento',
                       banco='Selecciona el banco destino',
                       cuenta='Cta. Corriente %s - Bs. %s' % (primera, m.fmt(self.saldos[primera])),
                       bajo=False, lista=None, foco=None, avisos=[], toco_aceptar=False)
-        self.boton, self.centimos, self.huella_ok, self.john = boton, monto_centimos, huella_ok, john_acepta
+        # 28/11: el monto es tipo caja registradora (los 2 últimos dígitos son céntimos) y se agrega a lo que había
+        self.boton, self.pesos, self.huella_ok, self.john = boton, monto_pesos, huella_ok, john_acepta
+        self.borrar_anda = borrar_anda
         self.verifica_cambia, self.banco_en_lista = verifica_cambia, banco_en_lista
         self.ref = '999888777'
 
@@ -131,7 +133,7 @@ class Fake:
         s['polls'] -= 1
         hit = min(ns, key=lambda n: abs(n.x - x) + abs(n.y - y)) if ns else None
         t = hit.t if hit else ''
-        if s['p'] == 'login' and t == 'Identificación biométrica':
+        if s['p'] == 'login' and 896 <= x <= 1026 and 986 <= y <= 1116:     # el ícono de la huella (no el texto)
             s['p'], s['polls'] = 'huella', 0
         elif s['p'] == 'resumen' and t == 'Cuentas':
             s['p'] = 'resumen_cuentas'
@@ -159,14 +161,19 @@ class Fake:
     def escribir(self, texto):
         s = self.s
         if s['foco'] == 'monto':
-            s['monto'] = m.fmt(int(texto) / (100 if self.centimos else 1))
+            previo = m.digitos(s['monto']).lstrip('0')
+            s['monto'] = m.fmt(int(previo + texto) / (1 if self.pesos else 100))
         elif s['foco'] == 'tel':
             s['tel'] = texto[:4] + '-' + texto[4:]
         elif s['foco'] == 'ced':
             s['ced'] = '{:,}'.format(int(texto)).replace(',', '.')
 
+    def ancho(self):
+        return 1080
+
     def borrar(self, n=14):
-        pass
+        if self.s['foco'] == 'monto' and self.borrar_anda:
+            self.s['monto'] = '0,00'
 
     def bajar(self):
         if self.s['p'] == 'form':
@@ -215,7 +222,10 @@ ver = [a for a in f.s['avisos'] if 'revisado' in a]
 print('     aviso:', ver[0] if ver else '—')
 caso('ninguna cuenta alcanza', 'Ninguna cuenta alcanza', saldos={'*1111': 100.0, '*2222': 200.0})
 caso('la huella no llega', 'No llegué al Resumen financiero', huella_ok=False)
-caso('la app toma el monto en céntimos: lo reescribe', 'ok', monto_centimos=True)
+caso('28/11: el monto ya tenía algo y borrar no anda: se frena sin escribir encima', 'no queda en 0,00',
+     monto_inicial='66,00', borrar_anda=False)
+caso('el monto tenía algo y borrar anda: lo limpia y escribe', 'ok', monto_inicial='66,00')
+caso('si la app tomara pesos enteros: queda otro número y se frena (no reintenta)', 'El monto quedó', monto_pesos=True)
 caso('no hay botón para seguir (no grabado): se frena', 'No encontré el botón para seguir', boton=None)
 caso('el botón se llama distinto (no grabado): se frena', 'No encontré el botón para seguir', boton='Pagar')
 caso('Verifica muestra otro teléfono: se frena y avisa NO toques Aceptar', 'NO toques Aceptar',
