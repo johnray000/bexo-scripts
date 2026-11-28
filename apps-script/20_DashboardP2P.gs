@@ -410,28 +410,10 @@ function dashboardP2P_(vivos, okxVivos) {
              pCompra: m.entro ? dashR_(m.fiatPagado / m.entro, 2) : null, pVenta: m.salio ? dashR_(m.fiatCobrado / m.salio, 2) : null };
   }).sort(function (a, b) { return (b.entro + b.salio) - (a.entro + a.salio); });
   var sinMoneda = ok.filter(function (o) { return o.f >= desde && !o.mon; });
-  // Cómo va cada vuelta: Uruguay = vendés USDT por UYU y recomprás con UYU. Remesas = comprás USDT con los ARS
-  // que te mandan y los vendés por Bs o COP. Las demás monedas van cada una por su lado.
-  var r0 = function (m) { return rueda[m] || { entro: 0, salio: 0, n: 0 }; };
-  var vuelta = function (nombre, cuenta, vendio, repuso, n, como) {
-    return { nombre: nombre, cuenta: cuenta, vendido: dashR_(vendio), repuesto: dashR_(repuso), falta: dashR_(vendio - repuso), ordenes: n, como: como };
-  };
-  var vueltas = [];
-  // Arbitraje = UYU (vendés y recomprás en pesos uruguayos). Remesas = todo lo demás: los USDT comprados con ARS se
-  // pagan en la moneda del destino (VES, COP, PEN, USD…). En el ciclo 03/11 dio justo: 3.214,81 comprados con ARS =
-  // 2.654,81 VES + 560,40 COP. Cada vuelta lleva "destinos": cuántos USDT salieron por cada moneda.
-  var uy = r0('UYU');
-  if (uy.n) vueltas.push(vuelta('Arbitraje Uruguay', 'UYU', uy.salio, uy.entro, uy.n, 'recompraste|con UYU'));
-  var monedasRem = Object.keys(rueda).filter(function (m) { return m !== 'UYU'; })
-    .sort(function (a, b) { return rueda[b].salio - rueda[a].salio; });
-  if (monedasRem.length) {
-    var rem = { entro: 0, salio: 0, n: 0 };
-    monedasRem.forEach(function (m) { rem.entro += rueda[m].entro; rem.salio += rueda[m].salio; rem.n += rueda[m].n; });
-    var v = vuelta('Remesas', 'ARS → ' + monedasRem.filter(function (m) { return m !== 'ARS'; }).join(', '), rem.salio, rem.entro, rem.n, 'repusiste|con ARS');
-    v.destinos = monedasRem.filter(function (m) { return rueda[m].salio > 0; })
-      .map(function (m) { return { moneda: m, usdt: dashR_(rueda[m].salio), ordenes: rueda[m].n }; });
-    vueltas.push(v);
-  }
+  // Cómo va cada vuelta: arbitraje por moneda y remesas de clientes BEXO (ver 24_RemesasBrujula.gs).
+  var clasif = dashClasificarRemesas_(ok, desde, dashLeerClientesRemesa_(desde, ahora), dashLeerTasasNeta_());
+  var vueltas = clasif.vueltas;
+  if (clasif.aviso) avisos.push({ nivel: 'warn', texto: clasif.aviso });
   if (errMovs) avisos.push({ nivel: 'bad', texto: 'No pude leer Movs UY: ' + errMovs });
   else if (ultMov) {
     var dm = Math.round((ahora - ultMov) / 864e5);
@@ -476,6 +458,7 @@ function dashboardP2P_(vivos, okxVivos) {
     cargadas: cargadas,
     subidas: subidas,
     vueltas: vueltas,
+    sinUnir: clasif.sinUnir,
     rueda: { lista: ruedaLista, neto: dashR_(ruedaLista.reduce(function (s, m) { return s + m.neto; }, 0)),
              sinMoneda: sinMoneda.length, sinMonedaUSDT: dashR_(sinMoneda.reduce(function (s, o) { return s + (o.tipo === 'Compra' ? o.cant : -o.cant); }, 0)) },
     // Las últimas 10 órdenes tal como las leyó el tablero, para comprobarlas de memoria.

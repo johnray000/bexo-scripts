@@ -363,10 +363,16 @@ td.n,th.n{text-align:right}
       var rem = v.nombre === 'Remesas';
       var dest = rem && v.destinos && v.destinos.length
         ? '<div class="note" style="margin-top:3px">Pagado por destino: ' + v.destinos.map(function (x) { return '<b>' + esc(x.moneda) + '</b> ' + n(x.usdt, 0) + ' USDT'; }).join(' · ') + '</div>' : '';
-      return '<div class="alert"><div><b>' + esc(v.nombre) + '</b> <span class="note">' + esc(v.cuenta) + ' · ' + v.ordenes + ' órd.</span><br>' +
+      var cli = rem && v.clientes ? ' · ' + v.clientes.unidos + ' de ' + v.clientes.total + ' clientes unidos' : '';
+      return '<div class="alert"><div><b>' + esc(v.nombre) + '</b> <span class="note">' + esc(v.cuenta) + ' · ' + v.ordenes + ' órd.' + cli + '</span><br>' +
         (rem ? 'Pagaste ' : 'Vendiste ') + n(v.vendido, 2) + ' USDT y ' + esc(v.como.split('|')[0]) + ' ' + n(v.repuesto, 2) + ' ' + esc(v.como.split('|')[1] || '') + ': ' + cierre + '.' + dest + '</div></div>';
     }).join('') || '<div class="empty">Sin órdenes en el ciclo.</div>';
-    $('ruedaNota').innerHTML = ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : '';
+    var su = d.sinUnir || {};
+    $('ruedaNota').innerHTML = [
+      su.n ? '<span class="note">Sin cliente encontrado: ' + su.n + ' ventas en Bs (' + n(su.usdt, 2) + ' USDT) cuentan como remesa' +
+        (su.filas && su.filas.length ? ' (filas ' + su.filas.join(', ') + (su.n > su.filas.length ? '…' : '') + ' de Ordenes_P2P)' : '') + '.</span>' : '',
+      ru.sinMoneda ? '<span class="warn">Ojo: ' + ru.sinMoneda + ' órdenes sin moneda no están contadas en ninguna vuelta.</span>' : ''
+    ].filter(Boolean).join('<br>');
     // Apagado SOLO si está comprobado: Binance no lo muestra en el listado público, o Bybit dice que está pausado
     // (lo manda el teléfono con la API de Bybit), o OKX no lo muestra en su listado público (lo busca el VPS por tu
     // apodo). Sin dato no se apaga ni lleva punto: pocas órdenes no quiere decir pausado (25/11).
