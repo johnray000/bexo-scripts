@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pago móvil (Tpago) desde Mercantil Móvil Personas, por ADB, hasta "Verifica tu operación". El resto es tuyo.
+"""Pago móvil (Tpago) desde Mercantil Móvil Personas, por ADB, hasta tu huella (lo único que hacés vos).
 
   python ~/bexo-scripts/mercantil_pago.py --telefono 04141234567 --cedula 12345678 --banco 0102 --monto 5000
 
@@ -10,7 +10,8 @@ Qué hace (pantallas grabadas el 27/11, grabaciones mercantil y mercantil2):
   4. Tpago → Enviar Tpago: monto, teléfono, cédula, banco destino y la cuenta elegida. Cada campo se relee:
      si no quedó como debe, se frena.
   5. Toca el botón para seguir y revisa "Verifica tu operación" (monto, teléfono, cédula, banco, cuenta).
-  6. Te avisa "tocá Aceptar y poné tu huella". NUNCA toca Aceptar. Espera el "¡Listo!" y avisa la referencia.
+  6. Si todo coincide toca Aceptar y elige "Identificación Biométrica" (28/11, pedido de john): la plata sale
+     recién con TU huella. Espera el "¡Listo!" y avisa la referencia.
 Si algo no coincide con lo grabado, se frena y guarda la pantalla en Descargas (mercantil_*.xml/.png).
 """
 import argparse
@@ -353,6 +354,33 @@ def revisar(ns, monto, telefono, cedula, banco, cuenta):
     return fallas
 
 
+HUELLA_SISTEMA = ('Toca el sensor de huellas digitales', 'Coloca el dedo en el sensor')
+
+
+def aceptar_y_pedir_huella(monto, telefono, cedula, banco, cuenta):
+    """28/11 (pedido de john): el recorrido toca Aceptar y elige "Identificación Biométrica"; la huella es tuya.
+    Antes de Aceptar relee "Verifica tu operación" y vuelve a revisar todo. Nunca elige otro método."""
+    ns = T.pantalla()
+    if not hay(ns, 'Verifica tu operación'):
+        frenar('Ya no estoy en "Verifica tu operación": no toco Aceptar', 'verifica')
+    fallas = revisar(ns, monto, telefono, cedula, banco, cuenta)
+    if fallas:
+        frenar('En "Verifica tu operación" no coincide: %s. NO toques Aceptar' % ', '.join(fallas), 'verifica')
+    ok = [n for n in ns if n.clase == 'Button' and compacto(n.t) == 'aceptar']
+    if not ok:
+        frenar('No encontré el botón Aceptar', 'verifica')
+    T.tocar(ok[0].x, ok[0].y)
+    ns = esperar_pantalla(lambda v: hay(v, 'Método de seguridad') or any(h in n.t for n in v for h in HUELLA_SISTEMA)
+                          or any('Tu Tpago fue exitoso' in n.t for n in v), 20)
+    if not ns:
+        frenar('Toqué Aceptar y no apareció "Método de seguridad" ni la huella', 'metodo')
+    if hay(ns, 'Método de seguridad'):
+        bio = nodo(ns, 'Identificación Biométrica')
+        if not bio:
+            frenar('En "Método de seguridad" no está "Identificación Biométrica": elegí vos', 'metodo')
+        T.tocar(bio.x, bio.y)
+
+
 def esperar_listo():
     ns = esperar_pantalla(lambda v: any('Tu Tpago fue exitoso' in n.t for n in v), ESPERA_LISTO_S, 3)
     if not ns:
@@ -383,7 +411,8 @@ def pagar(telefono, cedula, banco, monto, tel=None):
     fallas = revisar(ns, monto, telefono, cedula, banco, cuenta)
     if fallas:
         frenar('En "Verifica tu operación" no coincide: %s. NO toques Aceptar' % ', '.join(fallas), 'verifica')
-    T.avisar('Mercantil: revisado ✅ · tocá Aceptar y poné tu huella',
+    aceptar_y_pedir_huella(monto, telefono, cedula, banco, cuenta)
+    T.avisar('Mercantil: revisado ✅ · poné tu huella para enviar',
              'Bs %s a %s (%s) desde %s' % (fmt(monto), telefono, banco, cuenta), 5)
     ref = esperar_listo()
     if ref is None:

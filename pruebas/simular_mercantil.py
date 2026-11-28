@@ -89,9 +89,13 @@ class Fake:
                 ns = [n._replace(t=nuevo) if re.match(patron, n.t) else n for n in ns]
             if self.verifica_cambia:
                 ns = [n._replace(t=self.verifica_cambia[1]) if re.match(self.verifica_cambia[0], n.t) else n for n in ns]
-            if self.john and s['polls'] > 6:          # vos tocás Aceptar y ponés la huella
-                s['p'] = 'listo'
             return ns
+        if p == 'metodo':
+            return X['metodo']
+        if p == 'huella_pago':
+            if self.john and s['polls'] > 3:          # vos ponés la huella
+                s['p'] = 'listo'
+            return X['huella']
         if p == 'listo':
             ns = X['listo']
             mo = debajo(ns, 'Monto (Bs.):', lambda n: m.bs(n.t) is not None, 80)
@@ -159,6 +163,11 @@ class Fake:
                 s['p'], s['polls'] = 'verifica', 0
         elif s['p'] == 'verifica' and t == 'Aceptar':
             s['toco_aceptar'] = True
+            s['p'] = 'metodo'
+        elif s['p'] == 'metodo' and m.compacto(t) == 'identificacion biometrica':
+            s['p'], s['polls'] = 'huella_pago', 0
+        elif s['p'] == 'metodo':
+            s['otro_metodo'] = t
 
     def escribir(self, texto):
         s = self.s
@@ -217,7 +226,8 @@ def caso(nombre, esperado, **kw):
         r = m.pagar(telefono, CED, BANCO, monto, tel=f)
     except m.Frenado as e:
         r = 'frenado: ' + str(e)
-    ok = esperado in r and not f.s['toco_aceptar']
+    # Aceptar solo si todo coincidió (el pago llega a la huella); nunca otro método de seguridad
+    ok = esperado in r and (f.s['toco_aceptar'] == r.startswith(('ok', 'sin listo'))) and not f.s.get('otro_metodo')
     bien += ok
     print('%s %s → %s' % ('BIEN' if ok else 'MAL ', nombre, r[:150]))
     if not ok:
@@ -225,7 +235,7 @@ def caso(nombre, esperado, **kw):
     return f
 
 
-f = caso('pago completo: elige *2222 (la que alcanza), revisa y espera tu huella', 'ok 999888777')
+f = caso('pago completo: elige *2222, revisa, toca Aceptar e Identificación Biométrica, espera tu huella', 'ok 999888777')
 ver = [a for a in f.s['avisos'] if 'revisado' in a]
 print('     aviso:', ver[0] if ver else '—')
 caso('ninguna cuenta alcanza', 'Ninguna cuenta alcanza', saldos={'*1111': 100.0, '*2222': 200.0})
@@ -239,7 +249,7 @@ caso('el botón se llama distinto (no grabado): se frena', 'No encontré el bot�
 caso('Verifica muestra otro teléfono: se frena y avisa NO toques Aceptar', 'NO toques Aceptar',
      verifica_cambia=(r'^a 0\d{3}-\d{7}\?$', 'a 0424-0000000?'))
 caso('el banco no está en la lista (ni buscando): se frena', 'no está "0102 -"', banco_en_lista=False)
-caso('vos no aceptás: avisa que no vio el ¡Listo!', 'sin listo', john_acepta=False)
+caso('no ponés la huella: avisa que no vio el ¡Listo!', 'sin listo', john_acepta=False)
 caso('teléfono mal escrito: se frena antes de abrir', 'Datos inválidos', telefono='4141234567')
 print('%d de %d casos bien' % (bien, n))
 sys.exit(0 if bien == n else 1)

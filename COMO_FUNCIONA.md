@@ -83,7 +83,15 @@ Diseño completo y números de tus chats: documento "Bexo · Diseño del intake 
 
 Lo del teléfono (`binance_orden.py`, `bexo_ntfy.py`) toma efecto con el `pull`: cada orden corre el código de nuevo.
 
-## 6. Herramientas sueltas
+## 6. Pago móvil por Mercantil (en prueba)
+
+`python ~/bexo-scripts/mercantil_pago.py --telefono 04XXXXXXXXX --cedula NNNNNNNN --banco 01XX --monto NNNN`
+abre Mercantil (vos ponés la huella para entrar), lee el saldo de las cuentas corrientes, elige la que alcanza,
+llena Tpago, revisa "Verifica tu operación", toca Aceptar e "Identificación Biométrica", y la plata sale recién
+con **tu huella**. Si algo no coincide, se frena y guarda la pantalla en Descargas (`mercantil_*.xml`). Issue #82.
+Para grabar pantallas de cualquier app: `python ~/bexo-scripts/telefono/grabar_app.py nombre 180`.
+
+## 6b. Herramientas sueltas
 
 - `telefono/limpiar_telefono.py`: libera espacio (pruebas, capturas, fotos y documentos viejos de WhatsApp). Menú
   por números y confirmación con BORRAR; `--ver N` lista un grupo.
