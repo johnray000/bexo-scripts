@@ -9,7 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const RAIZ = path.join(__dirname, '..');
 const GS = fs.readFileSync(path.join(RAIZ, 'apps-script/20_DashboardP2P.gs'), 'utf8') + '\n' +
-  fs.readFileSync(path.join(RAIZ, 'apps-script/22_RevisionBrujula.gs'), 'utf8');
+  fs.readFileSync(path.join(RAIZ, 'apps-script/22_RevisionBrujula.gs'), 'utf8') + '\n' +
+  fs.readFileSync(path.join(RAIZ, 'apps-script/24_RemesasBrujula.gs'), 'utf8');
 const HTML = fs.readFileSync(path.join(RAIZ, 'vps/dashboard_index.html'), 'utf8');
 
 const H = ['Exchange', 'Orden', 'Creada', 'Cerrada', 'Tipo', 'Cripto', 'Cantidad', 'Moneda', 'Monto', 'Precio',
@@ -131,10 +132,48 @@ caso('28/11: PEN y USD también son remesas (una sola vuelta, con el detalle por
     F('Bybit', '15/11/2026 14:48', 'Venta', 'USDT', 22.94, 'PEN', 80, 3.487, '', ''),
     F('Bybit', '16/11/2026 10:00', 'Venta', 'USDT', 34.65, 'USD', 35, 1.01, '', '')]);
   const vs = correr(filas, {}).vueltas;
-  igual(vs.map((x) => x.nombre), ['Arbitraje Uruguay', 'Remesas'], 'vueltas');
+  igual(vs.map((x) => x.nombre), ['Arbitraje UYU', 'Remesas'], 'vueltas');
   const v = vs[1];
   igual([v.cuenta, v.vendido, v.repuesto], ['ARS → VES, USD, PEN', 137.59, 150], 'remesas');
   igual(v.destinos.map((d) => d.moneda + ' ' + d.usdt), ['VES 80', 'USD 34.65', 'PEN 22.94'], 'destinos');
+});
+
+// Movimientos y Tasas de mentira para unir ventas en Bs con clientes (se pisan las funciones que leen las hojas).
+const conClientes = (clientes, neta) => `
+function dashLeerClientesRemesa_() { return ${JSON.stringify(clientes)}.map(function (c) { return { f: dashFecha_(c.f), ars: c.ars, nombre: c.nombre, fila: c.fila }; }); }
+function dashLeerTasasNeta_() { return [{ f: new Date(2026, 9, 1), neta: ${neta} }]; }`;
+
+caso('28/11: la venta en Bs que da pesos del cliente × tasa neta es remesa; la otra, con compra en VES, es arbitraje VES', () => {
+  const filas = base.concat([
+    F('Bybit', '13/11/2026 14:17', 'Compra', 'USDT', 68.61, 'ARS', 120000, 1749, '', ''),
+    F('Bybit', '14/11/2026 11:01', 'Venta', 'USDT', 12.64, 'VES', 13800, 1092, '', ''),     // Aniusca: 23.800 × 0,575 = 13.685
+    F('Bybit', '14/11/2026 12:07', 'Venta', 'USDT', 33.82, 'VES', 37000, 1094, '', ''),     // Dani: 63.700 × 0,575 = 36.628
+    F('OKX', '15/11/2026 13:47', 'Compra', 'USDT', 49.52, 'VES', 50000, 1009.5, '', ''),    // captura de arbitraje en VES
+    F('Bybit', '15/11/2026 17:57', 'Venta', 'USDT', 45.7, 'VES', 50000, 1094, '', '')]);
+  const r = correr(filas, {}, {}, conClientes([
+    { f: '14/11/2026 10:21', ars: 23800, nombre: 'Aniusca', fila: 12 },
+    { f: '14/11/2026 11:52', ars: 63700, nombre: 'Dani', fila: 11 }], 0.575));
+  const rem = r.vueltas.filter((x) => x.nombre === 'Remesas')[0], ves = r.vueltas.filter((x) => x.nombre === 'Arbitraje VES')[0];
+  igual([rem.vendido, rem.repuesto, rem.clientes.unidos], [46.46, 68.61, 2], 'remesas');
+  igual([ves.repuesto, ves.vendido], [49.52, 45.7], 'arbitraje VES');
+  igual(r.sinUnir.n, 0, 'sin unir');
+});
+
+caso('28/11: una venta en Bs sin cliente y sin compras en VES cuenta como remesa y queda listada "sin unir" con su fila', () => {
+  const filas = base.concat([F('Bybit', '14/11/2026 11:22', 'Venta', 'USDT', 53, 'VES', 58000, 1094.2, '', '')]);
+  const r = correr(filas, {}, {}, conClientes([{ f: '14/11/2026 10:21', ars: 23800, nombre: 'Aniusca', fila: 12 }], 0.575));
+  igual([r.sinUnir.n, r.sinUnir.usdt, r.sinUnir.filas], [1, 53, [filas.length + 1]], 'sin unir');
+  igual(r.vueltas.filter((x) => x.nombre === 'Remesas')[0].vendido, 53, 'cuenta en remesas');
+  igual(r.vueltas.some((x) => x.nombre === 'Arbitraje VES'), false, 'no es arbitraje sin compra en VES');
+});
+
+caso('28/11: el mismo cliente con dos comprobantes seguidos pagado con dos ventas (14/11, 2 × 150.000 ARS)', () => {
+  const filas = base.concat([
+    F('Bybit', '14/11/2026 20:02', 'Venta', 'USDT', 47.2, 'VES', 50300, 1065, '', ''),
+    F('Bybit', '14/11/2026 20:04', 'Venta', 'USDT', 118.61, 'VES', 126700, 1068, '', '')]);
+  const r = correr(filas, {}, {}, conClientes([
+    { f: '14/11/2026 19:30', ars: 150000, nombre: 'Juan', fila: 40 }, { f: '14/11/2026 19:30', ars: 150000, nombre: 'Juan', fila: 41 }], 0.59));
+  igual([r.sinUnir.n, r.vueltas.filter((x) => x.nombre === 'Remesas')[0].clientes.unidos], [0, 2], 'unidos');
 });
 
 caso('Últimas órdenes: las 10 más nuevas, de la más nueva a la más vieja', () => {
