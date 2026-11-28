@@ -65,5 +65,46 @@ mandados.clear()
 bexo_ntfy.publicar('ORDEN LISTA', 'x', 5, esperar=True, acciones=b)
 ver('los botones viajan en el aviso', mandados and [a['label'] for a in mandados[0]['actions']] == ['🔁 Rearmar', '✅ FIN'])
 os.unlink(tmp.name)
+# "mercantil <id>" (botón 📲 Mercantil): pide los datos a la planilla y corre mercantil_pago.py
+import mercantil_pago  # noqa: E402
+mercantil_pago.PAGADOS = tempfile.mktemp()
+esc.LOG_MERCANTIL = tempfile.mktemp()
+llamados, avisos[:] = [], []
+esc.correr_mercantil = (lambda orig: (lambda mov: llamados.append(mov) or orig(mov, pedir=pedir_falso, correr=correr_falso)))(esc.correr_mercantil)
+DATOS = {'ok': True, 'telefono': '04141234567', 'cedula': '12345678', 'banco': '0105', 'monto': 7500,
+         'fin': 'https://script.google.com/macros/s/X/exec?p2p=fin&id=MOV-5&k=c'}
+corridas = []
+def pedir_falso(mov):
+    if mov == 'MOV-ERR':
+        raise ValueError('La cuenta del cliente no es un Pago Móvil')
+    return DATOS
+def correr_falso(args, **k):
+    corridas.append(args)
+    return type('R', (), {'returncode': 0})()
+ver('mercantil <id> → corre el recorrido', esc.procesar({'message': 'mercantil MOV-5', 'time': ahora}, ahora) == 'mercantil'
+    and llamados == ['MOV-5'], llamados)
+a = corridas and corridas[-1]
+ver('con los datos de la planilla, --mov y --fin', a and a[a.index('--telefono') + 1] == '04141234567' and
+    a[a.index('--banco') + 1] == '0105' and a[a.index('--monto') + 1] == '7500' and a[a.index('--mov') + 1] == 'MOV-5' and
+    a[a.index('--fin') + 1] == DATOS['fin'], a)
+esc.procesar({'message': 'mercantil MOV-ERR', 'time': ahora}, ahora)
+ver('sin datos: avisa el motivo y no corre nada', len(corridas) == 1 and avisos and
+    avisos[-1][0] == 'Mercantil: no pude leer los datos' and 'Pago Móvil' in avisos[-1][1], avisos[-1:])
+mercantil_pago.marcar_pagado('MOV-5', '123')
+esc.procesar({'message': 'mercantil MOV-5', 'time': ahora}, ahora)
+ver('ya pagado: no lo paga de nuevo', len(corridas) == 1 and avisos[-1][0] == 'Mercantil: ese ya lo pagaste', avisos[-1:])
+ver('mercantil viejo (3 min) → ignora', esc.procesar({'message': 'mercantil MOV-6', 'time': ahora - 180}, ahora) == 'viejo')
+ver('mercantil con cosas raras → desconocido',
+    esc.procesar({'message': 'mercantil MOV-5; rm -rf /', 'time': ahora}, ahora) == 'desconocido')
+def _motivo_env():
+    try:
+        esc.pedir_datos_pm('X', cfg={})
+    except ValueError as e:
+        return 'subir-ordenes.env' in str(e)
+    return False
+
+
+ver('pedir_datos_pm sin ~/.subir-ordenes.env: motivo claro', _motivo_env())
+
 print('%d de %d bien' % (bien, n))
 sys.exit(0 if bien == n else 1)

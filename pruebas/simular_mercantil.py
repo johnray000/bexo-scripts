@@ -205,8 +205,9 @@ class Fake:
     def guardar(self, nombre):
         return 'mercantil_%s' % nombre
 
-    def avisar(self, titulo, texto, prioridad=3):
+    def avisar(self, titulo, texto, prioridad=3, acciones=()):
         self.s['avisos'].append(titulo + ' · ' + texto)
+        self.s.setdefault('botones', []).append([a['label'] for a in acciones])
 
     def esperar(self, s):
         pass
@@ -221,9 +222,10 @@ def caso(nombre, esperado, **kw):
     global bien, n
     n += 1
     telefono, monto = kw.pop('telefono', TEL), kw.pop('monto', MONTO)
+    mov, fin = kw.pop('mov', ''), kw.pop('fin', '')
     f = Fake(**kw)
     try:
-        r = m.pagar(telefono, CED, BANCO, monto, tel=f)
+        r = m.pagar(telefono, CED, BANCO, monto, tel=f, mov=mov, fin=fin)
     except m.Frenado as e:
         r = 'frenado: ' + str(e)
     # Aceptar solo si todo coincidió (el pago llega a la huella); nunca otro método de seguridad
@@ -251,5 +253,39 @@ caso('Verifica muestra otro teléfono: se frena y avisa NO toques Aceptar', 'NO 
 caso('el banco no está en la lista (ni buscando): se frena', 'no está "0102 -"', banco_en_lista=False)
 caso('no ponés la huella: avisa que no vio el ¡Listo!', 'sin listo', john_acepta=False)
 caso('teléfono mal escrito: se frena antes de abrir', 'Datos inválidos', telefono='4141234567')
+
+# --- desde el botón "📲 Mercantil" (con --mov y --fin) ---
+import tempfile  # noqa: E402
+import bexo_ntfy  # noqa: E402
+_tema = tempfile.NamedTemporaryFile('w', delete=False)
+_tema.write('bexo-prueba\n')
+_tema.close()
+bexo_ntfy.ARCHIVO_TEMA = _tema.name
+m.PAGADOS = tempfile.mktemp()
+FIN = 'https://script.google.com/macros/s/X/exec?p2p=fin&id=MOV-9&k=c'
+
+
+def extra(nombre, ok, detalle=''):
+    global bien, n
+    n += 1
+    bien += bool(ok)
+    print('%s %s%s' % ('BIEN' if ok else 'MAL ', nombre, ' · ' + str(detalle) if detalle else ''))
+
+
+f = caso('desde el botón: pago completo', 'ok 999888777', mov='MOV-9', fin=FIN)
+extra('pago hecho: trae el botón FIN', f.s['botones'][-1] == ['✅ FIN'], f.s['botones'][-1])
+extra('a ntfy no va el teléfono ni la cédula completos', not any(TEL in a or CED in a for a in f.s['avisos']) and
+      any('…' + TEL[-4:] in a for a in f.s['avisos']), [a for a in f.s['avisos'] if 'revisado' in a])
+extra('queda anotado como pagado', m.ya_pagado('MOV-9') and not m.ya_pagado('MOV-10'))
+f = caso('desde el botón: no ponés la huella', 'sin listo', mov='MOV-10', fin=FIN, john_acepta=False)
+extra('sin ¡Listo!: solo FIN (sin Reintentar: puede haber salido) y no queda como pagado',
+      f.s['botones'][-1] == ['✅ FIN'] and not m.ya_pagado('MOV-10'), f.s['botones'][-1])
+b = m.botones('MOV-11', FIN, reintentar=True)
+extra('frenado: Reintentar manda "mercantil <id>" al tema de comandos, y FIN',
+      [x['label'] for x in b] == ['🔁 Reintentar', '✅ FIN'] and b[0]['body'] == 'mercantil MOV-11' and
+      b[0]['url'] == 'https://ntfy.sh/bexo-prueba-cmd', b)
+extra('tapar: números largos quedan en los últimos 4; montos no',
+      m.tapar('El campo teléfono quedó "04141234567" y no 12345678 · Bs 7.500,00') ==
+      'El campo teléfono quedó "…4567" y no …5678 · Bs 7.500,00', m.tapar('04141234567 12345678 7.500,00'))
 print('%d de %d casos bien' % (bien, n))
 sys.exit(0 if bien == n else 1)

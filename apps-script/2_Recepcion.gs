@@ -21,6 +21,7 @@ function doPost(e) {
 
     const data = JSON.parse(e.postData.contents);
     if (data.diagnostico) return diagnosticoPlanilla_(data);
+    if (data.pagoMovil) return datosPagoMovil_(data);            // mercantil_pago.py pide los datos (21_Ntfy.gs)
     if (data.movimientosUY) return recibirMovimientosUY_(data);
     if (data.ordenesP2P) return recibirOrdenesP2P_(data);
     if (data.ordenesOKX) return recibirOrdenesOKX_(data);

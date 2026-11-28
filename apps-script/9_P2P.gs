@@ -806,6 +806,7 @@ function doGet(e) {
   if (p.p2p === 'pre' && p.k === claveNext_()) return paginaPreOrden_(p);   // 11_PreOrden.gs
   if (p.intake && p.k === claveNext_()) return rutaIntake_(p);                // botones del intake (23_IntakeVivo.gs)
   if (p.p2p === 'fin' && p.k === claveNext_()) return ContentService.createTextOutput(finDesdeNtfy_(String(p.id || '')));   // 21_Ntfy.gs
+  if (p.p2p === 'pm' && p.k === claveNext_()) return ContentService.createTextOutput(pagarPmDesdeNtfy_(String(p.id || '')));   // 21_Ntfy.gs
   if (p.p2p === 'armar' && p.k === claveNext_()) {                           // botón de ntfy (21_Ntfy.gs)
     return ContentService.createTextOutput(armarDesdeNtfy_(String(p.id || '')));
   }

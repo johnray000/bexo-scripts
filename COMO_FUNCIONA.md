@@ -10,7 +10,9 @@ Cliente manda la foto por WhatsApp
   → WAHA (VPS) → Apps Script guarda en Movimientos y lee el comprobante a los 90 s
   → ntfy: TARJETA  "💸 Nombre · 70.000 ARS → 40.950 Bs"  + "→ PM Banesco …4567 · la de siempre"
         [✅ Armar en Binance]  [💬 Ok fino | 💬 Pedir cuenta]  [🧾 Comprobante]
-  → tocás ✅ Armar en Binance
+        si la cuenta del cliente es Pago Móvil:  [✅ Binance]  [📲 Mercantil]  [💬 Ok fino]
+        (el comprobante se abre tocando la notificación)
+  → tocás ✅ Armar en Binance   (o 📲 Mercantil: ver la sección 6)
   → Apps Script elige el anuncio en ese momento y avisa "⌛ Armando · anunciante · Bs" (precio, método, reservas)
   → el teléfono (escuchar_ntfy.py) recibe el link y corre binance_orden.py: abre Binance, filtra, busca el
     anuncio, completa monto y método y tilda la casilla
@@ -25,8 +27,10 @@ Cliente manda la foto por WhatsApp
 | ✅ Armar en Binance | tarjeta | Dispara el recorrido. Queda visible: sirve para reintentar (90 s de bloqueo contra el doble toque). |
 | 💬 Ok fino | tarjeta | Le manda al cliente "Ok fino te aviso apenas tenga el capturé". Una vez por operación. |
 | 💬 Pedir cuenta | tarjeta, si el cliente no tiene cuenta en la Agenda | "Ok fino…" (si no lo dijiste) + "Confírmame a qué cuenta". |
-| 🧾 Comprobante | tarjeta | Abre la foto en Drive. |
+| 📲 Mercantil | tarjeta, si la cuenta del cliente es Pago Móvil | Paga por Mercantil los Bs de la tarjeta a esa cuenta, hasta tu huella (sección 6). 10 min de bloqueo contra el doble toque. |
+| 🧾 Comprobante | tarjeta (con Pago Móvil, tocando la notificación) | Abre la foto en Drive. |
 | 🔁 Rearmar | aviso final | Vuelve a mandar la misma orden al teléfono. Para cuando se frenó o no llegaste a Realizar Orden. |
+| 🔁 Reintentar | aviso "Mercantil: me frené" | Vuelve a armar el mismo pago móvil (se frenó antes de tu huella: la plata no salió). |
 | ✅ FIN | aviso final | Igual que "Confirmar" en la página de la pre-orden: CONTADO, APROBADA, cuenta en Destino y un uso más en la Agenda. Tocalo solo con la venta hecha. |
 
 Lo que nunca hace solo: tocar **Realizar Orden** ni liberar (eso pide tu huella).
@@ -83,8 +87,15 @@ Diseño completo y números de tus chats: documento "Bexo · Diseño del intake 
 
 Lo del teléfono (`binance_orden.py`, `bexo_ntfy.py`) toma efecto con el `pull`: cada orden corre el código de nuevo.
 
-## 6. Pago móvil por Mercantil (en prueba)
+## 6. Pago móvil por Mercantil
 
+Desde la tarjeta: **📲 Mercantil**. El Apps Script le manda al teléfono solo `mercantil <id>` (por ntfy no viaja
+ningún dato del cliente); `escuchar_ntfy.py` le pide a la planilla los datos de ese Pago Móvil (la cuenta de la
+Agenda, la misma de la línea "→ PM …") y los Bs (ARS × tasa neta, enteros), y corre `mercantil_pago.py`.
+Avisos: "revisado ✅ · poné tu huella", después "pago hecho ✅ · ref" con **✅ FIN**, o "me frené ⚠️" con
+**🔁 Reintentar**. Un comprobante ya pagado no se vuelve a pagar (`~/.mercantil_pagados`). Log: `~/mercantil_pago.log`.
+
+A mano, con los datos que quieras:
 `python ~/bexo-scripts/mercantil_pago.py --telefono 04XXXXXXXXX --cedula NNNNNNNN --banco 01XX --monto NNNN`
 abre Mercantil (vos ponés la huella para entrar), lee el saldo de las cuentas corrientes, elige la que alcanza,
 llena Tpago, revisa "Verifica tu operación", toca Aceptar e "Identificación Biométrica", y la plata sale recién

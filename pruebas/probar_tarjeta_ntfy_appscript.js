@@ -22,7 +22,7 @@ function cargar() {
 const ahora = new Date();
 // Agenda de prueba: Juan mandó recién un Pago Móvil Banesco; Ana tiene una transferencia Mercantil de siempre.
 const AGENDA = [
-  { clave: 'a', tipo: 'PM', banco: '0134', numero: '04141234567', titular: 'Juan Perez', clientes: ['BEXO Juan Pérez'],
+  { clave: 'a', tipo: 'PM', banco: '0134', numero: '04141234567', cedula: 'V12345678', titular: 'Juan Perez', clientes: ['BEXO Juan Pérez'],
     veces: 1, msj: ahora, de: 'BEXO Juan Pérez' },
   { clave: 'b', tipo: 'TRANSF', banco: '0105', numero: '01050000000000009876', titular: 'Rosa Diaz', clientes: ['BEXO Ana'],
     veces: 3, msj: new Date(ahora - 30 * 864e5), de: 'BEXO Ana' }];
@@ -51,12 +51,54 @@ const L = 'https://c2c.binance.com/es-LA/adv?code=1295&monto=59000&pago=PagoMovi
   ver('detalle recortado', c.message === 'Mercado Pago · 14:32 · ref …6789 · lectura 98 %\n→ PM Banesco …4567 · mandó ahora',
       JSON.stringify(c.message));
   ver('sin datos de más', !/BEXO|0123456|59899/.test(todo));
+  ver('Pago Móvil: botones cortos "✅ Binance" y "📲 Mercantil", uno al lado del otro, y Ok fino',
+      JSON.stringify(c.actions.map(a => a.label)) === '["✅ Binance","📲 Mercantil","💬 Ok fino"]', c.actions.map(a => a.label));
   ver('botón Armar llama al Apps Script con id y clave', c.actions[0].action === 'http' && c.actions[0].method === 'GET' &&
       c.actions[0].url === 'https://script.google.com/macros/s/X/exec?p2p=armar&id=MOV-77&k=clave123', c.actions[0].url);
   ver('el botón Armar queda después de tocarlo (sirve para reintentar)', c.actions[0].clear === false);
-  ver('botón Ok fino llama al intake con el id', c.actions[1].action === 'http' &&
-      c.actions[1].url === 'https://script.google.com/macros/s/X/exec?intake=okfino&id=MOV-77&k=clave123', c.actions[1].url);
-  ver('botón Comprobante abre Drive', c.actions[2].action === 'view' && /DRV1/.test(c.actions[2].url));
+  ver('botón Mercantil llama al Apps Script con id y clave', c.actions[1].action === 'http' && c.actions[1].method === 'GET' &&
+      c.actions[1].url === 'https://script.google.com/macros/s/X/exec?p2p=pm&id=MOV-77&k=clave123', c.actions[1].url);
+  ver('botón Ok fino llama al intake con el id', c.actions[2].action === 'http' &&
+      c.actions[2].url === 'https://script.google.com/macros/s/X/exec?intake=okfino&id=MOV-77&k=clave123', c.actions[2].url);
+  ver('el comprobante se abre tocando la notificación', /DRV1/.test(c.click || ''), c.click);
+}
+{ // transferencia (Ana): sin Mercantil, como antes
+  const { ctx, pedidos } = cargar();
+  ctx.avisarComprobanteNtfy_({ id: 'MOV-78', nombre: 'BEXO Ana', monto: 100000, driveId: 'DRV2', hora: '14:00' }, 0.59);
+  const c = JSON.parse(pedidos[0].o.payload);
+  ver('transferencia: Armar en Binance, Ok fino y Comprobante (sin Mercantil)',
+      JSON.stringify(c.actions.map(a => a.label)) === '["✅ Armar en Binance","💬 Ok fino","🧾 Comprobante"]' &&
+      /DRV2/.test(c.actions[2].url), c.actions.map(a => a.label));
+}
+{ // botón "📲 Mercantil" y los datos que pide el teléfono
+  const pm = (nombre, moneda) => {
+    const r = cargar();
+    r.props.ORDENES_TOKEN = 'tok';
+    r.ctx.hojaMovimientos_ = () => ({});
+    r.ctx.filaPorId_ = (sh, i) => i === 'MOV-77' ? { fila: 5, datos: fila(moneda || 'ARS', nombre) } : null;
+    r.ctx.tasaNetaActual_ = () => 0.59;
+    r.ctx.ContentService = { MimeType: { JSON: 'j' }, createTextOutput: t => ({ setMimeType: () => JSON.parse(t) }) };
+    r.cuerpos = () => r.pedidos.map(p => JSON.parse(p.o.payload));
+    return r;
+  };
+  const r = pm();
+  ver('Mercantil: le manda al teléfono solo "mercantil <id>"', r.ctx.pagarPmDesdeNtfy_('MOV-77') === 'ok' &&
+      r.cuerpos().filter(c => /-cmd$/.test(c.topic)).map(c => c.message).join() === 'mercantil MOV-77');
+  const av = r.cuerpos().filter(c => !/-cmd$/.test(c.topic))[0];
+  ver('Mercantil: avisa monto en Bs y destino, sin datos completos', av && av.title === 'Mercantil · Juan Pérez · 59.000 Bs' &&
+      /PM Banesco …4567/.test(av.message) && !/04141234567/.test(JSON.stringify(r.cuerpos())), av && av.title);
+  ver('Mercantil: doble toque no arma otro pago', r.ctx.pagarPmDesdeNtfy_('MOV-77') === 'ya estaba' &&
+      r.cuerpos().filter(c => /-cmd$/.test(c.topic)).length === 1);
+  const t = pm('BEXO Ana');
+  ver('Mercantil con transferencia: no lo arma y avisa', t.ctx.pagarPmDesdeNtfy_('MOV-77') === 'no' &&
+      !t.cuerpos().some(c => /-cmd$/.test(c.topic)) && /no es un Pago Móvil/.test(t.cuerpos()[0].message), t.cuerpos()[0].message);
+  ver('Mercantil con comprobante en VES: no lo arma', pm('BEXO Juan Pérez', 'VES').ctx.pagarPmDesdeNtfy_('MOV-77') === 'no');
+  const d = pm().ctx.datosPagoMovil_({ pagoMovil: 'MOV-77', token: 'tok' });
+  ver('datos para el teléfono: teléfono, cédula, banco, Bs y FIN', d.ok && d.telefono === '04141234567' && d.cedula === '12345678' &&
+      d.banco === '0134' && d.monto === 59000 && d.fin === 'https://script.google.com/macros/s/X/exec?p2p=fin&id=MOV-77&k=clave123',
+      JSON.stringify(d));
+  ver('datos sin token: no autorizado', pm().ctx.datosPagoMovil_({ pagoMovil: 'MOV-77', token: 'otro' }).error === 'no autorizado');
+  ver('datos de una transferencia: error claro', /no es un Pago Móvil/.test(pm('BEXO Ana').ctx.datosPagoMovil_({ pagoMovil: 'MOV-77', token: 'tok' }).error));
 }
 function fila(moneda, nombre) { const d = []; d[2] = nombre || 'BEXO Juan Pérez'; d[3] = 100000; d[4] = moneda; d[5] = 'Mercado Pago'; return d; }
 function armar(moneda, texto, id, nombre) {
