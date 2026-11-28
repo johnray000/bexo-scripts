@@ -124,6 +124,19 @@ caso('Remesas: VES y COP se comparan contra lo comprado con ARS', () => {
   igual([v.vendido, v.repuesto, v.falta], [100, 100, 0], 'vuelta remesas');
 });
 
+caso('28/11: PEN y USD también son remesas (una sola vuelta, con el detalle por moneda)', () => {
+  const filas = base.concat([
+    F('Binance', '13/11/2026 19:54', 'Compra', 'USDT', 150, 'ARS', 249900, 1666, '', 'Tomador'),
+    F('Binance', '14/11/2026 18:24', 'Venta', 'USDT', 80, 'VES', 85000, 1062, '', 'Tomador'),
+    F('Bybit', '15/11/2026 14:48', 'Venta', 'USDT', 22.94, 'PEN', 80, 3.487, '', ''),
+    F('Bybit', '16/11/2026 10:00', 'Venta', 'USDT', 34.65, 'USD', 35, 1.01, '', '')]);
+  const vs = correr(filas, {}).vueltas;
+  igual(vs.map((x) => x.nombre), ['Arbitraje Uruguay', 'Remesas'], 'vueltas');
+  const v = vs[1];
+  igual([v.cuenta, v.vendido, v.repuesto], ['ARS → VES, USD, PEN', 137.59, 150], 'remesas');
+  igual(v.destinos.map((d) => d.moneda + ' ' + d.usdt), ['VES 80', 'USD 34.65', 'PEN 22.94'], 'destinos');
+});
+
 caso('Últimas órdenes: las 10 más nuevas, de la más nueva a la más vieja', () => {
   const u = correr(base, {}).ultimasOrdenes;
   igual([u.length, u[0].fecha], [base.length, '17/11 21:08'], 'últimas órdenes');

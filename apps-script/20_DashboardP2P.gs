@@ -417,17 +417,21 @@ function dashboardP2P_(vivos, okxVivos) {
     return { nombre: nombre, cuenta: cuenta, vendido: dashR_(vendio), repuesto: dashR_(repuso), falta: dashR_(vendio - repuso), ordenes: n, como: como };
   };
   var vueltas = [];
-  var uy = r0('UYU'), ve = r0('VES'), ar = r0('ARS');
-  if (uy.n) vueltas.push(vuelta('Uruguay', 'UYU', uy.salio, uy.entro, uy.n, 'recompraste|con UYU'));
-  // Remesas: los USDT comprados con ARS se venden por Bs y por pesos colombianos (en el ciclo 03/11 dio justo:
-  // 3.214,81 comprados con ARS = 2.654,81 VES + 560,40 COP).
-  var co = r0('COP');
-  if (ve.n || ar.n || co.n) vueltas.push(vuelta('Remesas', 'ARS → VES y COP', ve.salio + co.salio + ar.salio, ar.entro + ve.entro + co.entro,
-                                                ve.n + ar.n + co.n, 'repusiste|con ARS'));
-  Object.keys(rueda).filter(function (m) { return ['UYU', 'VES', 'ARS', 'COP'].indexOf(m) < 0; }).forEach(function (m) {
-    var x = rueda[m];
-    vueltas.push(vuelta(m, m, x.salio, x.entro, x.n, 'recompraste|con ' + m));
-  });
+  // Arbitraje = UYU (vendés y recomprás en pesos uruguayos). Remesas = todo lo demás: los USDT comprados con ARS se
+  // pagan en la moneda del destino (VES, COP, PEN, USD…). En el ciclo 03/11 dio justo: 3.214,81 comprados con ARS =
+  // 2.654,81 VES + 560,40 COP. Cada vuelta lleva "destinos": cuántos USDT salieron por cada moneda.
+  var uy = r0('UYU');
+  if (uy.n) vueltas.push(vuelta('Arbitraje Uruguay', 'UYU', uy.salio, uy.entro, uy.n, 'recompraste|con UYU'));
+  var monedasRem = Object.keys(rueda).filter(function (m) { return m !== 'UYU'; })
+    .sort(function (a, b) { return rueda[b].salio - rueda[a].salio; });
+  if (monedasRem.length) {
+    var rem = { entro: 0, salio: 0, n: 0 };
+    monedasRem.forEach(function (m) { rem.entro += rueda[m].entro; rem.salio += rueda[m].salio; rem.n += rueda[m].n; });
+    var v = vuelta('Remesas', 'ARS → ' + monedasRem.filter(function (m) { return m !== 'ARS'; }).join(', '), rem.salio, rem.entro, rem.n, 'repusiste|con ARS');
+    v.destinos = monedasRem.filter(function (m) { return rueda[m].salio > 0; })
+      .map(function (m) { return { moneda: m, usdt: dashR_(rueda[m].salio), ordenes: rueda[m].n }; });
+    vueltas.push(v);
+  }
   if (errMovs) avisos.push({ nivel: 'bad', texto: 'No pude leer Movs UY: ' + errMovs });
   else if (ultMov) {
     var dm = Math.round((ahora - ultMov) / 864e5);
